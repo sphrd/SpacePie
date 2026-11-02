@@ -325,12 +325,15 @@ extension SelfTestRun {
             try? fm.removeItem(atPath: sd + "/k3")
         }
         steps.wait(2)
+        var logoAtReplayDone = false
         steps.then {
             restartAt = Date()
+            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.viewTabs.selectedIndex = i }
             w.onReplayDone = { path, why in
                 guard PathUtil.same(path, sd) else { return }
                 replayWhy = why
                 replayDone = true
+                logoAtReplayDone = w.chart.showingLogo
             }
             w.openLastScan(sd)
         }
@@ -338,6 +341,8 @@ extension SelfTestRun {
         steps.wait(0.5)
         steps.then {
             w.onReplayDone = nil
+            self.check(logoAtReplayDone && !w.chart.showingLogo && w.activePage === w.pContents,
+                       "snapshot restart: the chart shows the logo until the replay is done, then the chart")
             let r = w.findRoot(sd)
             let fresh = Scanner().run(sd)
             let diffs = r?.node.map { SelfTestRun.treeDiffs($0, fresh) } ?? ["not shown"]

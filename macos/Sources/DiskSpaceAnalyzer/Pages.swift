@@ -69,6 +69,7 @@ extension MainWindowController {
 
     /// The chart follows the open view.
     func refreshChart() {
+        if chartOnHold { showScanLogo(); return }
         let p = activePage
         if p === pContents {
             if let c = current, isAttached(c) { updateChart(c) }
@@ -162,6 +163,7 @@ extension MainWindowController {
 
     /// Folder contents chart with two outer rings; a drive root also gets "System / not readable" and "Free space".
     func updateChart(_ d: DirNode) {
+        if chartOnHold { showScanLogo(); return }
         let r = rootOf(d.top)
         if let r = r { refreshCapacity(r) }
         var slices = buildSlices(pContents, d.size, "of folder")
@@ -184,6 +186,18 @@ extension MainWindowController {
         chart.setData(title, sub, slices, rings: 2)
         let centre = d.parent == nil ? (r.map { $0.isDrive ? $0.displayName : (($0.path as NSString).lastPathComponent) } ?? d.name) : d.name
         chart.setCenter(centre, canGoUp: d.parent != nil)
+    }
+
+    /// While a scan runs (or a saved scan is brought up to date at start-up) the numbers are still changing: the chart
+    /// pane shows the logo whatever view is open; when it is done the next refresh turns the logo into the chart.
+    var chartOnHold: Bool { scanning || holdChart || roots.contains { $0.replay != nil } }
+
+    func showScanLogo() {
+        rowSlice = [:]
+        let r = scanRoot ?? active
+        let sub = r.map { $0.total > 0 ? "\(Fmt.size($0.used)) used of \(Fmt.size($0.total))  -  \(Fmt.size($0.free)) free" : $0.path } ?? ""
+        let note = scanning || holdChart ? "Scanning... the chart appears when the scan is done." : "Updating... the chart appears when the scan is up to date."
+        chart.showLogo(r?.displayName ?? "", sub, note)
     }
 
     /// Nothing scanned yet: the chart pane shows the app logo; it morphs into the chart once the scan is done.

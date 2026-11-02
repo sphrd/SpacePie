@@ -175,6 +175,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     var deleteTargetPaths: [String] = []   // the running delete's targets
     var deleteRowsRemoved = 0              // rows that left the lists while it ran
     var scanning = false
+    var holdChart = false                  // a saved scan is shown and a rescan is about to start: the chart waits
     var busy = false
     var drivesChanged = false
     weak var lastView: NSView?
@@ -778,6 +779,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         else { scanBar.stop(); if !busy { stopProgressTimer() } }
         layoutRoot()
         updateButtons()
+        // The chart switches to the logo at once; when the scan ends the refresh turns it into the chart.
+        if on && !pages.isEmpty { refreshChart() }
         if !on && drivesChanged { DispatchQueue.main.async { self.volumesChanged() } }
     }
 

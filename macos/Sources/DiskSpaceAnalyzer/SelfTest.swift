@@ -115,6 +115,46 @@ final class SelfTestRun {
             if let r = self.root { w.selectDir(r) }
             self.check(w.activePage === w.pSuggest, "tree: a folder selected by the app keeps the Suggestions view open")
         }
+        // While a scan runs the chart pane shows the logo on every tab; when it ends the logo turns into the chart.
+        steps.then {
+            let back = w.viewTabs.selectedIndex
+            let m0 = w.chart.morphs
+            var allLogo = true
+            w.setScanning(true, "Scanning (test)...")
+            for p in [w.pContents!, w.pFiles!, w.pTypes!] {
+                if let i = w.pages.firstIndex(where: { $0 === p }) { w.viewTabs.selectedIndex = i }
+                w.refreshChart()
+                allLogo = allLogo && w.chart.showingLogo
+            }
+            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.viewTabs.selectedIndex = i }
+            if let c = w.current { w.updateChart(c) }
+            allLogo = allLogo && w.chart.showingLogo
+            w.setScanning(false, nil)
+            w.refreshChart()
+            self.check(allLogo && !w.chart.showingLogo && w.chart.morphs == m0 + 1,
+                       "chart: logo on Contents, Files and File types while scanning; the chart came back with the morph when the scan ended (morphs \(m0) -> \(w.chart.morphs))")
+            w.viewTabs.selectedIndex = back
+        }
+        // Splash: renders 520x300 from its view and is never shown in the --cli modes.
+        steps.then {
+            let rep = SplashView.render()
+            var colours = Set<String>()
+            if let r = rep {
+                let s = CGFloat(r.pixelsWide) / SplashView.size.width
+                for y in stride(from: 10, to: 290, by: 20) {
+                    for x in stride(from: 10, to: 510, by: 20) {
+                        if let c = r.colorAt(x: Int(CGFloat(x) * s), y: Int(CGFloat(y) * s))?.usingColorSpace(.deviceRGB) {
+                            colours.insert(String(format: "%.2f %.2f %.2f %.2f", c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent))
+                        }
+                    }
+                }
+            }
+            self.check(rep != nil && rep!.size == SplashView.size && colours.count >= 4,
+                       "splash: renders \(Int(rep?.size.width ?? 0))x\(Int(rep?.size.height ?? 0)) pt (\(rep?.pixelsWide ?? 0) px wide, \(colours.count) colours sampled)")
+            let open = NSApp.windows.contains { $0 is SplashWindow && $0.isVisible }
+            self.check(!SplashWindow.wasShown && !open && (NSApp.delegate as? AppDelegate)?.splash == nil,
+                       "splash: not shown in self-test mode")
+        }
         steps.then {
             let top = self.root
             self.check(top != nil && top!.files == 10 && top!.dirs == 8, "scan: \(top?.files ?? -1) files, \(top?.dirs ?? -1) folders (expected 10, 8)")

@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var main: MainWindowController!
     var about: AboutWindow?
     var fullDiskAccess: FullDiskAccessWindow?
+    var splash: SplashWindow?
     let initialPath: String?
     let screenshotDir: String?
     let selfTestDir: String?
@@ -41,6 +42,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     init(initialPath: String?, screenshotDir: String?, selfTestDir: String? = nil) {
         self.initialPath = initialPath; self.screenshotDir = screenshotDir; self.selfTestDir = selfTestDir
+    }
+
+    // Normal start only: the splash is on screen from the first moment until the main window shows.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        if screenshotDir != nil || selfTestDir != nil { return }
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+        let s = SplashWindow()
+        splash = s
+        s.present()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -53,6 +63,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.fastStart = screenshotDir == nil && selfTestDir == nil
         main.showWindow(nil)
         main.window?.makeKeyAndOrderFront(nil)
+        if let s = splash {
+            s.orderOut(nil)
+            s.close()
+            splash = nil
+            main.window?.makeKeyAndOrderFront(nil)
+        }
         NSApp.activate(ignoringOtherApps: true)
         if let dir = screenshotDir { startScreenshots(dir) }
         if let dir = selfTestDir {
@@ -165,6 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let run = ShotRun(self, dir)
         shots = run
+        // The splash is not shown in this mode: rendered from its view.
+        if let rep = SplashView.render() {
+            let path = dir + "/0-splash.png"
+            try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            print("saved \(path)")
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { run.shot("0-scanning") }
         main.onScanFinished = { [weak self] in
             guard let self = self else { return }

@@ -312,6 +312,10 @@ extension MainWindowController {
         let target = r!
         target.node = node
         refreshCapacity(target)
+        // The chart shows the logo until the replay (or the rescan) has brought the saved scan up to date.
+        let unusable = Snapshot.unusable(info, path)
+        let rep = Replay(info, secs)
+        if unusable == nil { target.replay = rep } else { holdChart = true }
         current = nil
         refreshTree(node, fallback: target)
         markSuggestionsDirty()
@@ -324,15 +328,15 @@ extension MainWindowController {
                 if target.previous == nil, let p = prev { target.previous = p.0; target.previousTime = p.1; self.setStale(self.pChanges) }
             }
         }
-        if let why = Snapshot.unusable(info, path) {
+        if let why = unusable {
             // Shown meanwhile; scanned again in the background.
             onReplayDone?(path, why)
             scanPath(path)
+            holdChart = false
+            refreshChart()
             statusLabel.stringValue = "Showing the scan of \(Fmt.date(info.taken)); the changes since are not available (\(why)), scanning again..."
             return
         }
-        let rep = Replay(info, secs)
-        target.replay = rep
         startWatching(target, since: info.eventId)
         statusLabel.stringValue = "Showing the scan of \(Fmt.date(info.taken)); updating..."
         rep.timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self, weak target] _ in
@@ -369,8 +373,8 @@ extension MainWindowController {
         for r in roots {
             guard let rep = r.replay, rep.historyDone, let node = r.node else { continue }
             rep.timer?.invalidate()
-            r.replay = nil
             if livePending { refreshAfterLive() }
+            r.replay = nil
             let lastId = streams.first { $0.root === r }?.lastId ?? 0
             var info = Snapshot.infoNow(r.path)
             if lastId > 0 { info.eventId = lastId }
@@ -381,6 +385,8 @@ extension MainWindowController {
             statusLabel.stringValue = "Up to date: the scan of \(Fmt.date(rep.info.taken)) plus \(Fmt.count(n)) change\(n == 1 ? "" : "s") since"
                 + String(format: " (loaded in %.2f s", rep.loadSeconds) + full + ")."
             onReplayDone?(r.path, nil)
+            // Up to date: the logo turns into the chart.
+            if !chartOnHold { refreshChart() }
             checkLowSpace(r)
         }
     }

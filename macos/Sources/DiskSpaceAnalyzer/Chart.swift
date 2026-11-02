@@ -58,6 +58,9 @@ final class PieChart: NSView {
     }
 
     private var animating: Bool { anim < 1 }
+    /// Logo shown instead of a chart; morphs counts the logo-to-chart transitions (self-test).
+    var showingLogo: Bool { logoMode }
+    private(set) var morphs = 0
 
     func showLogo(_ title: String, _ subtitle: String, _ note: String) {
         self.title = title; self.subtitle = subtitle; logoNote = note
@@ -85,6 +88,7 @@ final class PieChart: NSView {
         }
         hover = -1; reported = -1
         if logoMode && total > 0 && window != nil {
+            morphs += 1
             anim = 0
             animStart = Date()
             lastTick = Date()
