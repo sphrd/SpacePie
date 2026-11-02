@@ -344,7 +344,7 @@ extension MainWindowController {
             self.replayFailed(t, "the event history did not arrive within 10 s")
         }
         if target.isDrive && selfTestDir == nil {
-            if apps == nil && !appsLoading { loadApps() }
+            if (apps == nil || appsFromCache) && !appsLoading { loadApps() }
             if systemGroups == nil && !systemLoading { loadSystem() }
         }
     }

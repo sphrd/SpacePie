@@ -270,6 +270,9 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     var appRoots: [String]?               // where to look for apps (nil = /Applications, its Utilities, ~/Applications)
     var appsGen = 0
     var appsLoading = false
+    var appsFromCache = false             // apps is the list saved last time (not read yet in this session)
+    var appsPrefetch: AppsRead?           // the reading started at launch, while the disk is scanned
+    var appsReadMs = 0, appsAfterScanMs = 0   // the last reading: bundles and icons; sizes after the scan
     var appsWorking = false               // looking for an app's files before uninstalling it
     var autoAccept = false                // screenshot run: no confirmations
     // System view
@@ -582,6 +585,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         refreshTree(nil)
         let path = initialPath ?? "/"
         if fastStart { openLastScan(path) } else { scanPath(path) }
+        // The installed apps (bundles, icons) are read while the disk is scanned; their sizes follow from the scan.
+        if selfTestDir == nil { prefetchApps() }
         if selfTestDir == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.updates.check(manual: false) }
         }
@@ -721,9 +726,10 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
                     self.viewsChanged()
                     self.updateDriveLabel()
                     self.statusLabel.stringValue = "\(result.name): \(Fmt.size(result.size)) in \(Fmt.count(result.files)) files and \(Fmt.count(result.dirs)) folders - scanned in \(String(format: "%.2f", Date().timeIntervalSince(started))) s" + (s.cancelled ? "  (stopped - partial results)" : "")
-                    // A drive is scanned: list the installed apps right away in the background (sizes come from this scan),
-                    // so the Apps tab is ready when it is opened.
-                    if target.isDrive && !s.cancelled && self.apps == nil && !self.appsLoading && self.selfTestDir == nil { self.loadApps() }
+                    // A drive is scanned: list the installed apps right away (sizes come from this scan), so the Apps tab
+                    // is ready when it is opened; the tab waiting for the scan is filled now too.
+                    if self.selfTestDir == nil && !self.appsLoading && (self.apps == nil || self.appsFromCache)
+                        && ((target.isDrive && !s.cancelled) || self.activePage === self.pApps) { self.loadApps() }
                     // The System view too (snapshots, backups, drives).
                     if target.isDrive && !s.cancelled && self.selfTestDir == nil && !self.systemLoading { self.loadSystem() }
                     if !s.cancelled { self.checkLowSpace(target) }

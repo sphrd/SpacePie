@@ -84,6 +84,17 @@ final class InstalledApp {
     /// Every .app directly in the roots and one subfolder level below them (e.g. /Applications/Adobe X/Adobe X.app),
     /// without Apple's own apps and anything under /System; largest first.
     static func find(_ roots: [String], _ measure: @escaping (String) -> Int64) -> [InstalledApp] {
+        let list = readAll(roots)
+        for a in list { a.size = measure(a.path) }
+        return sorted(list)
+    }
+
+    static func sorted(_ list: [InstalledApp]) -> [InstalledApp] {
+        list.sorted { $0.size != $1.size ? $0.size > $1.size : $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// The bundles in the roots with their Info.plist (and, with icons, their icons at row size); sizes are left at 0.
+    static func readAll(_ roots: [String], icons: Bool = false) -> [InstalledApp] {
         var seen = Set<String>()
         var out: [InstalledApp] = []
         func isApp(_ p: String) -> Bool { p.lowercased().hasSuffix(".app") && PathUtil.isDir(p) }
@@ -93,7 +104,6 @@ final class InstalledApp {
             if std == "/System" || std.hasPrefix("/System/") || real.hasPrefix("/System/") { return }
             if !seen.insert(std.lowercased()).inserted { return }
             guard let a = read(std), !a.bundleId.lowercased().hasPrefix("com.apple.") else { return }
-            a.size = measure(std)
             out.append(a)
         }
         for r in roots {
@@ -102,7 +112,10 @@ final class InstalledApp {
                 else if PathUtil.isDir(c) { for cc in DeleteJob.children(c) where isApp(cc) { consider(cc) } }
             }
         }
-        return out.sorted { $0.size != $1.size ? $0.size > $1.size : $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if icons {
+            for a in out { a.icon = loadIcon(a.path); a.iconRequested = true }
+        }
+        return out
     }
 
     /// Items named after the bundle id B or the app name N in ~/Library and /Library (case-insensitive; names shorter
@@ -200,7 +213,7 @@ extension MainWindowController {
         p.empty = "No apps found."
         // Partly removed apps (items left that could not be moved) come first, then the rest in the sort order.
         p.pinFirst = { $0.app?.uninstalled ?? false }
-        p.fill = { [unowned self] in if self.apps == nil { self.loadApps() } else { self.showApps() } }
+        p.fill = { [unowned self] in self.fillApps() }
         p.table.onClickAt = { [unowned self] r, pt in self.appClick(r, pt) }
         return p
     }
@@ -210,7 +223,37 @@ extension MainWindowController {
     /// Moves to the Trash; the self-test and screenshot runs only use the Trash on CI (deleted for good elsewhere).
     var appsTrash: Bool { appsAuto ? ProcessInfo.processInfo.environment["CI"] != nil : true }
 
-    /// Lists the installed apps in the background (sizes from the scan when the bundle was scanned, measured otherwise).
+    /// Starts reading the installed apps' bundles and icons in the background (called at launch, while the disk is scanned).
+    func prefetchApps() {
+        if appsPrefetch != nil || appsLoading || (apps != nil && !appsFromCache) { return }
+        appsPrefetch = AppsRead(appSearchRoots)
+    }
+
+    /// Apps tab: the list read in this session, else the list saved last time (shown at once), then read again in the
+    /// background and replaced in place. Within a session only Refresh reads it again; during a scan it waits for the scan.
+    func fillApps() {
+        let p = pApps!
+        if apps == nil && selfTestDir == nil && appRoots == nil, let saved = AppsCache.load() {
+            apps = saved
+            appsFromCache = true
+        }
+        if apps != nil { showApps() }
+        if appsLoading || (apps != nil && !appsFromCache) { return }
+        if scanning && selfTestDir == nil {
+            if apps == nil {
+                let t = "The installed apps are read when the scan is done."
+                p.setCaption(t)
+                p.setRows([], t)
+                if activePage === p { rowSlice = [:]; chart.showLogo(p.chartTitle, "", t) }
+            }
+            return
+        }
+        loadApps()
+    }
+
+    /// Lists the installed apps: bundles and icons in the background (or from the reading started at launch), then the
+    /// sizes in one pass over the scan on the main thread; bundles that were not scanned are measured in the background.
+    /// The new list replaces the shown one in place and is saved for the next start.
     func loadApps(_ done: (() -> Void)? = nil) {
         let p = pApps!
         appsGen += 1
@@ -221,32 +264,65 @@ extension MainWindowController {
             p.setRows([], "Looking for installed apps...")
             if activePage === p { rowSlice = [:]; chart.showLogo(p.chartTitle, "", "Looking for installed apps...") }
         } else {
-            p.setCaption("Looking for installed apps again...")
+            showApps()
         }
         updateButtons()
         let roots = appSearchRoots
-        readInBackground({ [unowned self] () -> [InstalledApp] in
-            InstalledApp.find(roots) { path in
-                if let n = self.findScanned(path, exact: true), !n.insideSkipped { return n.size }
-                return Scanner().run(path).size
-            }
-        }, { [weak self] found in
+        let read: AppsRead
+        if let pre = appsPrefetch, pre.roots == roots { read = pre } else { read = AppsRead(roots) }
+        appsPrefetch = nil
+        read.whenDone { [weak self] found in
             guard let self = self, gen == self.appsGen else { return }
-            self.appsLoading = false
-            // Partly removed apps stay; an app's items found earlier stay with it (open or closed).
-            let old = self.apps ?? []
+            let t = Date()
+            var unknown: [InstalledApp] = []
             for a in found {
-                if let o = old.first(where: { PathUtil.same($0.path, a.path) && !$0.uninstalled }) {
-                    a.expanded = o.expanded
-                    if let items = o.leftovers, let b = items.first, b.kind == "App" { b.size = a.size; a.leftovers = items }
-                    else if o.expanded { a.expanded = false }
+                if let n = self.findScanned(a.path, exact: true), !n.insideSkipped { a.size = n.size } else { unknown.append(a) }
+            }
+            let finish = {
+                guard gen == self.appsGen else { return }
+                self.appsReadMs = read.ms
+                self.appsAfterScanMs = Int(Date().timeIntervalSince(t) * 1000)
+                self.appsLoaded(InstalledApp.sorted(found))
+                done?()
+            }
+            if unknown.isEmpty { finish(); return }
+            let paths = unknown.map { $0.path }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let sizes = paths.map { Scanner().run($0).size }
+                DispatchQueue.main.async {
+                    for (a, s) in zip(unknown, sizes) { a.size = s }
+                    finish()
                 }
             }
-            let kept = old.filter { o in o.uninstalled && o.hasLeftovers && !found.contains(where: { PathUtil.same($0.path, o.path) }) }
-            self.apps = kept + found
-            self.showApps()
-            done?()
-        })
+        }
+    }
+
+    /// The fresh list replaces the shown one: the same app (same bundle path) keeps its state and the items found for
+    /// it (open or closed); partly removed apps stay.
+    private func appsLoaded(_ found: [InstalledApp]) {
+        appsLoading = false
+        let old = apps ?? []
+        for a in found {
+            guard let o = old.first(where: { PathUtil.same($0.path, a.path) && !$0.uninstalled }) else { continue }
+            a.expanded = o.expanded
+            if a.icon == nil, let img = o.icon { a.icon = img; a.iconRequested = true }
+            if let items = o.leftovers, let b = items.first, b.kind == "App" { b.size = a.size; a.leftovers = items }
+            else if o.loadingItems {
+                // Still being looked for: they go to the new entry when found.
+                o.itemWaiters.append { [weak self] in
+                    guard a.leftovers == nil, !a.uninstalled, let items = o.leftovers else { return }
+                    if let b = items.first, b.kind == "App" { b.size = a.size }
+                    a.leftovers = items
+                    self?.showApps()
+                }
+            }
+            else if o.expanded { a.expanded = false }
+        }
+        let kept = old.filter { o in o.uninstalled && o.hasLeftovers && !found.contains(where: { PathUtil.same($0.path, o.path) }) }
+        apps = kept + found
+        appsFromCache = false
+        if selfTestDir == nil && appRoots == nil { AppsCache.save(found) }
+        showApps()
     }
 
     /// The apps shown: matching the search box.
@@ -329,7 +405,10 @@ extension MainWindowController {
         let size = installed.reduce(Int64(0)) { $0 + $1.size }
         let n = installed.count
         if all.isEmpty && appsLoading { p.setCaption("Looking for installed apps...") }
-        else { p.setCaption("\(Fmt.count(n)) app\(n == 1 ? "" : "s"), \(Fmt.size(size)).  Expand an app to see all its files. Uninstall moves the app and all its files to the Trash.") }
+        else {
+            p.setCaption("\(Fmt.count(n)) app\(n == 1 ? "" : "s"), \(Fmt.size(size)).  Expand an app to see all its files. Uninstall moves the app and all its files to the Trash."
+                         + (appsLoading ? "  Checking for changes..." : appsFromCache ? "  (List saved last time; checked again when the scan is done.)" : ""))
+        }
         p.chartSub = Fmt.size(total)
         p.chartTotal = 0
         p.empty = filtered ? "No apps match." : "No apps found."

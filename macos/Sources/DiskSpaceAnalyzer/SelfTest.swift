@@ -596,6 +596,24 @@ final class SelfTestRun {
             self.check(head?.icon != nil && head?.icon === head?.app?.icon && s == InstalledApp.iconSize,
                        "apps: the app row shows the app's own icon (\(Int(s.width))x\(Int(s.height)) pt), not the folder icon")
         }
+        steps.add { next in
+            // The list is saved and reads back the same (shown at once at the next start, then read again in the background).
+            AppsCache.fileOverride = self.dir + "-apps.plist"
+            AppsCache.save(w.apps ?? []) {
+                let back = AppsCache.load()
+                let a = w.apps?.first { $0.bundleId == FakeApp.bundleId }
+                let b = back?.first { $0.bundleId == FakeApp.bundleId }
+                let s = b?.icon?.size ?? .zero
+                let px = b?.icon?.cgImage(forProposedRect: nil, context: nil, hints: nil)?.width ?? 0
+                self.check(a != nil && b != nil && back?.count == w.apps?.count && b!.name == a!.name && b!.version == a!.version
+                           && b!.publisher == a!.publisher && b!.size == a!.size && PathUtil.same(b!.path, a!.path)
+                           && s == InstalledApp.iconSize && px >= Int(InstalledApp.iconSize.width),
+                           "apps: the list is saved and reads back the same, icon included (\(back?.count ?? -1) app, \(b?.size ?? -1) bytes, icon \(px) px; bundles and icons read in \(w.appsReadMs) ms, sizes after the scan in \(w.appsAfterScanMs) ms)")
+                try? FileManager.default.removeItem(atPath: AppsCache.filePath)
+                AppsCache.fileOverride = nil
+                next()
+            }
+        }
         var expected: Int64 = 0
         steps.then {
             // Expanding the app lists the bundle and its 3 leftovers; nothing changes on disk.
@@ -804,6 +822,7 @@ final class ShotRun {
             if p === w.pApps {
                 // The largest app opened, showing all its files.
                 steps.waitUntil(180) { w.apps != nil && !w.appsLoading }
+                steps.then { print("apps: \(w.apps?.count ?? 0) installed apps; bundles and icons read in \(w.appsReadMs) ms (during the scan), sizes after the scan in \(w.appsAfterScanMs) ms") }
                 steps.then { if let h = w.pApps.items.first(where: { $0.app != nil && $0.groupOf == nil }) { w.expandApps([h], true) } }
                 steps.waitUntil(60) { w.apps?.first.map { $0.leftovers != nil } ?? true }
             }
