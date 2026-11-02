@@ -474,3 +474,4 @@ patterns (Part 3) are applied through the WinForms mapping below.
 - v1.8.2 (2026-10-30): safety: node_modules suggestions only for projects (package.json), never inside installed programs or
   tools; deleting shows a red progress strip with Stop and the open list empties live; every prompt is a themed dialog with a
   warning sign and the full list of items in a scrollable box.
+- v1.8.3 (2026-11-02): Duplicates: sizes, "can be freed", group order and chart follow the Size / Size on disk switch.
