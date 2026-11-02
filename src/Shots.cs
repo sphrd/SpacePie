@@ -410,26 +410,30 @@ namespace DiskSpaceAnalyzer
                         "[" + (d.Children == null ? "" : string.Join(";", d.Children.OrderBy(ch => ch.Name, StringComparer.OrdinalIgnoreCase).Select(ch => sig(ch)))) + "]";
                     check(back != null && back.JournalId == 7 && back.Usn == 123 && sig(back.Node) == sig(root),
                         string.Format("fast restart: the saved scan reads back identical (saved in {0:0.000} s, loaded in {1:0.000} s)", saveS, loadS));
-                    string journalNote = "skipped (the change journal needs administrator rights)";
+                    // The journal test runs on the system drive (CI's work drive has no change journal).
+                    string jdir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Temp\dsa-journal-test");
+                    Func<string, string> J = rel => Path.Combine(jdir, rel.Substring(2));
+                    string journalNote = Elevation.IsAdmin ? "skipped (the system drive has no change journal)" : "skipped (the change journal needs administrator rights)";
                     bool journalOk = true;
                     ulong jid; long jnext;
-                    if (Snapshot.QueryJournal(dir, out jid, out jnext))
+                    if (Snapshot.QueryJournal(jdir, out jid, out jnext))
                     {
-                        Directory.CreateDirectory(P(@"J\keep"));
-                        File.WriteAllText(P(@"J\gone.txt"), "x");
-                        Snapshot.QueryJournal(dir, out jid, out jnext);
-                        File.WriteAllText(P(@"J\new.txt"), "new");
-                        File.Delete(P(@"J\gone.txt"));
-                        Directory.CreateDirectory(P(@"J\newdir"));
-                        File.WriteAllText(P(@"J\newdir\inner.txt"), "inner");
+                        if (Directory.Exists(jdir)) Directory.Delete(jdir, true);
+                        Directory.CreateDirectory(J(@"J\keep"));
+                        File.WriteAllText(J(@"J\gone.txt"), "x");
+                        Snapshot.QueryJournal(jdir, out jid, out jnext);
+                        File.WriteAllText(J(@"J\new.txt"), "new");
+                        File.Delete(J(@"J\gone.txt"));
+                        Directory.CreateDirectory(J(@"J\newdir"));
+                        File.WriteAllText(J(@"J\newdir\inner.txt"), "inner");
                         string why;
-                        var ch = Snapshot.ReadSince(dir, jid, jnext, 100000, out why);
-                        Func<string, bool, bool> has = (rel, del) => ch != null && ch.Any(x => SamePath(x.Path, P(rel)) && x.Deleted == del);
+                        var ch = Snapshot.ReadSince(jdir, jid, jnext, 100000, out why);
+                        Func<string, bool, bool> has = (rel, del) => ch != null && ch.Any(x => SamePath(x.Path, J(rel)) && x.Deleted == del);
                         journalOk = ch != null && has(@"J\new.txt", false) && has(@"J\gone.txt", true) && has(@"J\newdir", false) && has(@"J\newdir\inner.txt", false) &&
-                                    !ch.Any(x => SamePath(x.Path, P(@"J\keep")));
+                                    !ch.Any(x => SamePath(x.Path, J(@"J\keep")));
                         journalNote = journalOk ? string.Format("journal: {0} changes, new/deleted file, new folder and its file found", ch.Count)
                             : "journal: " + (ch == null ? why : string.Join(", ", ch.Select(x => (x.Deleted ? "-" : "+") + x.Path)));
-                        Directory.Delete(P("J"), true);
+                        Directory.Delete(jdir, true);
                     }
                     check(journalOk, "fast restart: " + journalNote);
                     try { Directory.Delete(Snapshot.DirOverride, true); } catch (Exception) { }
