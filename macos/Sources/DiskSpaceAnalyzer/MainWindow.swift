@@ -677,6 +677,9 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
                     self.viewsChanged()
                     self.updateDriveLabel()
                     self.statusLabel.stringValue = "\(result.name): \(Fmt.size(result.size)) in \(Fmt.count(result.files)) files and \(Fmt.count(result.dirs)) folders - scanned in \(String(format: "%.2f", Date().timeIntervalSince(started))) s" + (s.cancelled ? "  (stopped - partial results)" : "")
+                    // A drive is scanned: list the installed apps right away in the background (sizes come from this scan),
+                    // so the Apps tab is ready when it is opened.
+                    if target.isDrive && !s.cancelled && self.apps == nil && !self.appsLoading && self.selfTestDir == nil { self.loadApps() }
                     self.onScanFinished?()
                 }
             }

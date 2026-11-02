@@ -188,6 +188,10 @@ patterns (Part 3) are applied through the WinForms mapping below.
   switch (extra copies = all but the newest). C:\Demo (sparse files from tools\make_demo.ps1, 681 GB long, 115 MB on disk) had been
   left behind after the README screenshots; removed. Rule: remove the demo tree right after taking screenshots.
 
+- 2026-11-02: "after drive is scanned start scanning apps automatically not to waste time." Both platforms: when a drive scan
+  finishes (not cancelled), the installed apps are listed in the background (sizes from that scan) unless already listed; not in
+  the self-test. Verified on Windows: the apps lookup started by itself right after the 15 s C: scan.
+
 ## WinForms mapping of the design language
 
 - Tokens and fonts live only in `Theme.cs`; widgets use those names, no inline hex.

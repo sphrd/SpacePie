@@ -578,6 +578,9 @@ namespace DiskSpaceAnalyzer
                 s.Cancelled ? "  (stopped - partial results)" : "");
             if (ShotDir != null && !shotsStarted) { shotsStarted = true; RunShots(); }
             if (SelfTestDir != null && !shotsStarted) { shotsStarted = true; RunSelfTest(); }
+            // A drive is scanned: list the installed apps right away in the background (their sizes come from this scan),
+            // so the Apps tab is ready when it is opened.
+            if (r.IsDrive && !s.Cancelled && apps == null && !appsLoading && SelfTestDir == null) FillApps();
         }
 
         /// <summary>Deepest scanned folder under root that matches fullPath (root itself if nothing deeper matches).</summary>
