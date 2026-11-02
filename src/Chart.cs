@@ -58,9 +58,9 @@ namespace DiskSpaceAnalyzer
         bool canGoUp, hoverCenter;
         public event Action CenterClicked;
         string logoNote = "";
-        readonly Timer animTimer = new Timer { Interval = 15 };
+        readonly Timer animTimer = new Timer { Interval = 10 };
         // While a scan runs a sweep runs round a line in the logo's mouth.
-        readonly Timer orbitTimer = new Timer { Interval = 16 };
+        readonly Timer orbitTimer = new Timer { Interval = 10 };
         bool working;
         readonly System.Diagnostics.Stopwatch animClock = new System.Diagnostics.Stopwatch();
         const double AnimMs = 650;

@@ -110,15 +110,15 @@ namespace DiskSpaceAnalyzer
         public static void DrawMouthLoop(Graphics g, Rectangle circle, double seconds, Color c)
         {
             float R = circle.Width / 2f, cx = circle.X + R, cy = circle.Y + R;
-            double xc = cx - R * Math.Cos(LogoMouth * Math.PI / 180);
-            double a = 0.11 * R, b = 0.36 * R;
+            double xc = cx - 0.8 * R * Math.Cos(LogoMouth * Math.PI / 180);
+            double a = 0.09 * R, b = 0.3 * R;
             // Runs down the front (outer) side and up the back: y = cy - b sin(phi).
             Func<double, PointF> at = phi => new PointF((float)(xc - a * Math.Cos(phi)), (float)(cy - b * Math.Sin(phi)));
-            float w = Math.Max(2f, R / 70f);
+            float w = Math.Max(2f, R / 15f);
             var sm = g.SmoothingMode;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             // Highlight: 40 % of the loop behind the phase, a tail whose alpha rises from 0 to full, ending in the bright head.
-            const double period = 1.4, span = 0.4 * 2 * Math.PI;
+            const double period = 1.0, span = 0.4 * 2 * Math.PI;
             const int pieces = 48;
             double head = seconds % period / period * 2 * Math.PI;
             for (int i = 0; i < pieces; i++)

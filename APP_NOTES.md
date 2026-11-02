@@ -272,6 +272,10 @@ patterns (Part 3) are applied through the WinForms mapping below.
   other file necessary, and release." Mouth loop reversed (y = cy - b sin phi: down the outer side, up the inner) and
   1.8 s -> 1.4 s per loop. `--splash` added on macOS too. Released as v1.9.0 (includes the dev/features work held back
   for the owner's trial).
+- 2026-11-02: the owner tuned the scanning animation by hand in src/Theme.cs (DrawMouthLoop: xc = cx - 0.8 R cos 30°,
+  a = 0.09 R, b = 0.3 R, w = max(2, R/15), period 1.0 s) and src/Chart.cs (animTimer and orbitTimer 10 ms): "reflect the
+  changes exactly in macos version as well" -> Theme.swift / Chart.swift mirrored value for value. Released as v1.9.1.
+  Owner rule: no Co-authored-by or any Copilot/Claude trace in commits; sphrd is the only author.
 
 - 2026-11-02: "the list of apps is reloading everytime why? make it faster." Why: read from scratch at every start, only after
   the scan, with the Store list from a new PowerShell (3.5 s) after the registry. Now (src\AppsCache.cs, Apps.cs): the list is
@@ -590,3 +594,6 @@ patterns (Part 3) are applied through the WinForms mapping below.
   during the scan; hover shows cut-off columns in full; start-up screen (logo with glow, version, live loading log,
   `--splash` preview); chart shows the logo with a trailing line running round its mouth while scanning, then turns into
   the chart; trailing-line spinners and a highlighter sweep on progress bars; logo with glow everywhere in the app.
+- v1.9.1 (2026-11-02): scanning animation tuned by the owner: the trailing line in the logo's mouth is thicker (R/15),
+  sits further inside the mouth (centre 0.8 R cos 30°, oval 0.09 R x 0.3 R) and loops once a second; the loop and the
+  logo -> chart morph repaint every 10 ms.

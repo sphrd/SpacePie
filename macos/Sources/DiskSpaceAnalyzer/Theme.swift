@@ -85,11 +85,11 @@ enum Theme {
     static let logoMouth: CGFloat = 30
     static func drawMouthLoop(in circle: NSRect, seconds: Double, color: NSColor) {
         let R = Double(circle.width / 2), cx = Double(circle.midX), cy = Double(circle.midY)
-        let xc = cx - R * cos(Double(logoMouth) * .pi / 180)
-        let a = 0.11 * R, b = 0.36 * R
+        let xc = cx - 0.8 * R * cos(Double(logoMouth) * .pi / 180)
+        let a = 0.09 * R, b = 0.3 * R
         func at(_ phi: Double) -> NSPoint { NSPoint(x: xc - a * cos(phi), y: cy - b * sin(phi)) }
-        let w = max(2, CGFloat(R) / 70)
-        let period = 1.4, span = 0.4 * 2 * Double.pi, pieces = 48
+        let w = max(2, CGFloat(R) / 15)
+        let period = 1.0, span = 0.4 * 2 * Double.pi, pieces = 48
         let head = seconds.truncatingRemainder(dividingBy: period) / period * 2 * .pi
         for i in 0..<pieces {
             let t0 = Double(i) / Double(pieces), t1 = Double(i + 1) / Double(pieces)

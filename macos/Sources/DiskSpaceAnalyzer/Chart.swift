@@ -77,7 +77,7 @@ final class PieChart: NSView {
     private func setWorking(_ on: Bool) {
         working = on
         if on, orbitTimer == nil {
-            orbitTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
+            orbitTimer = Timer.scheduledTimer(withTimeInterval: 0.010, repeats: true) { [weak self] _ in
                 guard let s = self else { return }
                 s.setNeedsDisplay(NSRect(x: s.pieRect.minX - 20, y: s.pieRect.minY, width: s.pieRect.width / 2, height: s.pieRect.height))
             }
@@ -107,7 +107,7 @@ final class PieChart: NSView {
             animStart = Date()
             lastTick = Date()
             animTimer?.invalidate()
-            animTimer = Timer.scheduledTimer(withTimeInterval: 0.015, repeats: true) { [weak self] t in
+            animTimer = Timer.scheduledTimer(withTimeInterval: 0.010, repeats: true) { [weak self] t in
                 guard let s = self else { t.invalidate(); return }
                 // Advance by frame, at most 50 ms per step: a busy moment right after a scan must not skip the morph.
                 let now = Date(), dt = min(0.05, now.timeIntervalSince(s.lastTick))
