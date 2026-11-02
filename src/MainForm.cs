@@ -22,6 +22,9 @@ namespace DiskSpaceAnalyzer
         public DirNode Node;                     // null until scanned
         public bool Scanning;
         public PrevNode Previous;                // the scan before the current one (for the Changes view)
+        public ulong JournalId;                  // NTFS change journal and its position when Node's scan started (0 = unknown)
+        public long JournalUsn;
+        public bool Complete;                    // Node is a whole scan (not stopped), so it can be saved for a fast restart
         public DateTime PreviousTime;
 
         public string DisplayName { get { return IsDrive && Label.Length > 0 ? Path + "  " + Label : Path; } }
@@ -361,6 +364,7 @@ namespace DiskSpaceAnalyzer
                 }
             };
             FormClosing += (s, e) => { if (scanner != null) scanner.Cancel(); };
+            FormClosed += (s, e) => SaveSnapshots();
             UpdateButtons();
         }
 
@@ -531,11 +535,15 @@ namespace DiskSpaceAnalyzer
                 roots.Add(r);
                 SortRoots();
             }
+            // First scan of a drive in this session: show its saved scan at once and catch up from the change journal.
+            if (r.Node == null && r.IsDrive && SelfTestDir == null && ShotDir == null && Snapshot.Exists(path) && await FastStart(r)) return;
             var s = new Scanner();
             scanner = s;
             scanRoot = r;
             r.Scanning = true;
             var oldNode = r.Node;
+            ulong jid = 0; long jusn = 0;
+            bool journal = r.IsDrive && Snapshot.QueryJournal(path, out jid, out jusn);
             SetScanning(true, "Scanning " + r.Path + "...");
             // Show the root being scanned unless the user is already looking at something else that is scanned.
             RefreshTree(current);
@@ -560,6 +568,9 @@ namespace DiskSpaceAnalyzer
             }
 
             r.Node = result;
+            r.Complete = !s.Cancelled;
+            r.JournalId = journal ? jid : 0;
+            r.JournalUsn = journal ? jusn : 0;
             RefreshCapacity(r);
             RememberScan(r, result, !s.Cancelled);
             StartWatching(r);
@@ -576,11 +587,13 @@ namespace DiskSpaceAnalyzer
             statusLabel.Text = string.Format("{0}: {1} in {2:N0} files and {3:N0} folders - scanned in {4:0.00} s, {5}{6}",
                 result.Name, Fmt.Size(result.Size), result.Files, result.Dirs, sw.Elapsed.TotalSeconds, s.Method,
                 s.Cancelled ? "  (stopped - partial results)" : "");
+            if (fastStartNote != null) { statusLabel.Text += "  " + fastStartNote; fastStartNote = null; }
             if (ShotDir != null && !shotsStarted) { shotsStarted = true; RunShots(); }
             if (SelfTestDir != null && !shotsStarted) { shotsStarted = true; RunSelfTest(); }
             // A drive is scanned: list the installed apps right away in the background (their sizes come from this scan),
             // so the Apps tab is ready when it is opened.
             if (r.IsDrive && !s.Cancelled && apps == null && !appsLoading && SelfTestDir == null) FillApps();
+            if (!s.Cancelled) SystemAfterScan(r.IsDrive);
         }
 
         /// <summary>Deepest scanned folder under root that matches fullPath (root itself if nothing deeper matches).</summary>
@@ -870,6 +883,8 @@ namespace DiskSpaceAnalyzer
             if (btnBasketRecycle != null) btnBasketRecycle.Enabled = btnBasketDelete.Enabled = idle && basket.Count > 0;
             UpdateSuggestionButtons();
             UpdateAppButtons();
+            UpdateSystemButtons();
+            UpdateLinkButton();
         }
 
         void UpdateProgress()

@@ -192,6 +192,20 @@ patterns (Part 3) are applied through the WinForms mapping below.
   finishes (not cancelled), the installed apps are listed in the background (sizes from that scan) unless already listed; not in
   the self-test. Verified on Windows: the apps lookup started by itself right after the 15 s C: scan.
 
+- 2026-11-02: chose to build: "Always start as administrator", instant rescans from the change journal, hash cache, safe registry check,
+  Windows system cleanup, WSL/Docker disk shrink, replace duplicates with links, macOS snapshots/purgeable/iPhone backups,
+  low-space warning + drive health. "implement net features, and only after my trial we will release."
+  - Always start as administrator (src\Elevation.cs): scheduled task "Disk Space Analyzer (as administrator)", on demand only,
+    HighestAvailable, InteractiveToken; toggled in About (one UAC prompt via `--admin-task on|off`); a normal start runs the task
+    with the arguments in %LOCALAPPDATA%\DiskSpaceAnalyzer\task-args.txt and exits; marker file `always-admin`.
+  - Fast restart (src\Snapshot.cs, FastStart.cs): on close each whole drive scan is saved (Deflate, ~16 MB for 830k files, 1.8 s)
+    with the USN journal id + position from when that scan started; next start loads it (1.7 s vs 27 s scan) and, as admin, feeds
+    the journal's changed paths to the live-update queue; otherwise a normal scan runs while the saved one is shown.
+  - Hash cache (src\HashCache.cs): %LOCALAPPDATA%\DiskSpaceAnalyzer\hashes.bin keyed by path+length+mtime (+file id), 90 days,
+    2 M entries; a repeat search read 0 bytes. Gotcha: BY_HANDLE_FILE_INFORMATION needs Pack = 4 (FILETIMEs).
+  - Replace with links (src\Links.cs): hard link to the kept copy via a temp name + MoveFileEx replace; same NTFS volume only;
+    skips copies changed since the search. Folder-by-folder scans count every link (like Explorer); the MFT scan counts it once.
+
 ## WinForms mapping of the design language
 
 - Tokens and fonts live only in `Theme.cs`; widgets use those names, no inline hex.
@@ -310,7 +324,7 @@ patterns (Part 3) are applied through the WinForms mapping below.
   Since v1.7 this is built in: `.\tools\make_demo.ps1 C:\Demo` (sparse files, ~250 MB on disk, a few duplicate pairs),
   `DiskSpaceAnalyzer.exe --cli screenshot <out> C:\Demo --demo` (finds duplicates first, then shows the folder as
   `E:\ Data` with made-up `F:\`/`G:\` drives; skips Suggestions and Changes, which would show this PC), copy
-  `1-contents.png` to `assets\screenshot.png` and `6-duplicates.png` to `assets\screenshot-duplicates.png`, then
+  `1-contents.png` to `assets\screenshot.png` and `7-duplicates.png` to `assets\screenshot-duplicates.png`, then
   `.\tools\make_demo.ps1 C:\Demo -Remove` and delete `%LOCALAPPDATA%\DiskSpaceAnalyzer\history`.
 - Repo logo: `assets/app.png` at the top of the README; `assets/social-preview.png` is the GitHub social preview
   (Settings > General > Social preview; GitHub has no API for it, so it is uploaded by hand).
@@ -396,6 +410,20 @@ patterns (Part 3) are applied through the WinForms mapping below.
   name without version/bitness, folder name, key name (`_is1` stripped); generic words never match; a publisher folder only when
   all it holds is the app. Admin-only items start unchecked without elevation. Registry keys: `reg export` appended to
   `%LOCALAPPDATA%\DiskSpaceAnalyzer\registry-backups\<app> <date>.reg` before `DeleteSubKeyTree`; a key that can't be backed up is kept.
+- **System tab (`System.cs`, `SysTasks.cs`, `RegCheck.cs`, `Health.cs`; Windows):** after Apps. Loads in the background after a drive
+  scan (and when opened). Groups -> items, each with size / "Can free", "What it means", action; the chart slices by what can be
+  freed (rows without it get none). Windows update leftovers: `Dism /English /Online /Cleanup-Image /AnalyzeComponentStore` (lazily:
+  on expand or **Analyze**), **Clean up** = `/StartComponentCleanup` (progress from its %). Restore points: `vssadmin list
+  shadowstorage` / `list shadows`, **Delete oldest** (`delete shadows /for=X: /oldest /quiet`) / **Delete all but the newest**
+  (`/shadow={id}` each). `hiberfil.sys` with `powercfg /h off|on`; page/swap file info only. WSL/Docker `.vhdx` (Packages\*\LocalState,
+  %LOCALAPPDATA%\wsl, Docker\wsl, Lxss BasePath): **Shrink** = `wsl --shutdown` + diskpart `attach vdisk readonly` / `compact vdisk`.
+  Registry check (only: uninstall entries whose folder and uninstaller are gone, Run/RunOnce values whose absolute .exe/.dll is
+  missing, `Classes\Applications\<exe>` and App Paths pointing at a missing exe; never under Windows or WindowsApps, never on an absent
+  drive): each key/value exported to `registry-backups\Registry check <date>.reg` first, values deleted as values. Drives: free/total
+  plus Storage WMI health (`MSFT_PhysicalDisk`, `MSFT_StorageReliabilityCounter`; needs `/r:System.Management.dll`). Admin-only
+  rows are muted with "needs administrator"; their action offers Run as administrator. Long actions use the scan strip (red for
+  deletes) with `busy` set. Low space (< 10 % or < 10 GB): amber banner on the tab, and once per drive per session an amber,
+  clickable status line after a scan -> Suggestions.
 - **Apps flow (v1.8):** every app expands (first time: search in the background) into all its items, program folder first
   (child rows `<Kind>: <name>`, no checkboxes while installed). Uninstall: official uninstaller, then the same search again; if anything
   remains a dialog lists it and asks `Delete them too?` (Yes = delete with registry backup; No = keep as checkable leftovers).

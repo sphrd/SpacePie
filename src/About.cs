@@ -311,6 +311,13 @@ namespace DiskSpaceAnalyzer
             { "F1", "About" },
         };
 
+        static string AlwaysAdminText(bool on)
+        {
+            return on
+                ? "On: Disk Space Analyzer starts as administrator every time, without a prompt."
+                : "Start as administrator every time without a prompt: Windows asks once to set this up (a scheduled task); turn it off here.";
+        }
+
         public AboutForm(Action checkForUpdates) : base("About Disk Space Analyzer")
         {
             ClientSize = new Size(Theme.S(560), ClientSize.Height);
@@ -331,7 +338,27 @@ namespace DiskSpaceAnalyzer
             AddLabel(admin
                 ? "Running as administrator: whole NTFS drives are read straight from their master file table, about a million files in seconds."
                 : "Run as administrator (button in the toolbar) to read whole NTFS drives straight from their master file table: " +
-                  "about a million files in seconds, many times faster than going folder by folder.", Theme.FONT_9, Theme.MUTED, ref y, Theme.S(12));
+                  "about a million files in seconds, many times faster than going folder by folder.", Theme.FONT_9, Theme.MUTED, ref y, Theme.S(8));
+            // Always start as administrator: a scheduled task (one UAC prompt to set up, none after that).
+            bool on = Elevation.IsOnForThisCopy();
+            var adminNote = AddLabel(AlwaysAdminText(on), Theme.FONT_9, Theme.MUTED, ref y, Theme.S(6));
+            var adminBtn = new RoundButton(on ? "Stop starting as administrator" : "Always start as administrator", ButtonKind.Secondary) { Compact = true };
+            var abs = adminBtn.GetPreferredSize(Size.Empty);
+            adminBtn.Bounds = new Rectangle(ContentX, y, abs.Width, abs.Height);
+            adminBtn.Click += (s, e) =>
+            {
+                bool want = !Elevation.IsOnForThisCopy();
+                adminBtn.Enabled = false;
+                string err = Elevation.SetFromUser(want);
+                bool now = Elevation.IsOnForThisCopy();
+                adminBtn.Text = now ? "Stop starting as administrator" : "Always start as administrator";
+                var ps = adminBtn.GetPreferredSize(Size.Empty);
+                adminBtn.Size = ps;
+                adminNote.Text = err != null && err != "cancelled" ? "Could not change it: " + err + "." : AlwaysAdminText(now);
+                adminBtn.Enabled = true;
+            };
+            Controls.Add(adminBtn);
+            y += abs.Height + Theme.S(12);
             AddLabel("Keyboard shortcuts", Theme.FONT_BOLD, Theme.FG, ref y, Theme.S(4));
             int keyW = Theme.S(90), rowH = Theme.FONT_9.Height + Theme.S(3);
             for (int i = 0; i < Shortcuts.GetLength(0); i++)

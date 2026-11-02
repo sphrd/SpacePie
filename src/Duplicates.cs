@@ -17,7 +17,7 @@ namespace DiskSpaceAnalyzer
     /// </summary>
     internal sealed class DuplicateFinder
     {
-        public long BytesToRead, BytesRead, FilesChecked;
+        public long BytesToRead, BytesRead, FilesChecked, FromCache;
         public volatile string Current = "";
         public volatile bool Cancelled;
         public List<List<FileEntry>> Groups = new List<List<FileEntry>>();
@@ -27,7 +27,7 @@ namespace DiskSpaceAnalyzer
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern SafeFileHandle CreateFileW(string name, uint access, uint share, IntPtr sec, uint disposition, uint flags, IntPtr template);
 
-        [StructLayout(LayoutKind.Sequential)]
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]   // FILETIMEs are two DWORDs: no 8-byte alignment
         struct BY_HANDLE_FILE_INFORMATION
         {
             public uint Attributes;
@@ -44,6 +44,7 @@ namespace DiskSpaceAnalyzer
             public string Path;
             public ulong Id;           // volume serial and file index: equal for hard links
             public string Head, Full;
+            public bool Cached;
         }
 
         public void Run(DirNode scope, long minSize)
@@ -64,35 +65,53 @@ namespace DiskSpaceAnalyzer
                 if (Cancelled) return;
             }
             var sizeGroups = bySize.Values.Where(l => l.Count > 1).ToList();
-            BytesToRead = sizeGroups.Sum(g => g.Count * Math.Min(HeadSize, g[0].Bytes));
 
-            // 2. Same first 64 KB (one handle per file also gives its identity, to recognise hard links)
+            // 2. Same first 64 KB (one handle per file also gives its identity, to recognise hard links). Files hashed in an
+            // earlier search and unchanged since (same path, length and modification time) are not read again.
+            var all = sizeGroups.Select(g => g.Select(f => new Candidate { File = f, Path = f.FullPath }).ToList()).ToList();
+            foreach (var c in all.SelectMany(x => x))
+            {
+                string head; ulong id;
+                if (HashCache.TryHead(c.Path, c.File.Bytes, c.File.Modified, out head, out id)) { c.Head = head; c.Id = id; c.Cached = true; FromCache++; }
+            }
+            BytesToRead = all.Sum(g => g.Count(c => !c.Cached) * Math.Min(HeadSize, g[0].File.Bytes));
             var headGroups = new List<List<Candidate>>();
             var opts = new ParallelOptions { MaxDegreeOfParallelism = 3 };
-            foreach (var g in sizeGroups)
+            foreach (var cands in all)
             {
                 if (Cancelled) return;
-                var cands = g.Select(f => new Candidate { File = f, Path = f.FullPath }).ToList();
-                Parallel.ForEach(cands, opts, c => { if (!Cancelled) c.Head = Hash(c, HeadSize, true); });
+                Parallel.ForEach(cands.Where(c => !c.Cached), opts, c =>
+                {
+                    if (Cancelled) return;
+                    c.Head = Hash(c, HeadSize, true);
+                    if (c.Head != null) HashCache.Put(c.Path, c.File.Bytes, c.File.Modified, c.Id, c.Head, c.File.Bytes <= HeadSize ? c.Head : null);
+                });
                 var distinct = cands.Where(c => c.Head != null).GroupBy(c => c.Id).Select(x => x.First()).ToList();
                 foreach (var hg in distinct.GroupBy(c => c.Head))
                     if (hg.Count() > 1) headGroups.Add(hg.ToList());
             }
 
             // 3. Same whole content (files no larger than 64 KB are already fully hashed)
-            BytesToRead = BytesRead + headGroups.Sum(g => g[0].File.Bytes > HeadSize ? g.Count * g[0].File.Bytes : 0);
+            foreach (var c in headGroups.SelectMany(x => x).Where(x => x.File.Bytes > HeadSize)) c.Full = HashCache.TryFull(c.Path, c.File.Bytes, c.File.Modified);
+            BytesToRead = BytesRead + headGroups.Sum(g => g[0].File.Bytes > HeadSize ? g.Count(c => c.Full == null) * g[0].File.Bytes : 0);
             var result = new List<List<FileEntry>>();
             foreach (var g in headGroups)
             {
                 if (Cancelled) return;
                 if (g[0].File.Bytes > HeadSize)
-                    Parallel.ForEach(g, opts, c => { if (!Cancelled) c.Full = Hash(c, long.MaxValue, false); });
+                    Parallel.ForEach(g.Where(c => c.Full == null), opts, c =>
+                    {
+                        if (Cancelled) return;
+                        c.Full = Hash(c, long.MaxValue, false);
+                        if (c.Full != null) HashCache.Put(c.Path, c.File.Bytes, c.File.Modified, c.Id, c.Head, c.Full);
+                    });
                 else foreach (var c in g) c.Full = c.Head;
                 foreach (var fg in g.Where(c => c.Full != null).GroupBy(c => c.Full))
                     if (fg.Count() > 1) result.Add(fg.Select(c => c.File).OrderByDescending(f => f.Modified).ToList());
             }
             result.Sort((a, b) => ((b.Count - 1) * b[0].Bytes).CompareTo((a.Count - 1) * a[0].Bytes));
             Groups = result;
+            HashCache.Save();
         }
 
         string Hash(Candidate c, long limit, bool identify)
@@ -151,9 +170,14 @@ namespace DiskSpaceAnalyzer
             btnSelectExtra = Btn("Select extra copies", ButtonKind.Secondary,
                 "Select every copy except the newest one of each group; then add them to the delete list or delete them", SelectExtraCopies);
             btnSelectExtra.Tag = "right";
+            btnLinkDupes = Btn("Replace with links", ButtonKind.Secondary,
+                "Replace the selected copies with hard links to the copy that is kept: every file stays, the data is stored once", ReplaceSelectedWithLinks);
+            btnLinkDupes.Tag = "right";
+            btnLinkDupes.Enabled = false;
             var list = NewList(new[] { "Name", "Size", "Can free", "Folder", "Modified" },
                 new[] { "name", "size", "files", "folder", "mod" }, new[] { 280, 90, 100, 380, 140 }, -1);
-            var p = AddPage("Duplicates", list, MakeBar(btnFindDupes, dupeMin, btnSelectExtra));
+            list.SelectedIndexChanged += (s, e) => UpdateLinkButton();
+            var p = AddPage("Duplicates", list, MakeBar(btnFindDupes, dupeMin, btnSelectExtra, btnLinkDupes));
             p.ChartTitle = "Duplicates";
             p.ChartScope = "of the duplicates";
             p.Empty = "Press Find duplicates to compare the files in the selected folder.";
@@ -196,6 +220,8 @@ namespace DiskSpaceAnalyzer
             if (finder.Cancelled) { pDupes.Caption.Text = "Stopped."; return; }
             dupeGroups = finder.Groups;
             FillDuplicates();
+            statusLabel.Text = string.Format("Compared files by content: {0:N0} read ({1}), {2:N0} known from an earlier search and unchanged.",
+                Interlocked.Read(ref finder.FilesChecked), Fmt.Size(Interlocked.Read(ref finder.BytesRead)), finder.FromCache);
         }
 
         static void LayoutBar(Control c) { if (c.Parent != null) c.Parent.PerformLayout(); c.Invalidate(); }
@@ -275,7 +301,7 @@ namespace DiskSpaceAnalyzer
             lv.EndUpdate();
             lv.Focus();
             lastView = lv;
-            statusLabel.Text = string.Format("Selected {0:N0} extra copies ({1}). Add them to the delete list (Ctrl+D) or delete them.",
+            statusLabel.Text = string.Format("Selected {0:N0} extra copies ({1}). Add them to the delete list (Ctrl+D), delete them, or replace them with links.",
                 lv.SelectedItems.Count, Fmt.Size(lv.SelectedItems.Cast<ListViewItem>().Sum(i => ((ItemInfo)i.Tag).Size)));
         }
     }

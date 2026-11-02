@@ -62,6 +62,13 @@ open list, and hovering a slice highlights its row and the other way round)
   again and asks to delete whatever is left (registry keys are saved to a `.reg`
   backup first). On macOS one confirmation moves the app and all its files to
   the Trash.
+- **System (Windows):** space Windows itself uses and what you can do about it:
+  Windows update leftovers (analyze and clean up the component store), restore
+  points (delete the oldest or all but the newest), the hibernation and page
+  files, WSL / Docker virtual disks (shrink), a registry check of broken
+  uninstall, startup and file-association entries (backed up to a `.reg` file
+  before removal), and every drive's free space and health. A drive that is
+  almost full gets an amber warning that leads to the suggestions.
 - **Files:** the largest files, with a name search (`*.iso`, `invoice`) and
   filters by type, size and age ("older than 1 year"). Instant, from memory.
 - **File types:** space by extension or by category (videos, images, archives,

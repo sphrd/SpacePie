@@ -89,6 +89,9 @@ namespace DiskSpaceAnalyzer
             pages.Insert(pages.IndexOf(pContents) + 1, pSuggest);
             pages.Remove(pApps);
             pages.Insert(pages.IndexOf(pSuggest) + 1, pApps);
+            pSystem = BuildSystemPage();
+            pages.Remove(pSystem);
+            pages.Insert(pages.IndexOf(pApps) + 1, pSystem);
             viewTabs = new TabStrip(pages.Select(p => p.Title).ToArray()) { Dock = DockStyle.Top };
             viewTabs.SelectedIndexChanged += (s, e) => ShowPage();
             viewTabs.SetColor(pages.IndexOf(pSuggest), Theme.SUGGEST);
@@ -133,7 +136,7 @@ namespace DiskSpaceAnalyzer
 
             list.ColumnClick += (s, e) =>
             {
-                if (list == (pDupes != null ? pDupes.List : null) || list == (pSuggest != null ? pSuggest.List : null) || list == (pApps != null ? pApps.List : null)) return;   // groups and trees keep their order
+                if (list == (pDupes != null ? pDupes.List : null) || list == (pSuggest != null ? pSuggest.List : null) || list == (pApps != null ? pApps.List : null) || list == (pSystem != null ? pSystem.List : null)) return;   // groups and trees keep their order
                 list.SortBy(e.Column);
                 if (ActivePage.List == list) RefreshChart();
             };

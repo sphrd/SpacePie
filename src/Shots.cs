@@ -134,7 +134,7 @@ namespace DiskSpaceAnalyzer
                 for (int i = 0; i < pages.Count; i++)
                 {
                     var p = pages[i];
-                    if (ShotDemo && (p == pSuggest || p == pChanges || p == pApps)) continue;   // they would show this computer
+                    if (ShotDemo && (p == pSuggest || p == pChanges || p == pApps || p == pSystem)) continue;   // they would show this computer
                     if (p == pBasket)
                         foreach (var it in pFiles.List.Items.Cast<ListViewItem>().Select(x => x.Tag as ItemInfo).Where(x => x != null && x.CanDelete).Take(4))
                             foreach (var t in DeleteTarget.From(it)) AddTarget(t);
@@ -151,6 +151,7 @@ namespace DiskSpaceAnalyzer
                             ?? suggestions.Where(x => x.Size > 0).OrderByDescending(x => x.Size).FirstOrDefault();
                         if (first != null) { first.Expanded = true; ShowSuggestions(); }
                     }
+                    if (p == pSystem) await PrepareSystemShot();
                     if (p == pApps)
                     {
                         for (int k = 0; k < 600 && (apps == null || appsLoading); k++) await Task.Delay(200);
@@ -165,6 +166,7 @@ namespace DiskSpaceAnalyzer
                     if (ShotDemo) ClearHover();
                     string name = (i + 1) + "-" + p.Title.Split(' ')[0].ToLowerInvariant();
                     SaveShot(name);
+                    if (p == pSystem) SaveShot("system");
                     if (!ShotDemo && (p == pContents || p == pSuggest)) await HoverShot(p.List, name + "-hover");
                 }
                 if (!ShotDemo) await HoverShot(tree, "tree-hover");                viewTabs.SelectedIndex = pages.IndexOf(pContents);
@@ -214,6 +216,9 @@ namespace DiskSpaceAnalyzer
             var log = new System.Text.StringBuilder();
             Action<bool, string> check = (ok, what) => { log.AppendLine((ok ? "PASS  " : "FAIL  ") + what); if (!ok) SelfTestFailed = true; };
             string dir = SelfTestDir;
+            HashCache.FileOverride = dir + ".hashes";
+            try { File.Delete(HashCache.FileOverride); } catch (Exception) { }
+            HashCache.Unload();
             Func<string, string> P = rel => Path.Combine(dir, rel);
             try
             {
@@ -302,6 +307,38 @@ namespace DiskSpaceAnalyzer
                     SetMeasure(true);
                     check(disk && len && g[0].Alloc != g[0].Bytes, string.Format("duplicates: sizes follow the switch (on disk {0}, file size {1})", g[0].Alloc, g[0].Bytes));
                 }
+                // A repeat search reads only new or changed files (hash cache); a changed file is read again.
+                {
+                    var f2 = new DuplicateFinder();
+                    await Task.Run(() => f2.Run(root, 1));
+                    bool same = f2.Groups.Count == 1 && f2.Groups[0].Count == 2 && f2.BytesRead == 0 && f2.FromCache >= 3;
+                    var dDir = FindScanned(P("D"), true);
+                    long modBefore = dDir.FileList.First(x => x.Name == "dup2.bin").Modified;
+                    File.SetLastWriteTime(P(@"D\dup2.bin"), DateTime.Now.AddMinutes(-3));
+                    for (int i = 0; i < 40 && FindScanned(P("D"), true).FileList.First(x => x.Name == "dup2.bin").Modified == modBefore; i++) await Task.Delay(250);
+                    var f3 = new DuplicateFinder();
+                    await Task.Run(() => f3.Run(root, 1));
+                    bool reread = f3.Groups.Count == 1 && f3.FilesChecked >= 1 && f3.BytesRead > 0 && f3.BytesRead <= 65536 + 200000;   // only dup2.bin: its first 64 KB, then all of it
+                    check(same && reread, string.Format("duplicates: repeat search read {0} bytes ({1} files from the cache); after touching dup2.bin it read {2} bytes, same groups",
+                        f2.BytesRead, f2.FromCache, f3.BytesRead));
+                }
+                // Replace with links: dup2.bin becomes a hard link to dup1.bin (same content, one file on disk), the group goes.
+                {
+                    var dg = dupeGroups[0];
+                    var keepF = dg.First(x => x.Name == "dup1.bin");
+                    var copyF = dg.First(x => x.Name == "dup2.bin");
+                    var cur = FindScanned(P("D"), true).FileList.First(x => x.Name == "dup2.bin");
+                    copyF = FileEntry.From(FindScanned(P("D"), true), ref cur);   // with its new modification time
+                    long allocBefore = root.Alloc;
+                    int n = await ReplaceWithLinks(new List<KeyValuePair<FileEntry, FileEntry>> { new KeyValuePair<FileEntry, FileEntry>(copyF, keepF) }, false);
+                    var ia = FileIdentity(P(@"C\dup1.bin")); var ib = FileIdentity(P(@"D\dup2.bin"));
+                    bool sameFile = ia != null && ib != null && ia.Item1 == ib.Item1 && ib.Item2 == 2;
+                    bool contentOk = File.ReadAllBytes(P(@"C\dup1.bin")).SequenceEqual(File.ReadAllBytes(P(@"D\dup2.bin")));
+                    // (Folder-by-folder scans count every link of a file, like Explorer; only the master file table scan counts it once.)
+                    check(n == 1 && sameFile && contentOk && dupeGroups.Count == 0,
+                        string.Format("duplicates: replaced with a hard link: one file with 2 links, same content, group gone [n {1}, same file {2}, links {3}, content {4}, groups {5}; {6}; scan total change {0}]",
+                            Fmt.Size(allocBefore - root.Alloc), n, sameFile, ib != null ? ib.Item2 : 0, contentOk, dupeGroups.Count, statusLabel.Text));
+                }
 
                 // Suggestions: the node_modules folder of project P.
                 var sug = await Task.Factory.StartNew(() => FindSuggestions(roots.Where(r => r.Node != null).Select(r => r.Node).ToList()));
@@ -357,6 +394,77 @@ namespace DiskSpaceAnalyzer
                 check(!File.Exists(P(@"C\other.bin")) && c.FileList.All(f => f.Name != "other.bin") && c.LocalFiles == 1, "file delete: other.bin gone from disk and index");
                 check(root.Files == 5, "totals after deletes: " + root.Files + " files (expected 5)");
 
+                // Fast restart: the saved scan reads back identical; as administrator (CI), the change journal reports exactly the
+                // files and folders changed since a position.
+                {
+                    Snapshot.DirOverride = dir + ".snapshots";
+                    var sw0 = System.Diagnostics.Stopwatch.StartNew();
+                    Snapshot.Save(root.FullPath, root, 7, 123);
+                    double saveS = sw0.Elapsed.TotalSeconds;
+                    sw0.Restart();
+                    var back = Snapshot.Load(root.FullPath);
+                    double loadS = sw0.Elapsed.TotalSeconds;
+                    Func<DirNode, string> sig = null;
+                    sig = d => d.Name + "|" + d.Bytes + "|" + d.Alloc + "|" + d.Files + "|" + d.Dirs + "|" +
+                        (d.FileList == null ? "-" : string.Join(",", d.FileList.Select(x => x.Name + ":" + x.Bytes + ":" + x.Alloc + ":" + x.Modified))) +
+                        "[" + (d.Children == null ? "" : string.Join(";", d.Children.OrderBy(ch => ch.Name, StringComparer.OrdinalIgnoreCase).Select(ch => sig(ch)))) + "]";
+                    check(back != null && back.JournalId == 7 && back.Usn == 123 && sig(back.Node) == sig(root),
+                        string.Format("fast restart: the saved scan reads back identical (saved in {0:0.000} s, loaded in {1:0.000} s)", saveS, loadS));
+                    string journalNote = "skipped (the change journal needs administrator rights)";
+                    bool journalOk = true;
+                    ulong jid; long jnext;
+                    if (Snapshot.QueryJournal(dir, out jid, out jnext))
+                    {
+                        Directory.CreateDirectory(P(@"J\keep"));
+                        File.WriteAllText(P(@"J\gone.txt"), "x");
+                        Snapshot.QueryJournal(dir, out jid, out jnext);
+                        File.WriteAllText(P(@"J\new.txt"), "new");
+                        File.Delete(P(@"J\gone.txt"));
+                        Directory.CreateDirectory(P(@"J\newdir"));
+                        File.WriteAllText(P(@"J\newdir\inner.txt"), "inner");
+                        string why;
+                        var ch = Snapshot.ReadSince(dir, jid, jnext, 100000, out why);
+                        Func<string, bool, bool> has = (rel, del) => ch != null && ch.Any(x => SamePath(x.Path, P(rel)) && x.Deleted == del);
+                        journalOk = ch != null && has(@"J\new.txt", false) && has(@"J\gone.txt", true) && has(@"J\newdir", false) && has(@"J\newdir\inner.txt", false) &&
+                                    !ch.Any(x => SamePath(x.Path, P(@"J\keep")));
+                        journalNote = journalOk ? string.Format("journal: {0} changes, new/deleted file, new folder and its file found", ch.Count)
+                            : "journal: " + (ch == null ? why : string.Join(", ", ch.Select(x => (x.Deleted ? "-" : "+") + x.Path)));
+                        Directory.Delete(P("J"), true);
+                    }
+                    check(journalOk, "fast restart: " + journalNote);
+                    try { Directory.Delete(Snapshot.DirOverride, true); } catch (Exception) { }
+                    Snapshot.DirOverride = null;
+                }
+
+                // Always start as administrator: the task definition starts this exe on demand, elevated, for this user; the
+                // arguments of a normal start reach the elevated copy. As administrator (CI), a real test task is made and removed.
+                {
+                    string exe = Application.ExecutablePath;
+                    string xml = Elevation.TaskXml(exe, System.Security.Principal.WindowsIdentity.GetCurrent().User.Value);
+                    bool def = SamePath(Elevation.ParseCommand(xml), exe) && xml.Contains("<RunLevel>HighestAvailable</RunLevel>") &&
+                               xml.Contains("<LogonType>InteractiveToken</LogonType>") && xml.Contains("--from-task") && !xml.Contains("<Triggers>");
+                    string af = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"DiskSpaceAnalyzer\task-args.txt");
+                    Directory.CreateDirectory(Path.GetDirectoryName(af));
+                    File.WriteAllLines(af, new[] { @"D:\some folder" });
+                    var got = Elevation.TakeTaskArgs();
+                    bool handed = got.Length == 1 && got[0] == @"D:\some folder" && !File.Exists(af);
+                    string real = "skipped (not administrator)";
+                    bool realOk = true;
+                    if (Elevation.IsAdmin)
+                    {
+                        Elevation.TaskName = "Disk Space Analyzer selftest";
+                        try
+                        {
+                            string e1 = Elevation.Enable();
+                            string target = Elevation.TaskTarget();
+                            string e2 = Elevation.Disable();
+                            realOk = e1 == null && SamePath(target, exe) && e2 == null && Elevation.TaskTarget() == null;
+                            real = realOk ? "test task created, pointed at this exe, removed" : string.Format("create: {0}, target: {1}, remove: {2}", e1 ?? "ok", target ?? "none", e2 ?? "ok");
+                        }
+                        finally { string o2; Elevation.Schtasks("/delete /tn \"Disk Space Analyzer selftest\" /f", out o2); Elevation.TaskName = Elevation.DefaultTaskName; }
+                    }
+                    check(def && handed && realOk, "always as administrator: task runs this exe elevated on demand only; arguments handed over; " + real);
+                }
                 // Prompts are the themed dialog: warning sign, the full list in a scrollable box, a red primary button.
                 using (var dlg = new AlertForm(AlertIcon.Danger, "Delete 30 items permanently?", "Test", null,
                     Enumerable.Range(1, 30).Select(k => @"C:\x\item" + k + "\t1 KB").ToList(), "Delete permanently", "Cancel"))
@@ -415,6 +523,7 @@ namespace DiskSpaceAnalyzer
                 suggestions = saved;
 
                 await SelfTestApps(check);
+                await SelfTestSystem(check);
 
                 // Hover text: full name and full path.
                 var dupFile = Scanner.ListFiles(FindScanned(P("C"), true)).First(f => f.Name == "dup1.bin");

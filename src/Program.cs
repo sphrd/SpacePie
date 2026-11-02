@@ -20,6 +20,12 @@ namespace DiskSpaceAnalyzer
             // Headless mode: DiskSpaceAnalyzer.exe --cli scan <folder>  (--scan <folder> is kept as an alias)
             if (args.Length >= 1 && args[0] == "--cli" && !(args.Length >= 4 && args[1] == "screenshot") && !(args.Length == 3 && args[1] == "selftest")) return Headless(args);
             if (args.Length == 2 && args[0] == "--scan") return Headless(new[] { "--cli", "scan", args[1] });
+            // Elevated helper started by the About window (one UAC prompt): turn "Always start as administrator" on or off.
+            if (args.Length == 2 && args[0] == "--admin-task") return (args[1] == "on" ? Elevation.Enable() : Elevation.Disable()) == null ? 0 : 1;
+            // Started by the task (elevated): the arguments of the normal start come through a file.
+            if (args.Length == 1 && args[0] == "--from-task") args = Elevation.TakeTaskArgs();
+            // Normal start with "Always start as administrator" on: run the task (no prompt) and let it open the window.
+            else if ((args.Length == 0 || !args[0].StartsWith("--")) && Elevation.TryStartElevated(args)) return 0;
 
             try { SetCurrentProcessExplicitAppUserModelID("sphrd.DiskSpaceAnalyzer"); } catch (Exception) { }
             Updater.CleanUp();   // the exe replaced by the last update, if any
