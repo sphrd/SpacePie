@@ -527,7 +527,7 @@ final class SelfTestRun {
         steps.then {
             let pc = w.pContents!
             let f = HoverTip.shared.tipWindow?.frame ?? .zero
-            self.check(pc.items.count >= 2 && HoverTip.shared.shownText == pc.items[0].toolTip,
+            self.check(pc.items.count >= 2 && HoverTip.shared.shownText == pc.hoverText(0),
                        "hover: tip of row 0 shown (\(HoverTip.shared.shownText?.replacingOccurrences(of: "\n", with: " | ") ?? "none"))")
             self.check(abs(f.minX - (hoverPoint.x + 16)) < 1 && abs(f.maxY - (hoverPoint.y - 20)) < 1,
                        "hover: tip placed 16 px right of and 20 px below the cursor (tip \(f), cursor \(hoverPoint))")
@@ -538,7 +538,7 @@ final class SelfTestRun {
         steps.wait(0.6)
         steps.then {
             let pc = w.pContents!
-            self.check(pc.items.count >= 2 && HoverTip.shared.shownText == pc.items[1].toolTip,
+            self.check(pc.items.count >= 2 && HoverTip.shared.shownText == pc.hoverText(1),
                        "hover: tip follows to row 1 (\(HoverTip.shared.shownText?.replacingOccurrences(of: "\n", with: " | ") ?? "none"))")
             if let e = NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                               windowNumber: w.window?.windowNumber ?? 0, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil) {
@@ -557,6 +557,20 @@ final class SelfTestRun {
             self.check(want != nil && HoverTip.shared.shownText == want,
                        "hover: tree node tip shown (\(HoverTip.shared.shownText?.replacingOccurrences(of: "\n", with: " | ") ?? "none"))")
             HoverTip.shared.reset()
+            // A cell cut off with an ellipsis is shown in full under the name and path; a cell that fits is not repeated;
+            // widening the column takes the line away (the tip is worked out again on every hover).
+            let p = Page("Cut", [Column("name", "Name", 200), Column("cat", "Publisher", 70), Column("size", "Size", 90, true)], barColumn: -1, bar: nil)
+            let it = ItemInfo()
+            it.name = "Cut test"; it.path = self.P("Cut test")
+            it.cells = ["Cut test", "Some Publisher With A Long Name Inc.", "12 MB"]
+            p.setRows([it], "", keepOrder: true)
+            let rt = p.hoverText(0) ?? ""
+            self.check(rt.hasPrefix(it.toolTip + "\n\n") && rt.contains("Publisher: Some Publisher With A Long Name Inc.") && !rt.contains("Size: 12 MB")
+                       && !rt.contains("Name: "),
+                       "hover: every cut-off column of the row is shown in full (\(rt.replacingOccurrences(of: "\n", with: " | ")))")
+            p.table.tableColumns[1].width = 400
+            let wide = p.hoverText(0) ?? ""
+            self.check(wide == it.toolTip, "hover: a widened column is no longer repeated (\(wide.replacingOccurrences(of: "\n", with: " | ")))")
         }
         // Apps: a fake app in <scratch>-apps/Applications is listed (a com.apple.* one is not); opening it lists the bundle
         // and its 3 leftovers; one Uninstall moves all 4.
@@ -829,6 +843,37 @@ final class ShotRun {
             steps.wait(2)
             steps.then { self.shot(p === w.pApps ? "apps" : p === w.pSystem ? "system" : "\(num)-" + (p.title.split(separator: " ").first.map { String($0).lowercased() } ?? "view")) }
             if p === w.pApps {
+                // Hover a visible row with cut-off cells: its tip shows them in full under the name and location. When
+                // no visible row has any, the Publisher column is narrowed for the shot.
+                var narrowed: (NSTableColumn, CGFloat)?
+                steps.then {
+                    let t = w.pApps.table
+                    func cutRow() -> Int? {
+                        let vis = t.rows(in: t.visibleRect)
+                        let rows = (vis.location..<(vis.location + vis.length)).filter { t.rect(ofRow: $0).minY >= t.visibleRect.minY && t.rect(ofRow: $0).maxY <= t.visibleRect.maxY }
+                        let cut = rows.map { r -> (Int, Int) in
+                            let n = w.pApps.hoverText(r)?.components(separatedBy: "\n\n").dropFirst().first?.components(separatedBy: "\n").count ?? 0
+                            return (r, n)
+                        }.filter { $0.1 > 0 }
+                        return cut.max { $0.1 < $1.1 }?.0
+                    }
+                    var row = cutRow()
+                    if row == nil, let c = t.tableColumns.first(where: { $0.identifier.rawValue == "c3" }) {
+                        narrowed = (c, c.width)
+                        c.width = 60
+                        row = cutRow()
+                    }
+                    if let r = row {
+                        print("apps: hover row \(r): \(w.pApps.cutCells(r).map { $0.title }.joined(separator: ", ")) cut off")
+                        self.hover(t, r)
+                    }
+                }
+                steps.wait(0.9)
+                steps.then {
+                    self.shotWithTip("apps-hover-cut")
+                    HoverTip.shared.reset()
+                    if let n = narrowed { n.0.width = n.1 }
+                }
                 // The fake app opened before uninstalling: the bundle and its leftovers (cleaned up afterwards).
                 let fakeRoot = dir + "/fake-apps/Applications"
                 steps.add { next in

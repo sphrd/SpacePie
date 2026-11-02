@@ -255,7 +255,6 @@ final class ListCell: NSTableCellView {
         let text = index < it.cells.count ? it.cells[index] : ""
         let b = bounds
         if index == 0 {
-            var x: CGFloat = 6
             if it.chevron >= 0 {
                 let cx = ListCell.chevronX + 7, cy = (b.height / 2).rounded()
                 let tri = NSBezierPath()
@@ -269,21 +268,17 @@ final class ListCell: NSTableCellView {
                 tri.fill()
             }
             if it.check >= 0 {
-                let cx = ListCell.checkX(it)
-                ListCell.drawCheck(NSRect(x: cx, y: ((b.height - 14) / 2).rounded(), width: 14, height: 14), it.check, strong: strong)
-                x = cx + 14 + 6
-            } else if it.chevron >= 0 { x = ListCell.checkX(it) }          // after the chevron
-            else if let g = it.groupOf, g.chevron >= 0 { x = 42 }            // under an opened head with a chevron
-            else if it.groupOf != nil { x += 18 }
+                ListCell.drawCheck(NSRect(x: ListCell.checkX(it), y: ((b.height - 14) / 2).rounded(), width: 14, height: 14), it.check, strong: strong)
+            }
             if !it.isSummary && !it.isGroup {
-                let ir = NSRect(x: x, y: (b.height - 16) / 2, width: 16, height: 16)
+                let ir = NSRect(x: ListCell.iconX(it), y: (b.height - 16) / 2, width: 16, height: 16)
                 if let img = it.icon { img.draw(in: ir, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high.rawValue]) }
                 else if it.isDir || it.folderIcon { Theme.drawFolder(ir, strong ? T.BG : T.MUTED) } else { Theme.drawFile(ir, strong ? T.BG : T.MUTED) }
-                x += 22
             }
-            Theme.drawText(text, in: NSRect(x: x, y: 0, width: max(0, b.width - x - 4), height: b.height), font: it.isGroup ? Theme.fontBold : Theme.font, color: fore)
+            let x = ListCell.nameX(it)
+            Theme.drawText(text, in: NSRect(x: x, y: 0, width: max(0, b.width - x - 4), height: b.height), font: ListCell.font(it, 0), color: fore)
         } else if index == pg.barColumn {
-            let textW = Theme.textWidth("100.0 %", Theme.font)
+            let textW = ListCell.pctW
             let bh: CGFloat = 8
             let bar = NSRect(x: 6, y: (b.height - bh) / 2, width: max(0, b.width - textW - 12), height: bh)
             if bar.width > 8 && !it.isSummary && !it.hideBar {
@@ -298,6 +293,32 @@ final class ListCell: NSTableCellView {
     }
 
     static let chevronX: CGFloat = 4
+    static let pctW = Theme.textWidth("100.0 %", Theme.font)
+
+    /// x of the icon in the name column: after the checkbox or the chevron, members of a group indented.
+    static func iconX(_ it: ItemInfo) -> CGFloat {
+        if it.check >= 0 { return ListCell.checkX(it) + 14 + 6 }
+        if it.chevron >= 0 { return ListCell.checkX(it) }                    // after the chevron
+        if let g = it.groupOf, g.chevron >= 0 { return 42 }                  // under an opened head with a chevron
+        return it.groupOf != nil ? 6 + 18 : 6
+    }
+
+    /// x of the text in the name column (after the icon; group heads and summaries have none).
+    static func nameX(_ it: ItemInfo) -> CGFloat { iconX(it) + (!it.isSummary && !it.isGroup ? 22 : 0) }
+
+    static func font(_ it: ItemInfo, _ column: Int) -> NSFont { column == 0 && it.isGroup ? Theme.fontBold : Theme.font }
+
+    /// Width the text of column `column` gets in a cell `width` wide (the same room draw() gives it).
+    static func textRoom(_ it: ItemInfo, column: Int, barColumn: Int, width: CGFloat) -> CGFloat {
+        if column == 0 { return max(0, width - nameX(it) - 4) }
+        if column == barColumn { return min(pctW, max(0, width - 6)) }
+        return max(0, width - 12)
+    }
+
+    /// True when the text does not fit its room and is drawn cut off with an ellipsis.
+    static func isCut(_ text: String, font: NSFont, room: CGFloat) -> Bool {
+        !text.isEmpty && (text as NSString).size(withAttributes: [.font: font]).width > room + 0.01
+    }
     /// x of the checkbox in the name column: a head next to its chevron, its members indented by 18 px.
     static func checkX(_ it: ItemInfo) -> CGFloat { it.groupOf != nil ? 42 : 24 }
 
@@ -393,10 +414,7 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         root.addSubview(caption)
         headline.isHidden = true
         root.addSubview(headline)
-        table.tipFor = { [weak self] r in
-            guard let s = self, r >= 0, r < s.items.count else { return nil }
-            return s.items[r].toolTip
-        }
+        table.tipFor = { [weak self] r in self?.hoverText(r) }
         root.onLayout = { [weak self] r in self?.layoutPage(r) }
         root.isHidden = true
     }
@@ -496,6 +514,35 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     var selectedItems: [ItemInfo] { table.selectedRowIndexes.compactMap { $0 < items.count ? items[$0] : nil } }
+
+    /// The cells of row r cut off with an ellipsis at the current column widths, in the order the columns are shown:
+    /// (column title, full text).
+    func cutCells(_ r: Int) -> [(title: String, text: String)] {
+        guard r >= 0, r < items.count else { return [] }
+        let it = items[r]
+        var out: [(title: String, text: String)] = []
+        for col in table.tableColumns {
+            guard let i = Int(col.identifier.rawValue.dropFirst()), i < columns.count, i < it.cells.count else { continue }
+            let room = ListCell.textRoom(it, column: i, barColumn: barColumn, width: col.width)
+            if ListCell.isCut(it.cells[i], font: ListCell.font(it, i), room: room) { out.append((columns[i].title, it.cells[i])) }
+        }
+        return out
+    }
+
+    /// The hover tip of row r: the full name and where it is, then a blank line and "Column: full text" for every
+    /// other cell cut off at the current column widths (unless the text is already shown in full above).
+    func hoverText(_ r: Int) -> String? {
+        guard r >= 0, r < items.count else { return nil }
+        let head = items[r].toolTip
+        let lines = head.isEmpty ? [] : head.components(separatedBy: "\n")
+        var extra: [String] = []
+        for c in cutCells(r) where !lines.contains(where: { $0.contains(c.text) }) {
+            let line = c.title.isEmpty ? c.text : c.title + ": " + c.text
+            if !extra.contains(line) { extra.append(line) }
+        }
+        if extra.isEmpty { return lines.isEmpty ? nil : head }
+        return lines.isEmpty ? extra.joined(separator: "\n") : head + "\n\n" + extra.joined(separator: "\n")
+    }
 
     func select(_ rows: IndexSet) { table.selectRowIndexes(rows, byExtendingSelection: false) }
 
