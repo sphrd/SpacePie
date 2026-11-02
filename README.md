@@ -27,10 +27,17 @@ to the Recycle Bin / Trash or permanently.
 - **Starts right away, in the background.** The system drive is scanned when the
   app opens, with progress and **Cancel**; you can browse while it runs. Other
   drives and USB disks are listed and scanned when you ask.
+- **Instant restart.** When you close it, the scan of each drive is saved; the
+  next start shows it at once (a whole system drive in under two seconds). On
+  Windows as administrator it then reads only what changed since, from the
+  drive's NTFS change journal (on macOS, from the file system's event history),
+  instead of scanning again; otherwise it rescans in the background while you
+  browse the saved scan.
 - **Live updates.** Files that appear, change or go away update the results
   within seconds, without rescanning.
 - **Size on disk** (the default) or **file size**, switched with one click.
-  Compressed files count what they really take, hard links count once, and cloud
+  Compressed files count what they really take, hard links count once (Windows:
+  in administrator scans of whole drives), and cloud
   files that are not downloaded (OneDrive online-only, iCloud) count nothing and
   are never downloaded by the scan.
 
@@ -61,7 +68,8 @@ open list, and hovering a slice highlights its row and the other way round)
   **Uninstall...** on Windows runs the app's own uninstaller, checks everything
   again and asks to delete whatever is left (registry keys are saved to a `.reg`
   backup first). On macOS one confirmation moves the app and all its files to
-  the Trash.
+  the Trash. The list is read in the background as soon as a drive scan
+  finishes, so it is ready when you open the tab.
 - **System (Windows):** space Windows itself uses and what you can do about it:
   Windows update leftovers (analyze and clean up the component store), restore
   points (delete the oldest or all but the newest), the hibernation and page
@@ -69,12 +77,19 @@ open list, and hovering a slice highlights its row and the other way round)
   uninstall, startup and file-association entries (backed up to a `.reg` file
   before removal), and every drive's free space and health. A drive that is
   almost full gets an amber warning that leads to the suggestions.
+- **System (macOS):** Time Machine local snapshots (delete one or all),
+  purgeable space (macOS frees it when needed), iPhone / iPad backups, and every
+  volume's free space and health (SMART status), with the same low-space warning.
 - **Files:** the largest files, with a name search (`*.iso`, `invoice`) and
   filters by type, size and age ("older than 1 year"). Instant, from memory.
 - **File types:** space by extension or by category (videos, images, archives,
   disk images, installers...).
 - **Duplicates:** files with identical content; **Select extra copies** keeps
-  the newest of each group.
+  the newest of each group. **Replace with links** keeps every file where it is
+  but stores the data once: Windows hard links (linked files share one content,
+  so use it for files you keep, not edit) or, on macOS, APFS clones (independent
+  copies that share space until one changes). A repeat search only reads files
+  that are new or changed since the last one.
 - **Changes:** which folders grew or shrank since the previous scan.
 - Hover any row or folder to see its full name and path.
 
@@ -122,7 +137,9 @@ Get the files from the [latest release](../../releases/latest).
 
 Download `DiskSpaceAnalyzer.exe` and run it; there is nothing to install
 (Windows 10 or 11). For the fastest whole-drive scans, click **Run as
-administrator** in the toolbar.
+administrator** in the toolbar. To start as administrator every time without
+the Windows prompt, turn on **Always start as administrator** in **About**
+(Windows asks once to set it up, as a scheduled task; turn it off there).
 
 ### macOS
 
@@ -170,8 +187,10 @@ or later.
 ### Privacy
 
 Nothing leaves your computer. The only network request is the update check
-against this repository's releases. The last scan of each drive or folder (folder
-names and sizes only) is kept locally so the next scan can show what changed.
+against this repository's releases. Kept locally only: the last scan of each
+drive or folder (folder names and sizes, to show what changed), the full scan of
+the last 4 drives (for the instant restart), and the content hashes of files
+compared for duplicates (to skip unchanged files next time).
 
 ## Build from source
 
