@@ -22,6 +22,8 @@ final class ItemInfo {
     var suggestion: Suggestion?        // suggestions: the suggestion of the row (head or one of its targets)
     var app: InstalledApp?             // apps: the app of the row (head or one of its leftovers)
     var leftover: AppLeftover?         // apps: the leftover of a member row
+    var sys: SysItem?                  // system: the item of a member row
+    var sysGroup: SysGroup?            // system: the group of the row (head or member)
     var hideBar = false                // no percentage bar (the bar column's cell stays empty)
     var icon: NSImage?                 // drawn instead of the folder/file icon (apps: the app's own icon)
     var chartSize: Int64 { chartValue >= 0 ? chartValue : size }

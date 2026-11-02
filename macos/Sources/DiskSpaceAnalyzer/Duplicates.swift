@@ -4,18 +4,28 @@ import Darwin
 
 /// Finds files with identical content: same size (from the index), then the same hash of the first 64 KB, then the same
 /// hash of the whole file. Several hard links to one file (same device and inode) are one file, not duplicates. Files
-/// not downloaded from iCloud are skipped (reading them would download them).
+/// not downloaded from iCloud are skipped (reading them would download them). Hashes are remembered (HashCache): a file
+/// whose path, size, modification time and inode did not change is not read again.
 final class DuplicateFinder {
     private let lock = NSLock()
     private var _toRead: Int64 = 0, _read: Int64 = 0, _checked: Int64 = 0, _current = ""
     private var _cancelled = false
+    private var _readFiles = Set<String>(), _cachedFiles = Set<String>()
+    private var _cachedBytes: Int64 = 0
     var groups: [[FileEntry]] = []
+    static var useCache = true
 
     var bytesToRead: Int64 { lock.lock(); defer { lock.unlock() }; return _toRead }
     var bytesRead: Int64 { lock.lock(); defer { lock.unlock() }; return _read }
     var filesChecked: Int64 { lock.lock(); defer { lock.unlock() }; return _checked }
     var current: String { lock.lock(); defer { lock.unlock() }; return _current }
     var cancelled: Bool { lock.lock(); defer { lock.unlock() }; return _cancelled }
+    /// Files opened and read in this search.
+    var filesRead: Int { lock.lock(); defer { lock.unlock() }; return _readFiles.count }
+    /// Files whose hashes all came from the cache (not read at all).
+    var filesFromCache: Int { lock.lock(); defer { lock.unlock() }; return _cachedFiles.subtracting(_readFiles).count }
+    /// Bytes the cache saved from being read.
+    var bytesFromCache: Int64 { lock.lock(); defer { lock.unlock() }; return _cachedBytes }
     func cancel() { lock.lock(); _cancelled = true; lock.unlock() }
 
     static let headSize = 64 * 1024
@@ -45,6 +55,7 @@ final class DuplicateFinder {
 
     /// Steps 2 and 3, reading the files only.
     func run(_ sizeGroups: [[Candidate]]) {
+        defer { if DuplicateFinder.useCache { HashCache.save() } }
         lock.lock(); _toRead = sizeGroups.reduce(Int64(0)) { $0 + Int64($1.count) * min(Int64(DuplicateFinder.headSize), $1[0].file.bytes) }; lock.unlock()
         var headGroups: [[Candidate]] = []
         for g in sizeGroups {
@@ -77,23 +88,38 @@ final class DuplicateFinder {
             var i = k * chunk
             while i < min(n, (k + 1) * chunk) {
                 if cancelled { return }
-                let h = hash(g[i], limit, identify)
+                let h = hash(g[i], limit, identify, full: full)
                 if full { g[i].full = h } else { g[i].head = h }
                 i += 1
             }
         }
     }
 
-    private func hash(_ c: Candidate, _ limit: Int64, _ identify: Bool) -> String? {
+    private func hash(_ c: Candidate, _ limit: Int64, _ identify: Bool, full: Bool) -> String? {
         lock.lock(); _current = c.path; lock.unlock()
+        var st = stat()
+        guard lstat(c.path, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { return nil }
+        let size = Int64(st.st_size)
+        let mtime = Int64(st.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(st.st_mtimespec.tv_nsec)
+        let ino = UInt64(st.st_ino)
+        if identify { c.id = (UInt64(UInt32(bitPattern: st.st_dev)) << 40) ^ ino }
+        let cache = DuplicateFinder.useCache
+        if cache {
+            let known = HashCache.lookup(c.path, size, mtime, ino)
+            if let h = full ? known.full : known.head {
+                lock.lock()
+                _cachedFiles.insert(c.path)
+                _cachedBytes += min(limit, size)
+                _toRead -= min(limit, size)
+                _checked += 1
+                lock.unlock()
+                return h
+            }
+        }
         let fd = open(c.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         if fd < 0 { return nil }
         defer { close(fd) }
-        if identify {
-            var st = stat()
-            if fstat(fd, &st) == 0 { c.id = (UInt64(UInt32(bitPattern: st.st_dev)) << 40) ^ UInt64(st.st_ino) }
-            else { c.id = UInt64(UInt(bitPattern: c.path.hashValue)) }
-        }
+        lock.lock(); _readFiles.insert(c.path); lock.unlock()
         _ = fcntl(fd, F_NOCACHE, 1)
         var md5 = Insecure.MD5()
         let bufSize = 1 << 20
@@ -110,7 +136,14 @@ final class DuplicateFinder {
             lock.lock(); _read += Int64(n); lock.unlock()
         }
         lock.lock(); _checked += 1; lock.unlock()
-        return Data(md5.finalize()).base64EncodedString()
+        let h = Data(md5.finalize()).base64EncodedString()
+        // Only a hash of the version measured above is remembered (the file did not change while it was read).
+        var after = stat()
+        if cache && fstat(fd, &after) == 0 && Int64(after.st_size) == size
+            && Int64(after.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(after.st_mtimespec.tv_nsec) == mtime {
+            HashCache.store(c.path, size, mtime, ino, head: full ? nil : h, full: full ? h : (size <= Int64(DuplicateFinder.headSize) ? h : nil))
+        }
+        return h
     }
 }
 
@@ -120,9 +153,10 @@ extension MainWindowController {
     func buildDuplicatesPage() -> Page {
         btnFindDupes.tip = "Compare the files in the selected folder by content"
         btnSelectExtra.tip = "Select every copy except the newest one of each group; then add them to the delete list or delete them"
+        btnClone.tip = "Select duplicate groups (or press Select extra copies) to replace their extra copies with APFS clones"
         let p = Page("Duplicates", [Column("name", "Name", 260), Column("size", "Size", 84, true), Column("files", "Can free", 90, true),
                                     Column("folder", "Folder", 330), Column("mod", "Modified", 128)],
-                     barColumn: -1, bar: ActionBar([btnFindDupes, dupeMin, btnSelectExtra], right: [btnSelectExtra]))
+                     barColumn: -1, bar: ActionBar([btnFindDupes, dupeMin, btnSelectExtra, btnClone], right: [btnSelectExtra, btnClone]))
         p.sortable = false
         p.chartTitle = "Duplicates"
         p.chartScope = "of the duplicates"
@@ -136,6 +170,7 @@ extension MainWindowController {
         guard let sc = scope() else { pDupes.setCaption("Scan a drive or folder first."); return }
         let finder = DuplicateFinder()
         dupeFinder = finder
+        dupeCacheNote = ""
         dupeScope = sc.fullPath
         let minSize = MainWindowController.dupeSizes[dupeMin.selectedIndex]
         btnFindDupes.title = "Stop"
@@ -147,7 +182,9 @@ extension MainWindowController {
             guard let self = self, let f = self.dupeFinder else { return }
             let toRead = f.bytesToRead
             let pct = toRead > 0 ? 100 * Double(f.bytesRead) / Double(toRead) : 0
-            self.pDupes.setCaption("Comparing files in \(Fmt.shorten(self.dupeScope, 50))...  \(Int(min(99, pct))) %  (\(Fmt.count(f.filesChecked)) files read)  \(Fmt.shorten(f.current, 60))")
+            let cached = f.filesFromCache
+            self.pDupes.setCaption("Comparing files in \(Fmt.shorten(self.dupeScope, 50))...  \(Int(min(99, pct))) %  (\(Fmt.count(f.filesRead)) files read"
+                + (cached > 0 ? ", \(Fmt.count(cached)) from the cache" : "") + ")  \(Fmt.shorten(f.current, 60))")
         }
         readInBackground({ finder.collect(sc, minSize) }, { [weak self] groups in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -166,7 +203,10 @@ extension MainWindowController {
         pDupes.bar?.relayout()
         if finder.cancelled { pDupes.setCaption("Stopped."); onDupesFinished?(); return }
         dupeGroups = finder.groups
+        let cached = finder.filesFromCache, read = finder.filesRead
+        dupeCacheNote = cached + read == 0 ? "" : "  \(Fmt.count(cached)) file\(cached == 1 ? "" : "s") checked from the cache, \(Fmt.count(read)) read (\(Fmt.size(finder.bytesRead)))."
         fillDuplicates()
+        statusLabel.stringValue = "Duplicates: \(Fmt.count(finder.groups.count)) group\(finder.groups.count == 1 ? "" : "s")." + dupeCacheNote
         onDupesFinished?()
     }
 
@@ -216,8 +256,8 @@ extension MainWindowController {
             }
         }
         p.setRows(rows, "No duplicates found in \(dupeScope).")
-        p.setCaption(groups.isEmpty ? "No duplicates found in \(Fmt.shorten(dupeScope, 80))."
-            : "\(Fmt.count(groups.count)) groups of identical files in \(Fmt.shorten(dupeScope, 60))  -  \(Fmt.size(free)) can be freed by keeping one copy of each. Newest copy first.")
+        p.setCaption(groups.isEmpty ? "No duplicates found in \(Fmt.shorten(dupeScope, 80))." + dupeCacheNote
+            : "\(Fmt.count(groups.count)) groups of identical files in \(Fmt.shorten(dupeScope, 60))  -  \(Fmt.size(free)) can be freed by keeping one copy of each. Newest copy first." + dupeCacheNote)
         p.chartSub = groups.isEmpty ? "" : Fmt.size(free) + " in extra copies"
         p.chartTotal = 0
         p.empty = "No duplicates found."

@@ -10,6 +10,7 @@ final class ScanRoot {
     var scanning = false
     var previous: PrevNode?            // the scan before this one (folder sizes only), for the Changes view
     var previousTime = Date.distantPast
+    var replay: Replay?                // shown from its snapshot while FSEvents replays the changes since
     init(path: String) { self.path = path }
     var displayName: String { isDrive && !label.isEmpty ? label : path }
     var used: Int64 { max(0, total - free) }
@@ -207,7 +208,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     let outline = KeyOutline()
     let treeScroll = NSScrollView()
     let listPanel = ContainerPanel()
-    let viewTabs = TabStrip(["Contents", "Suggestions", "Apps", "Files", "File types", "Duplicates", "Changes", "Delete list"])
+    // Keep in the order of buildViews() (Pages.swift).
+    let viewTabs = TabStrip(["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes", "Delete list"])
     let chartPanel = ContainerPanel()
     let chart = PieChart()
     let statusLabel = NSTextField(labelWithString: "Choose a drive or folder and press Scan.")
@@ -215,13 +217,17 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     let driveLabel = NSTextField(labelWithString: "")
     lazy var versionLink = LinkLabel("v" + Updater.currentString) { [unowned self] in self.updates.check(manual: true) }
     let deleteBar = ScanBar()
+    let workBar = ScanBar()               // long actions that delete nothing (replace with clones)
+    lazy var lowSpaceLink = LinkLabel("Show suggestions") { [unowned self] in self.showSuggestionsTab() }
+    var lowSpaceText = ""
+    var lowWarned = Set<String>()         // volumes warned about low space this session
     let contextMenu = NSMenu()
     lazy var updates = UpdateController(parent: window)
     var splitPositioned = false, split2Positioned = false
 
     // Views (tabs)
     var pages: [Page] = []
-    var pContents: Page!, pFiles: Page!, pTypes: Page!, pDupes: Page!, pSuggest: Page!, pApps: Page!, pChanges: Page!, pBasket: Page!
+    var pContents: Page!, pFiles: Page!, pTypes: Page!, pDupes: Page!, pSuggest: Page!, pApps: Page!, pSystem: Page!, pChanges: Page!, pBasket: Page!
     var contents: HoverTable { pContents.table }
 
     // Files view
@@ -237,6 +243,9 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     lazy var btnFindDupes = RoundButton("Find duplicates", .primary) { [unowned self] in self.findDuplicates() }
     let dupeMin = ChoiceBox("", ["Files of 1 MB or more", "Files of 10 MB or more", "Files of 100 MB or more", "All files"])
     lazy var btnSelectExtra = RoundButton("Select extra copies", .secondary) { [unowned self] in self.selectExtraCopies() }
+    lazy var btnClone = RoundButton("Replace with clones", .secondary) { [unowned self] in self.replaceSelectedWithClones() }
+    var cloneJob: CloneJob?
+    var dupeCacheNote = ""
     var dupeFinder: DuplicateFinder?
     var dupeGroups: [[FileEntry]]?
     var dupeScope = ""
@@ -262,6 +271,20 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     var appsLoading = false
     var appsWorking = false               // looking for an app's files before uninstalling it
     var autoAccept = false                // screenshot run: no confirmations
+    // System view
+    lazy var btnSysRefresh = RoundButton(refresh: { [unowned self] in self.loadSystem() })
+    lazy var btnSysSuggest = RoundButton("Show suggestions", .secondary) { [unowned self] in self.showSuggestionsTab() }
+    lazy var btnSysDelete = RoundButton("Delete...", .warn) { [unowned self] in self.deleteSelectedSystemItems() }
+    lazy var btnSysDeleteAll = RoundButton("Delete all local snapshots...", .warn) { [unowned self] in self.deleteAllLocalSnapshots() }
+    var systemGroups: [SysGroup]?
+    var systemLoading = false
+    var systemLoadedAt = Date.distantPast
+    var systemWaiters: [() -> Void] = []
+    var sysStop: StopFlag?                // Stop on the delete strip while local snapshots are deleted
+    // Fast restart (Snapshot.swift)
+    var fastStart = false                 // start-up shows the last scan and replays the changes since
+    var fsDeep: [String] = []             // folders to scan again as a whole (FSEvents could not list their changes)
+    var onReplayDone: ((String, String?) -> Void)?   // root path, why it fell back to a scan (nil = replayed)
     // Delete list
     var basket: [DeleteTarget] = []
     lazy var btnBasketRemove = RoundButton("Remove from list", .secondary) { [unowned self] in self.removeFromBasket() }
@@ -373,7 +396,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         outline.tipFor = { [unowned self] r in self.outline.item(atRow: r).flatMap { self.treeToolTip($0) } }
         // Picking a folder in the tree while Suggestions or Apps is open shows that folder's contents.
         outline.onUserPick = { [unowned self] in
-            if self.activePage === self.pSuggest || self.activePage === self.pApps, let i = self.pages.firstIndex(where: { $0 === self.pContents }) { self.viewTabs.selectedIndex = i }
+            if self.activePage === self.pSuggest || self.activePage === self.pApps || self.activePage === self.pSystem,
+               let i = self.pages.firstIndex(where: { $0 === self.pContents }) { self.viewTabs.selectedIndex = i }
         }
         styleScroll(treeScroll, outline)
         treeScroll.hasHorizontalScroller = false
@@ -452,11 +476,16 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         deleteBar.danger = true
         deleteBar.cancelButton.tip = "Stop deleting after the current file; whatever was not deleted yet stays"
         deleteBar.cancelButton.onClick = { [unowned self] in
+            if let s = self.sysStop { s.stopped = true; self.deleteBar.cancelButton.isEnabled = false; return }
             guard let j = self.deleteJob, !j.stopped else { return }
             j.stop()
             self.deleteBar.cancelButton.isEnabled = false
         }
         root.addSubview(deleteBar)
+        workBar.cancelButton.tip = "Stop after the current file; whatever was not done yet stays as it is"
+        root.addSubview(workBar)
+        lowSpaceLink.isHidden = true
+        root.addSubview(lowSpaceLink)
 
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(volumesChanged), name: NSWorkspace.didMountNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(volumesChanged), name: NSWorkspace.didUnmountNotification, object: nil)
@@ -508,6 +537,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         y += h + 10
         if !scanBar.isHidden { scanBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
         if !deleteBar.isHidden { deleteBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
+        if !workBar.isHidden { workBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
         let statusH: CGFloat = 28
         split.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: max(100, b.height - y - statusH))
         layoutStatus()
@@ -527,7 +557,13 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         driveLabel.frame = NSRect(x: versionLink.frame.minX - 20 - dw, y: sy, width: dw, height: 16)
         let lw = liveLabel.stringValue.isEmpty ? 0 : Theme.textWidth(liveLabel.stringValue, Theme.font9) + 6
         liveLabel.frame = NSRect(x: driveLabel.frame.minX - (lw > 0 ? 18 : 0) - lw, y: sy, width: lw, height: 16)
-        statusLabel.frame = NSRect(x: m, y: sy, width: max(50, liveLabel.frame.minX - 16 - m), height: 16)
+        var sw = max(50, liveLabel.frame.minX - 16 - m)
+        if !lowSpaceLink.isHidden {
+            let kw = Theme.textWidth(lowSpaceLink.textValue, Theme.font9) + 4
+            sw = max(50, min(Theme.textWidth(statusLabel.stringValue, Theme.font9) + 6, sw - kw - 12))
+            lowSpaceLink.frame = NSRect(x: m + sw + 10, y: sy, width: kw, height: 16)
+        }
+        statusLabel.frame = NSRect(x: m, y: sy, width: sw, height: 16)
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
@@ -543,7 +579,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     func start(initialPath: String?) {
         loadDrives()
         refreshTree(nil)
-        if let p = initialPath { scanPath(p) } else { scanPath("/") }
+        let path = initialPath ?? "/"
+        if fastStart { openLastScan(path) } else { scanPath(path) }
         if selfTestDir == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.updates.check(manual: false) }
         }
@@ -557,7 +594,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     func rootOf(_ top: DirNode?) -> ScanRoot? { guard let t = top else { return nil }; return roots.first { $0.node === t } }
     func isAttached(_ d: DirNode?) -> Bool { guard let d = d else { return false }; return rootOf(d.top) != nil }
 
-    private func sortRoots() {
+    func sortRoots() {
         roots.sort { a, b in
             if a.isSystem != b.isSystem { return a.isSystem }
             if a.isDrive != b.isDrive { return a.isDrive }
@@ -648,6 +685,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         var r = findRoot(path)
         if r == nil { let n = ScanRoot(path: path); refreshCapacity(n); roots.append(n); sortRoots(); r = n }
         let target = r!
+        if let rep = target.replay { rep.timer?.invalidate(); target.replay = nil }
         let s = Scanner()
         scanner = s; scanRoot = target
         target.scanning = true
@@ -656,6 +694,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         refreshTree(current)
         if current == nil && oldNode == nil { selectRoot(target) }
         let started = Date()
+        var snapInfo = Snapshot.infoNow(path)        // the event id from before the scan: changes during it are replayed too
         DispatchQueue.global(qos: .userInitiated).async {
             let result = s.run(path)
             DispatchQueue.main.async {
@@ -666,6 +705,10 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
                     target.node = result
                     self.refreshCapacity(target)
                     self.rememberScan(target, result, complete: !s.cancelled)
+                    if !s.cancelled {
+                        snapInfo.scanSeconds = Date().timeIntervalSince(started)
+                        self.saveSnapshot(target, result, snapInfo)
+                    }
                     self.startWatching(target)
                     var goTo: DirNode?
                     if let c = self.current, let old = oldNode, c.top === old { goTo = MainWindowController.findByPath(result, c.fullPath) ?? result }
@@ -680,6 +723,9 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
                     // A drive is scanned: list the installed apps right away in the background (sizes come from this scan),
                     // so the Apps tab is ready when it is opened.
                     if target.isDrive && !s.cancelled && self.apps == nil && !self.appsLoading && self.selfTestDir == nil { self.loadApps() }
+                    // The System view too (snapshots, backups, drives).
+                    if target.isDrive && !s.cancelled && self.selfTestDir == nil && !self.systemLoading { self.loadSystem() }
+                    if !s.cancelled { self.checkLowSpace(target) }
                     self.onScanFinished?()
                 }
             }
@@ -807,6 +853,11 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
             btnSugDelete.isEnabled = idle && anyChecked
         }
         if pApps != nil { updateAppButtons() }
+        if pSystem != nil { updateSystemButtons() }
+        if pDupes != nil {
+            btnFindDupes.isEnabled = cloneJob == nil
+            updateCloneButton()
+        }
     }
 
     func updateDriveLabel() {
@@ -1077,6 +1128,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         let cmd = e.modifierFlags.contains(.command)
         if pSuggest != nil && view === pSuggest.table && suggestKeyDown(e) { return true }
         if pApps != nil && view === pApps.table && appsKeyDown(e) { return true }
+        if pSystem != nil && view === pSystem.table && systemKeyDown(e) { return true }
         switch e.keyCode {
         case 36, 76:                                                     // Return / Enter
             if view === outline, let r = outline.item(atRow: outline.selectedRow) as? ScanRoot, r.node == nil { scanPath(r.path); return true }

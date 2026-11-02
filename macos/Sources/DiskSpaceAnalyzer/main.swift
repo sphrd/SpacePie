@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         buildMenu()
         main = MainWindowController()
         main.selfTestDir = selfTestDir
+        // Normal start: the last scan shows at once and is brought up to date (not in the --cli modes).
+        main.fastStart = screenshotDir == nil && selfTestDir == nil
         main.showWindow(nil)
         main.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -187,6 +189,9 @@ if args.count >= 2 && args[1] == "--cli" {
     }
     if args.count == 4 && args[2] == "selftest" {
         let dir = SelfTest.prepare(args[3])
+        // The self-test keeps its snapshots and hash cache next to its scratch folder.
+        Snapshot.folderOverride = dir + "-snapshots"
+        HashCache.fileOverride = dir + "-hashes.bin"
         let app = NSApplication.shared
         let d = AppDelegate(initialPath: dir, screenshotDir: nil, selfTestDir: dir)
         app.delegate = d

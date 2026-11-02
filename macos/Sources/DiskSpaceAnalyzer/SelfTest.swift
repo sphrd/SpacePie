@@ -40,6 +40,7 @@ enum SelfTest {
         dir = PathUtil.trim((dir as NSString).standardizingPath)
         let fm = FileManager.default
         try? fm.removeItem(atPath: dir)
+        for extra in ["-snapshots", "-hashes.bin", "-snap", "-hash", "-clone"] { try? fm.removeItem(atPath: dir + extra) }
         var g = SystemRandomNumberGenerator()
         func random(_ n: Int) -> Data { Data((0..<n).map { _ in UInt8.random(in: 0...255, using: &g) }) }
         func write(_ rel: String, _ data: Data) {
@@ -597,6 +598,7 @@ final class SelfTestRun {
             w.apps = nil
             self.check(!PathUtil.exists(self.dir + "-apps") && FakeApp.leftoverPaths.allSatisfy { !PathUtil.exists($0) }, "apps: test files cleaned up")
         }
+        addFeatureChecks()
         steps.run {
             try? self.log.write(toFile: self.dir + ".log", atomically: true, encoding: .utf8)
             print(self.log, terminator: "")
@@ -731,6 +733,17 @@ final class ShotRun {
             if p === w.pDupes {
                 steps.then { w.findDuplicates() }
                 steps.waitUntil(100) { w.dupeFinder == nil }
+                // Extra copies selected: Replace with clones is enabled (APFS) next to Select extra copies.
+                steps.then { w.selectExtraCopies(); w.updateButtons() }
+            }
+            if p === w.pSystem {
+                steps.waitUntil(120) { w.systemGroups != nil && !w.systemLoading }
+                steps.then {
+                    for g in w.systemGroups ?? [] {
+                        let items = g.items.map { s -> String in s.name + " " + (s.size >= 0 ? Fmt.size(s.size) : "-") }
+                        print("system: \(g.title): " + items.joined(separator: ", "))
+                    }
+                }
             }
             if p === w.pSuggest {
                 steps.waitUntil(90) { w.suggestions != nil && !w.suggestFinding }
@@ -755,7 +768,7 @@ final class ShotRun {
                 steps.waitUntil(60) { w.apps?.first.map { $0.leftovers != nil } ?? true }
             }
             steps.wait(2)
-            steps.then { self.shot(p === w.pApps ? "apps" : "\(num)-" + (p.title.split(separator: " ").first.map { String($0).lowercased() } ?? "view")) }
+            steps.then { self.shot(p === w.pApps ? "apps" : p === w.pSystem ? "system" : "\(num)-" + (p.title.split(separator: " ").first.map { String($0).lowercased() } ?? "view")) }
             if p === w.pApps {
                 // The fake app opened before uninstalling: the bundle and its leftovers (cleaned up afterwards).
                 let fakeRoot = dir + "/fake-apps/Applications"

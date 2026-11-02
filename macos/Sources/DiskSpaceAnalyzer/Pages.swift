@@ -23,6 +23,8 @@ extension MainWindowController {
         pSuggest = buildSuggestionsPage(); pages.append(pSuggest)
         // Apps (installed apps, uninstaller) right after Suggestions.
         pApps = buildAppsPage(); pages.append(pApps)
+        // System (snapshots, purgeable space, device backups, drives) right after Apps.
+        pSystem = buildSystemPage(); pages.append(pSystem)
 
         // Files: the whole index under the selected folder, filtered; largest first.
         fileSearch.onChange = { [unowned self] in self.fillFiles() }
@@ -80,6 +82,11 @@ extension MainWindowController {
         }
         var total = p.chartTotal
         if total <= 0 { for it in p.items where it.groupOf == nil { total += max(0, it.chartSize) } }
+        if total <= 0 && p === pSystem {
+            rowSlice = [:]
+            chart.showLogo(p.chartTitle, p.chartSub, "Nothing here that can be freed.")
+            return
+        }
         chart.setData(p.chartTitle, p.chartSub, buildSlices(p, total, p.chartScope))
     }
 
@@ -198,7 +205,10 @@ extension MainWindowController {
             fillFiles()
             return
         }
-        if info.isGroup || info.isSummary { return }
+        if info.isGroup || info.isSummary {
+            if p === pSystem && info.groupOf == nil { expandSystem([info], nil) }
+            return
+        }
         // A suggestion opens and closes; its items show in Finder.
         if p === pSuggest && info.suggestion != nil && info.groupOf == nil && info.path == nil { expandSuggestions([info], nil); return }
         // An app opens and closes (showing all its files).
