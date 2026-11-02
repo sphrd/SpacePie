@@ -265,7 +265,7 @@ extension SelfTestRun {
         // MARK: Fast restart from a snapshot
         // Timing on a bigger tree: a full scan vs saving and loading its snapshot.
         steps.add { next in
-            let big = "/usr"
+            let big = "/Applications"
             DispatchQueue.global(qos: .userInitiated).async {
                 let t0 = Date()
                 let tree = Scanner().run(big)

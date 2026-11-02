@@ -307,9 +307,10 @@ extension MainWindowController {
         btnSysSuggest.isHidden = true
         let bar = ActionBar([btnSysRefresh, btnSysSuggest, btnSysDelete, btnSysDeleteAll], right: [btnSysDelete, btnSysDeleteAll])
         bar.minRowHeight = 0
-        let p = Page("System", [Column("name", "Name", 260), Column("size", "Size", 84, true), Column("size", "% of drive", 125, true),
-                                Column("note", "What it means", 460), Column("mod", "Date", 128)],
-                     barColumn: 2, bar: bar)
+        // "What it means" right after Size, so it shows without scrolling in a narrow list.
+        let p = Page("System", [Column("name", "Name", 230), Column("size", "Size", 84, true), Column("note", "What it means", 440),
+                                Column("size", "% of drive", 110, true), Column("mod", "Date", 128)],
+                     barColumn: 3, bar: bar)
         p.sortable = false
         p.chartTitle = "System"
         p.chartScope = "of what can be freed"
@@ -384,7 +385,7 @@ extension MainWindowController {
             h.chevron = g.expanded ? 1 : 0
             let count = g.items.filter { $0.kind != .note }.count
             let title = g.key == "purgeable" || count == 0 ? g.title : "\(g.title)  (\(Fmt.count(count)))"
-            h.cells = [title, g.size >= 0 ? Fmt.size(g.size) : "", "", g.meaning, ""]
+            h.cells = [title, g.size >= 0 ? Fmt.size(g.size) : "", g.meaning, "", ""]
             h.tip = g.title + "\n" + g.meaning
             if g.items.contains(where: { $0.level == 2 }) { h.color = T.DANGER } else if g.items.contains(where: { $0.level == 1 }) { h.color = T.WARN_FG }
             reclaim += max(0, g.reclaim)
@@ -406,7 +407,7 @@ extension MainWindowController {
                 if s.kind == .backup, let path = s.path {
                     it.targets = [DeleteTarget(path: path, label: s.name, isDir: true, size: max(0, s.size))]
                 }
-                it.cells = [s.name, s.size >= 0 ? Fmt.size(s.size) : "—", s.percent >= 0 ? Fmt.pct(s.percent) : "", s.meaning, Fmt.date(it.modified)]
+                it.cells = [s.name, s.size >= 0 ? Fmt.size(s.size) : "—", s.meaning, s.percent >= 0 ? Fmt.pct(s.percent) : "", Fmt.date(it.modified)]
                 it.tip = s.name + "\n" + (s.path ?? s.meaning)
                 if s.level == 2 { it.color = T.DANGER } else if s.level == 1 { it.color = T.WARN_FG }
                 rows.append(it)
