@@ -92,6 +92,9 @@ namespace DiskSpaceAnalyzer
 
         bool Animating { get { return anim < 1; } }
 
+        /// <summary>The logo is shown instead of a chart.</summary>
+        public bool ShowingLogo { get { return logoMode; } }
+
         /// <summary>Shows the app logo instead of a chart (nothing scanned yet); the next SetData morphs it into the chart.</summary>
         public void ShowLogo(string title, string subtitle, string note)
         {

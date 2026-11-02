@@ -206,6 +206,14 @@ patterns (Part 3) are applied through the WinForms mapping below.
   - Replace with links (src\Links.cs): hard link to the kept copy via a temp name + MoveFileEx replace; same NTFS volume only;
     skips copies changed since the search. Folder-by-folder scans count every link (like Explorer); the MFT scan counts it once.
 
+- 2026-11-02: "the app has no loading screen why? add it. without increasing load time. defined in agent. before the scan is done,
+  the chart should not be shown, the logo should be shown and only when scan bar is done logo turns into the chart."
+  Why none: the agent said "native WinForms starts instantly, no splash"; measured: window after ~0.45 s warm, 5.6 s cold.
+  Splash (src\Splash.cs) on its own STA thread with its own message loop, closed in MainForm.Shown: appears at ~200 ms; window
+  median 454 ms with vs 442 ms without (noise). Name shrinks to fit (measure WITHOUT EndEllipsis: with it MeasureText lies).
+  Chart: while `scanning`, RefreshChart/UpdateChart show the logo (ShowScanLogo) on every tab; SetScanning(true) refreshes the
+  chart; the end-of-scan refresh morphs the logo into the chart.
+
 ## WinForms mapping of the design language
 
 - Tokens and fonts live only in `Theme.cs`; widgets use those names, no inline hex.

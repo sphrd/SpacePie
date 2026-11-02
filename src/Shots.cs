@@ -188,6 +188,7 @@ namespace DiskSpaceAnalyzer
                     about.Close();
                 }
                 // Prompts and the delete strip (made-up items, nothing is deleted).
+                Splash.SaveImage(Path.Combine(ShotDir, "0-splash.png"));
                 var sample = Enumerable.Range(1, 40).Select(k => string.Format(@"E:\Projects\web-app-{0}\node_modules{1}{2}", k, "\t", Fmt.Size(180000000L - k * 3100000L))).ToList();
                 await ShotDialog(new AlertForm(AlertIcon.Danger, "Delete 40 items permanently?",
                     Fmt.Size(sample.Count * 120000000L) + " will be deleted. This bypasses the Recycle Bin and cannot be undone.", null, sample, "Delete permanently", "Cancel"),
@@ -225,6 +226,22 @@ namespace DiskSpaceAnalyzer
                 var top = root;
                 for (int i = 0; i < 20 && chart.MorphFrames < 8; i++) await Task.Delay(100);
                 check(chart.Morphs == 1 && chart.MorphFrames >= 8, "chart: the logo turned into the chart after the scan (" + chart.MorphFrames + " frames)");
+                // While a scan runs the chart pane shows the logo on every tab; when it ends the logo turns into the chart.
+                {
+                    int m0 = chart.Morphs;
+                    var tabs = new[] { pContents, pFiles, pTypes };
+                    bool allLogo = true;
+                    SetScanning(true, "Scanning (test)...");
+                    foreach (var tp in tabs) { viewTabs.SelectedIndex = pages.IndexOf(tp); ShowPage(); RefreshChart(); allLogo &= chart.ShowingLogo; }
+                    viewTabs.SelectedIndex = pages.IndexOf(pContents);
+                    ShowPage();
+                    if (current != null) UpdateChart(current);
+                    allLogo &= chart.ShowingLogo;
+                    SetScanning(false, null);
+                    RefreshChart();
+                    check(allLogo && !chart.ShowingLogo && chart.Morphs == m0 + 1,
+                        "chart: logo on Contents, Files and File types while scanning; the chart came back with the morph when the scan ended");
+                }
                 check(top != null && top.Files == 10 && top.Dirs == 8, string.Format("scan: {0} files, {1} folders (expected 10, 8)", top != null ? top.Files : -1, top != null ? top.Dirs : -1));
 
                 // Chart: every row of at least 2 % of the total (7.2 degrees) has a slice of its own, in true proportion;

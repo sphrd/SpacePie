@@ -344,6 +344,7 @@ namespace DiskSpaceAnalyzer
 
             Shown += (s, e) =>
             {
+                Splash.End(this);
                 // Tree and chart keep their preferred widths but give way on narrow windows, so the list stays usable.
                 split.SplitterDistance = Math.Min(S(380), split.Width * 26 / 100);
                 // The chart pane is 4/5 as wide as it is tall (a large chart, the list keeps more room; at least 380 px).
@@ -791,6 +792,7 @@ namespace DiskSpaceAnalyzer
         /// <summary>Folder contents chart; a drive root also gets "System / not readable" and "Free space" at the end.</summary>
         void UpdateChart(DirNode d)
         {
+            if (scanning) { ShowScanLogo(); return; }
             var r = RootOf(d.Top);
             if (r != null) RefreshCapacity(r);
             var slices = BuildSlices(contents, d.Size, "of folder");
@@ -817,6 +819,20 @@ namespace DiskSpaceAnalyzer
 
         /// <summary>Outer rings around the folder contents chart: subfolders and their subfolders.</summary>
         static int ContentsRings(DirNode d) { return 2; }
+
+        /// <summary>
+        /// While the scan bar shows, the chart pane shows the logo, whatever tab is open (the numbers are still changing);
+        /// when the scan is done the logo turns into the chart.
+        /// </summary>
+        void ShowScanLogo()
+        {
+            rowSlice.Clear();
+            var r = scanRoot ?? active;
+            string sub = r != null && r.Total > 0
+                ? string.Format("{0} used of {1}  -  {2} free", Fmt.Size(r.Total - r.Free), Fmt.Size(r.Total), Fmt.Size(r.Free))
+                : (r != null ? r.Path : "");
+            chart.ShowLogo(r != null ? r.DisplayName : "", sub, "Scanning... the chart appears when the scan is done.");
+        }
 
         /// <summary>Nothing scanned yet: the chart pane shows the app logo; it morphs into the chart once the scan is done.</summary>
         void UpdateChartUnscanned(ScanRoot r)
@@ -857,6 +873,7 @@ namespace DiskSpaceAnalyzer
             {
                 scanBar.Start(text);
                 uiTimer.Start();
+                if (IsHandleCreated && ActivePage != null) RefreshChart();
             }
             else
             {

@@ -46,9 +46,14 @@ namespace DiskSpaceAnalyzer
                 Application.Run(form);
                 return form.SelfTestFailed ? 1 : 0;
             }
-            try { Application.Run(new MainForm(args.Length > 0 ? args[0] : null)); }
+            try
+            {
+                Splash.Begin();   // own thread: shows while the window is built, never delays it
+                Application.Run(new MainForm(args.Length > 0 ? args[0] : null));
+            }
             catch (Exception ex)
             {
+                Splash.End(null);
                 MessageBox.Show(ex.ToString(), "Disk Space Analyzer - startup error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
             }

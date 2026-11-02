@@ -233,6 +233,7 @@ namespace DiskSpaceAnalyzer
         void RefreshChart()
         {
             var p = ActivePage;
+            if (scanning) { ShowScanLogo(); return; }
             if (p == pContents)
             {
                 if (current != null && IsAttached(current)) UpdateChart(current);
