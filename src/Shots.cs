@@ -72,9 +72,10 @@ namespace DiskSpaceAnalyzer
             var lv = c as SizeListView;
             if (lv != null)
             {
-                var items = lv.Items.Cast<ListViewItem>().ToList();
+                var items = lv.Items.Cast<ListViewItem>().Where(x => { var b = lv.GetItemRect(x.Index); return b.Top >= 0 && b.Bottom <= lv.ClientSize.Height; }).ToList();
                 var row = items.FirstOrDefault(x => x.Tag is ItemInfo && ((ItemInfo)x.Tag).Targets != null && ((ItemInfo)x.Tag).Targets.Count > 1)
-                    ?? items.FirstOrDefault(x => x.Tag is ItemInfo && ((ItemInfo)x.Tag).File != null) ?? items.Skip(1).FirstOrDefault();
+                    ?? items.FirstOrDefault(x => x.Tag is ItemInfo && ((ItemInfo)x.Tag).File != null)
+                    ?? items.FirstOrDefault(x => lv.CutCells(x).Count > 1) ?? items.Skip(1).FirstOrDefault();
                 if (row == null) return;
                 var rb = lv.GetItemRect(row.Index);
                 at = lv.PointToScreen(new Point(rb.X + S(90), rb.Y + rb.Height / 2));
@@ -167,7 +168,7 @@ namespace DiskSpaceAnalyzer
                     string name = (i + 1) + "-" + p.Title.Split(' ')[0].ToLowerInvariant();
                     SaveShot(name);
                     if (p == pSystem) SaveShot("system");
-                    if (!ShotDemo && (p == pContents || p == pSuggest)) await HoverShot(p.List, name + "-hover");
+                    if (!ShotDemo && (p == pContents || p == pSuggest || p == pApps)) await HoverShot(p.List, name + "-hover");
                 }
                 if (!ShotDemo) await HoverShot(tree, "tree-hover");                viewTabs.SelectedIndex = pages.IndexOf(pContents);
                 measure.SelectedIndex = 0;
@@ -549,6 +550,20 @@ namespace DiskSpaceAnalyzer
                 // Hover text: full name and full path.
                 var dupFile = Scanner.ListFiles(FindScanned(P("C"), true)).First(f => f.Name == "dup1.bin");
                 string ft = HoverText(ItemInfo.ForFile(dupFile, 0)), dt = HoverText(ItemInfo.ForDir(FindScanned(P("C"), true), 0));
+                // Every column cut off with an ellipsis is readable in full in the row's hover text; columns that fit are not repeated.
+                {
+                    var lv = new SizeListView();
+                    lv.Columns.Add("Name", S(60));
+                    lv.Columns.Add("Size", S(120));
+                    lv.Columns.Add("Publisher", S(50));
+                    var ri = new ItemInfo { Name = "A rather long application name", Path = @"C:\Program Files\Long App" };
+                    var row = new ListViewItem(new[] { ri.Name, "12 MB", "Some Publisher With A Long Name Inc." }) { Tag = ri };
+                    lv.Items.Add(row);
+                    string rt = RowHoverText(lv, row);
+                    check(rt != null && rt.Contains(ri.Name) && rt.Contains("Publisher: Some Publisher With A Long Name Inc.") && !rt.Contains("Size: 12 MB"),
+                        "hover: every cut-off column of the row is shown in full (" + (rt ?? "null").Replace("\n", " | ") + ")");
+                    lv.Dispose();
+                }
                 check(ft == "dup1.bin\n" + P(@"C\dup1.bin") && dt == "C\n" + P("C"), "hover: full name and path for files and folders");
                 var bundle = new ItemInfo { Name = "Test cache", Targets = Enumerable.Range(1, 10).Select(k => new DeleteTarget { Path = P("c" + k), IsDir = true }).ToList(), Folder = "10 locations" };
                 string bt = HoverText(bundle);

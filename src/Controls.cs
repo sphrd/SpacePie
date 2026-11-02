@@ -482,6 +482,36 @@ namespace DiskSpaceAnalyzer
             TextRenderer.DrawText(g, text, Font, new Rectangle(r.X + pad, r.Y, Math.Max(0, r.Width - 2 * pad), r.Height), fore, flags);
         }
 
+        /// <summary>
+        /// Cells of this row whose text does not fit its column (drawn with an ellipsis), as "Column: full text", using the
+        /// same text widths as the drawing code.
+        /// </summary>
+        public List<KeyValuePair<string, string>> CutCells(ListViewItem item)
+        {
+            var list = new List<KeyValuePair<string, string>>();
+            if (item == null) return list;
+            var info = item.Tag as ItemInfo;
+            const TextFormatFlags measure = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            for (int i = 0; i < Columns.Count && i < item.SubItems.Count; i++)
+            {
+                if (i == BarColumn) continue;   // fixed-width number, never cut
+                string text = item.SubItems[i].Text;
+                if (string.IsNullOrEmpty(text)) continue;
+                int w = Columns[i].Width, pad = Theme.S(6), room;
+                if (i == 0)
+                {
+                    if (info != null && (info.Check >= 0 || info.Expandable)) pad += GlyphSpace(info);
+                    if (info != null && info.GroupOf != null) pad += Theme.S(18);
+                    room = w - pad - Theme.S(16) - Theme.S(12);
+                }
+                else room = w - 2 * pad;
+                var font = i == 0 && info != null && info.IsGroup ? Theme.FONT_BOLD : Font;
+                if (TextRenderer.MeasureText(text, font, Size.Empty, measure).Width > room)
+                    list.Add(new KeyValuePair<string, string>(Columns[i].Text, text));
+            }
+            return list;
+        }
+
         /// <summary>Paints the header area to the right of the last column, which owner-draw does not cover.</summary>
         sealed class HeaderPainter : NativeWindow
         {

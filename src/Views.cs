@@ -142,7 +142,7 @@ namespace DiskSpaceAnalyzer
             };
             list.HotItemChanged += it =>
             {
-                Hover(list, it != null ? HoverText(it.Tag as ItemInfo) : null);
+                Hover(list, it != null ? RowHoverText(list, it) : null);
                 if (ActivePage.List != list) return;
                 int i;
                 chart.SetHover(it != null && rowSlice.TryGetValue(it, out i) ? i : -1);
@@ -296,6 +296,29 @@ namespace DiskSpaceAnalyzer
                 if (info.IsSummary || info.Path == null || !Native.IsDirectory(info.Path) && !System.IO.File.Exists(info.Path)) return;
             }
             OpenSelected();
+        }
+
+        /// <summary>
+        /// Hover text for a row: its full name and where it is (HoverText), then every other column whose text is cut off
+        /// with an ellipsis, in full ("Column: text"), so nothing in the row stays unreadable.
+        /// </summary>
+        static string RowHoverText(SizeListView list, ListViewItem row)
+        {
+            var info = row.Tag as ItemInfo;
+            string head = HoverText(info);
+            var lines = new List<string>();
+            if (!string.IsNullOrEmpty(head)) lines.AddRange(head.Split('\n'));
+            var extra = new List<string>();
+            foreach (var cell in list.CutCells(row))
+            {
+                string t = cell.Value;
+                if (lines.Any(l => l == t || l.Contains(t))) continue;   // already shown in full (name, path)
+                extra.Add(string.IsNullOrEmpty(cell.Key) ? t : cell.Key + ": " + t);
+            }
+            if (lines.Count == 0 && extra.Count == 0) return null;
+            if (extra.Count == 0) return string.Join("\n", lines);
+            if (lines.Count == 0) return string.Join("\n", extra);
+            return string.Join("\n", lines) + "\n\n" + string.Join("\n", extra);
         }
 
         /// <summary>Tooltip for a row: the full name, then where it is (full path), so ellipsized names can be read.</summary>

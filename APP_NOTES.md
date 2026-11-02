@@ -222,6 +222,11 @@ patterns (Part 3) are applied through the WinForms mapping below.
   56 ms after the scan, refreshed 1.9 s after; before: 8.5 s after the scan on a cold start. Within a session only Refresh
   reads it again; during a scan the tab waits for the scan.
 
+- 2026-11-02: "wherever there is a ... sign, in each column, all of that should be readable while hovering on that row."
+  SizeListView.CutCells(row) finds cells wider than their text room (same widths as DrawCell; name column minus glyphs, indent
+  and icon); RowHoverText = full name + path, then "Column: full text" for each other cut cell not already shown. Hover
+  screenshots pick a visible row (rows above the scroll position put the cursor outside the window: blank capture).
+
 ## WinForms mapping of the design language
 
 - Tokens and fonts live only in `Theme.cs`; widgets use those names, no inline hex.
