@@ -225,9 +225,13 @@ namespace DiskSpaceAnalyzer
             dupeGroups.RemoveAll(g => g.Count < 2);
             var rows = new List<ListViewItem>();
             long free = 0;
+            // Files are matched by content; what they take follows the Size / Size on disk switch (sparse, compressed and
+            // deduplicated copies can take far less on disk than their length). The newest copy (first) is the one kept.
+            Func<List<FileEntry>, long> extra = g => g.Skip(1).Sum(f => f.Size);
+            dupeGroups.Sort((a, b) => extra(b).CompareTo(extra(a)));
             foreach (var g in dupeGroups)
             {
-                long each = g[0].Bytes, wasted = each * (g.Count - 1);
+                long each = g[0].Size, wasted = extra(g);
                 free += wasted;
                 var head = new ItemInfo
                 {
@@ -240,7 +244,7 @@ namespace DiskSpaceAnalyzer
                     var it = ItemInfo.ForFile(f, 0);
                     it.Folder = f.Dir.FullPath;
                     it.GroupOf = head;
-                    rows.Add(Row(it, it.Name, Fmt.Size(f.Bytes), "", it.Folder, Fmt.Date(f.Modified)));
+                    rows.Add(Row(it, it.Name, Fmt.Size(f.Size), "", it.Folder, Fmt.Date(f.Modified)));
                 }
             }
             SetRows(p.List, rows, "No duplicates found in " + dupeScope + ".");

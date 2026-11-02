@@ -290,6 +290,18 @@ namespace DiskSpaceAnalyzer
                 for (int i = 0; i < 100 && dupeFinder != null; i++) await Task.Delay(100);
                 check(dupeGroups != null && dupeGroups.Count == 1 && dupeGroups[0].Count == 2 && dupeGroups[0].All(f => f.Name.StartsWith("dup")),
                     "duplicates: one group (dup1.bin, dup2.bin)");
+                // Their sizes follow the Size / Size on disk switch (not always the file length).
+                if (dupeGroups != null && dupeGroups.Count == 1)
+                {
+                    Func<ItemInfo> head = () => pDupes.List.Items.Cast<ListViewItem>().Select(x => (ItemInfo)x.Tag).First(x => x.IsGroup);
+                    SetMeasure(true); FillDuplicates();
+                    var g = dupeGroups[0];
+                    bool disk = head().Size == g[0].Alloc && head().ChartValue == g[1].Alloc;
+                    SetMeasure(false); FillDuplicates();
+                    bool len = head().Size == g[0].Bytes && head().ChartValue == g[1].Bytes;
+                    SetMeasure(true);
+                    check(disk && len && g[0].Alloc != g[0].Bytes, string.Format("duplicates: sizes follow the switch (on disk {0}, file size {1})", g[0].Alloc, g[0].Bytes));
+                }
 
                 // Suggestions: the node_modules folder of project P.
                 var sug = await Task.Factory.StartNew(() => FindSuggestions(roots.Where(r => r.Node != null).Select(r => r.Node).ToList()));

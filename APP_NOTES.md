@@ -182,6 +182,12 @@ patterns (Part 3) are applied through the WinForms mapping below.
   AppData, hidden dot-folders, "resources" or "extensions" folders. General rule: a cleanup suggestion never points inside installed
   programs or tools.
 
+- 2026-11-02: "the duplicates finder is finding only based on Size and not Size on disk. so the demo files that you added are making
+  almost the entire part of that. why is that? how did u create those files? can i delete them now?" Cause: Duplicates showed and
+  sorted by file length always. Fixed: matched by content, but sizes, "can be freed", order and chart follow the Size / Size on disk
+  switch (extra copies = all but the newest). C:\Demo (sparse files from tools\make_demo.ps1, 681 GB long, 115 MB on disk) had been
+  left behind after the README screenshots; removed. Rule: remove the demo tree right after taking screenshots.
+
 ## WinForms mapping of the design language
 
 - Tokens and fonts live only in `Theme.cs`; widgets use those names, no inline hex.

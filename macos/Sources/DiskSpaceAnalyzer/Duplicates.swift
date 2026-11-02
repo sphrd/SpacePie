@@ -188,12 +188,15 @@ extension MainWindowController {
             if activePage === p { refreshChart() }
             return
         }
-        groups = groups.map { $0.filter { stillIndexed($0) } }.filter { $0.count > 1 }
+        // Files are matched by content; what they take follows the Size / Size on disk switch (sparse, compressed and
+        // cloned copies can take far less on disk than their length). The newest copy (first) is the one kept.
+        func extra(_ g: [FileEntry]) -> Int64 { g.dropFirst().reduce(0) { $0 + $1.size } }
+        groups = groups.map { $0.filter { stillIndexed($0) } }.filter { $0.count > 1 }.sorted { extra($0) > extra($1) }
         dupeGroups = groups
         var rows: [ItemInfo] = []
         var free: Int64 = 0
         for g in groups {
-            let each = g[0].bytes, wasted = each * Int64(g.count - 1)
+            let each = g[0].size, wasted = extra(g)
             free += wasted
             let head = ItemInfo()
             head.isGroup = true
@@ -208,7 +211,7 @@ extension MainWindowController {
                 let it = ItemInfo.forFile(f, 0)
                 it.folder = f.dir.fullPath
                 it.groupOf = head
-                it.cells = [it.name, Fmt.size(f.bytes), "", it.folder, Fmt.date(f.modified)]
+                it.cells = [it.name, Fmt.size(f.size), "", it.folder, Fmt.date(f.modified)]
                 rows.append(it)
             }
         }
