@@ -97,54 +97,129 @@ namespace DiskSpaceAnalyzer
 
         // ---------------------------------------------------------------- list
 
-        void FillApps()
+        Task<List<InstalledApp>> appsPrefetch;
+        bool appsFromCache;
+        /// <summary>How long the last reading took: total, and the part after the scan was done (sizes).</summary>
+        internal long AppsReadMs, AppsAfterScanMs;
+
+        /// <summary>
+        /// Starts reading the installed apps in the background (registry, Store packages and logos; everything except the
+        /// sizes, which come from the scan). Called at startup, so it runs while the drive is scanned.
+        /// </summary>
+        void PrefetchApps()
         {
-            if (apps != null) { ShowApps(); return; }
-            if (appsLoading) return;
-            appsLoading = true;
-            int gen = ++appsGen;
-            pApps.Caption.Text = "Reading the installed apps...";
-            SetRows(pApps.List, new List<ListViewItem>(), "Reading the installed apps...");
-            UpdateAppButtons();
-            bool testMode = AppsTestMode;
-            List<InstalledApp> found = null;
-            Task.Factory.StartNew(() =>
+            if (appsPrefetch != null || apps != null && !appsFromCache || AppsTestMode) return;
+            appsPrefetch = StartAppsRead(false);
+        }
+
+        Task<List<InstalledApp>> StartAppsRead(bool testMode)
+        {
+            int iconPx = Theme.S(16);
+            return Task.Run(() =>
             {
-                found = ReadInstalledApps(testMode);
-                int iconPx = Theme.S(16);
-                // Sizes: from the scan when the folder was scanned, otherwise measured now.
-                foreach (var a in found)
+                var found = ReadInstalledApps(testMode);
+                System.Threading.Tasks.Parallel.ForEach(found, new ParallelOptions { MaxDegreeOfParallelism = 4 }, a =>
                 {
                     try { a.Icon = LoadAppIcon(a, iconPx); } catch (Exception) { }
-                    if (!string.IsNullOrEmpty(a.Location) && Native.IsDirectory(a.Location))
+                });
+                return found;
+            });
+        }
+
+        /// <summary>
+        /// Apps tab: the list read in this session, else the list saved last time (shown at once), then read again in the
+        /// background and updated in place (open apps stay open). Only Refresh reads it again within a session.
+        /// </summary>
+        void FillApps()
+        {
+            if (apps == null && !AppsTestMode && SelfTestDir == null)
+            {
+                var cached = AppsCache.Load();
+                if (cached != null) { apps = cached; appsFromCache = true; }
+            }
+            if (apps != null) ShowApps();
+            if (appsLoading || apps != null && !appsFromCache) return;
+            // During a scan the sizes are not known yet: wait for it (the end of the scan starts this again).
+            if (scanning && !AppsTestMode) { if (apps == null) { pApps.Caption.Text = "The installed apps are read when the scan is done."; SetRows(pApps.List, new List<ListViewItem>(), "The installed apps are read when the scan is done."); } return; }
+            appsLoading = true;
+            int gen = ++appsGen;
+            if (apps == null)
+            {
+                pApps.Caption.Text = "Reading the installed apps...";
+                SetRows(pApps.List, new List<ListViewItem>(), "Reading the installed apps...");
+            }
+            else pApps.Caption.Text += "  Checking for changes...";
+            UpdateAppButtons();
+            bool testMode = AppsTestMode;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var read = !testMode && appsPrefetch != null ? appsPrefetch : StartAppsRead(testMode);
+            appsPrefetch = null;
+            long afterScan = 0;
+            List<InstalledApp> found = null;
+            Task.Run(() =>
+            {
+                found = read.Result;
+                var sizeSw = System.Diagnostics.Stopwatch.StartNew();
+                // Sizes: one pass over the scan on the window's thread; folders that were not scanned are measured here.
+                string pkgRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages");
+                Func<InstalledApp, string> data = a => a.IsStore && !string.IsNullOrEmpty(a.PackageFamilyName) ? Path.Combine(pkgRoot, a.PackageFamilyName) : null;
+                var paths = found.Select(a => a.Location).Concat(found.Select(data)).Where(p => !string.IsNullOrEmpty(p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var known = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    Invoke(new Action(() =>
                     {
-                        DirNode n = null;
-                        try { n = (DirNode)Invoke(new Func<DirNode>(() => FindScanned(a.Location, true))); } catch (Exception) { }
-                        if (n != null) a.Size = n.Size;
-                        else try { a.Size = new Scanner().Run(a.Location).Size; } catch (Exception) { a.Size = a.EstimatedSize; }
-                    }
-                    else a.Size = a.EstimatedSize;
-                    if (a.IsStore && !string.IsNullOrEmpty(a.PackageFamilyName))
-                    {
-                        string data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Packages", a.PackageFamilyName);
-                        if (Native.IsDirectory(data)) try { a.Size += new Scanner().Run(data).Size; } catch (Exception) { }
-                    }
+                        foreach (var p in paths) { var n = FindScanned(p, true); if (n != null) known[p] = n.Size; }
+                    }));
                 }
+                catch (Exception) { }
+                Func<string, long> measure = p =>
+                {
+                    long v;
+                    if (known.TryGetValue(p, out v)) return v;
+                    if (!Native.IsDirectory(p)) return -1;
+                    try { return new Scanner().Run(p).Size; } catch (Exception) { return -1; }
+                };
+                System.Threading.Tasks.Parallel.ForEach(found, new ParallelOptions { MaxDegreeOfParallelism = 4 }, a =>
+                {
+                    long s = string.IsNullOrEmpty(a.Location) ? -1 : measure(a.Location);
+                    a.Size = s >= 0 ? s : a.EstimatedSize;
+                    string d = data(a);
+                    if (d != null) { long ds = measure(d); if (ds > 0) a.Size += ds; }
+                });
                 // Apps sharing one program folder (e.g. Office and its language packs): the folder counts once.
                 foreach (var g in found.Where(a => !string.IsNullOrEmpty(a.Location)).GroupBy(a => a.Location.TrimEnd('\\'), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
                 {
                     var first = g.OrderByDescending(a => a.EstimatedSize).ThenBy(a => a.Name.Length).First();
                     foreach (var a in g) if (a != first) { a.Size = 0; a.SharedWith = first.Name; }
                 }
+                afterScan = sizeSw.ElapsedMilliseconds;
             }).ContinueWith(t =>
             {
                 appsLoading = false;
                 if (gen != appsGen || IsDisposed) return;
-                apps = t.IsFaulted || found == null ? new List<InstalledApp>() : found;
+                if (t.IsFaulted || found == null) { if (apps == null) apps = new List<InstalledApp>(); ShowApps(); return; }
+                // Keep what the user opened or found: same app (uninstall key or Store package) keeps its items and state.
+                var old = (apps ?? new List<InstalledApp>()).ToDictionary(AppsCache.Identity, a => a);
+                foreach (var a in found)
+                {
+                    InstalledApp o;
+                    if (!old.TryGetValue(AppsCache.Identity(a), out o)) continue;
+                    a.Expanded = o.Expanded;
+                    a.Leftovers = o.Leftovers;
+                    a.Searching = o.Searching;
+                    if (a.Icon == null) a.Icon = o.Icon;
+                    old.Remove(AppsCache.Identity(a));
+                }
+                found.AddRange(old.Values.Where(o => o.Uninstalled && o.Leftovers != null && o.Leftovers.Count > 0));   // partly removed apps stay
+                apps = found;
+                appsFromCache = false;
+                AppsReadMs = sw.ElapsedMilliseconds;
+                AppsAfterScanMs = afterScan;
+                if (!testMode) AppsCache.Save(apps);
                 ShowApps();
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
-
         void ShowApps()
         {
             var p = pApps;
@@ -275,6 +350,8 @@ namespace DiskSpaceAnalyzer
 
         List<InstalledApp> ReadInstalledApps(bool testMode)
         {
+            // Store packages come from a separate PowerShell (seconds): asked first, read while the registry is read.
+            var store = testMode ? Task.FromResult(new List<InstalledApp>()) : Task.Run(() => ReadStoreApps());
             var list = new List<InstalledApp>();
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var roots = testMode
@@ -310,7 +387,7 @@ namespace DiskSpaceAnalyzer
                 }
                 catch (Exception) { }
             }
-            if (!testMode) list.AddRange(ReadStoreApps().Where(a => seen.Add(a.Name + "|" + a.Version)));
+            if (!testMode) list.AddRange(store.Result.Where(a => seen.Add(a.Name + "|" + a.Version)));
             return list;
         }
 

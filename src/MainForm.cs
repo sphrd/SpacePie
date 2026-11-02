@@ -356,6 +356,8 @@ namespace DiskSpaceAnalyzer
                 // The system drive is analyzed automatically; other drives are listed and scanned on demand.
                 if (!string.IsNullOrEmpty(initialPath)) ScanPath(initialPath);
                 else ScanPath(Path.GetPathRoot(Environment.SystemDirectory));
+                // The installed apps (registry, Store, logos) are read while the drive is scanned; sizes follow from the scan.
+                if (SelfTestDir == null) PrefetchApps();
                 // Look for a newer release in the background; silent unless there is one.
                 if (ShotDir == null && SelfTestDir == null)
                 {
@@ -593,7 +595,7 @@ namespace DiskSpaceAnalyzer
             if (SelfTestDir != null && !shotsStarted) { shotsStarted = true; RunSelfTest(); }
             // A drive is scanned: list the installed apps right away in the background (their sizes come from this scan),
             // so the Apps tab is ready when it is opened.
-            if (r.IsDrive && !s.Cancelled && apps == null && !appsLoading && SelfTestDir == null) FillApps();
+            if (r.IsDrive && !s.Cancelled && (apps == null || appsFromCache) && !appsLoading && SelfTestDir == null) FillApps();
             if (!s.Cancelled) SystemAfterScan(r.IsDrive);
         }
 

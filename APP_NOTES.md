@@ -214,6 +214,14 @@ patterns (Part 3) are applied through the WinForms mapping below.
   Chart: while `scanning`, RefreshChart/UpdateChart show the logo (ShowScanLogo) on every tab; SetScanning(true) refreshes the
   chart; the end-of-scan refresh morphs the logo into the chart.
 
+- 2026-11-02: "the list of apps is reloading everytime why? make it faster." Why: read from scratch at every start, only after
+  the scan, with the Store list from a new PowerShell (3.5 s) after the registry. Now (src\AppsCache.cs, Apps.cs): the list is
+  saved (apps.bin, logos as PNG) and shown at once; registry + Store (in parallel) + logos are read while the drive is scanned
+  (PrefetchApps at Shown); after the scan only sizes from the scan (one pass on the UI thread); the fresh list replaces the
+  saved one in place (same uninstall key / package keeps open state and found items). Measured on C: (181 apps): saved list
+  56 ms after the scan, refreshed 1.9 s after; before: 8.5 s after the scan on a cold start. Within a session only Refresh
+  reads it again; during a scan the tab waits for the scan.
+
 ## WinForms mapping of the design language
 
 - Tokens and fonts live only in `Theme.cs`; widgets use those names, no inline hex.

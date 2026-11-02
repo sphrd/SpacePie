@@ -59,7 +59,7 @@ namespace DiskSpaceAnalyzer
             UpdateDriveLabel();
             statusLabel.Text = string.Format("{0}: {1} in {2:N0} files and {3:N0} folders - ready in {4:0.0} s: the scan of {5:g}, updated with {6:N0} changes from the change journal.",
                 r.Node.Name, Fmt.Size(r.Node.Size), r.Node.Files, r.Node.Dirs, sw.Elapsed.TotalSeconds, info.Saved, changes.Count);
-            if (apps == null && !appsLoading) FillApps();
+            if ((apps == null || appsFromCache) && !appsLoading) FillApps();
             return true;
         }
 

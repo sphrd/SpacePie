@@ -618,6 +618,18 @@ namespace DiskSpaceAnalyzer
                 if (app == null) return;
                 check(app.Icon != null && app.Icon.Width == Theme.S(16), "apps: the app's own logo is read from its DisplayIcon" +
                     (app.Icon != null ? " (" + app.Icon.Width + "x" + app.Icon.Height + ")" : " (none)"));
+                // The list is saved and reads back the same (shown at once at the next start, then read again in the background).
+                {
+                    AppsCache.FileOverride = dir + ".apps";
+                    AppsCache.Save(apps);
+                    var back = AppsCache.Load();
+                    var b = back != null ? back.FirstOrDefault(x => AppsCache.Identity(x) == AppsCache.Identity(app)) : null;
+                    check(b != null && b.Name == app.Name && b.Version == app.Version && b.Size == app.Size && SamePath(b.Location, app.Location) &&
+                          b.UninstallString == app.UninstallString && b.Icon != null && b.Icon.Width == app.Icon.Width,
+                        string.Format("apps: the list is saved and reads back the same, logo included (read in {0} ms, {1} ms of it after the scan)", AppsReadMs, AppsAfterScanMs));
+                    try { File.Delete(AppsCache.FileOverride); } catch (Exception) { }
+                    AppsCache.FileOverride = null;
+                }
 
                 // Expanding shows everything that belongs to the app, without changing anything. A bigger app stays above it
                 // (expanding never moves an app), and a line shows right away while its files are being looked for.
