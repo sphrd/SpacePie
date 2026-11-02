@@ -213,6 +213,65 @@ patterns (Part 3) are applied through the WinForms mapping below.
   median 454 ms with vs 442 ms without (noise). Name shrinks to fit (measure WITHOUT EndEllipsis: with it MeasureText lies).
   Chart: while `scanning`, RefreshChart/UpdateChart show the logo (ShowScanLogo) on every tab; SetScanning(true) refreshes the
   chart; the end-of-scan refresh morphs the logo into the chart.
+- 2026-11-02: "the waiting screen doesnt look good. check the style from the schToDBD project. pay more attention to the
+  style and update agent if necessary." Root cause: the agent gave the splash sizes as "pt", the reference (SchematicToDBD
+  make_assets.py, PIL) draws them in px, so WinForms drew everything a third larger (title touching the frame, status
+  jammed at the bottom, status in `fg`). Splash.cs now uses GraphicsUnit.Pixel x Theme.Scale (30/14/12/13 px), 2 px divider,
+  notes at y 200/220, status `muted` with its bottom at y 262; Splash.swift aligned (status `muted`, 2 px divider). Agent
+  §2.4 Splash now says px and how to check it.
+- 2026-11-02: "in the schematicToDBD project, there is the loading of dlls and so on shown at the bottom, above that there
+  should be the description of the App: Disk Space Analyzer / by sphrd / Fastest, free, open-source disk utility (or
+  something similar)". Splash now: name + "by sphrd" beside the logo, below the divider "Fast, free and open-source disk
+  space analyzer and cleaner" (14 px fg), bottom line live `Loading <assembly>.dll` from AppDomain.AssemblyLoad
+  (static status text, so loads before the splash handle exists still show). Agent §2.4 Splash updated to this layout.
+- 2026-11-02: "add more flare to it. add version number. i still dont see the loading of anything being written down."
+  Why nothing showed: the framework DLLs load before Splash.Begin, and one replacing line vanished in the ~250 ms the splash
+  is up on a warm start. Now a 4-line log (check mark = done, spinner = current): already-loaded assemblies as
+  `Loaded X.dll`, AssemblyLoad as `Loading X.dll`, plus real build steps from the MainForm constructor (Splash.Status).
+  Flair: accent glow behind the logo, version pill next to "by sphrd", accent bar, accent sweep along the divider (30 ms
+  timer on the splash thread), DWM rounded corners + CS_DROPSHADOW. Gotcha: CreateGraphics() in the splash constructor
+  created the handle early and CenterScreen was ignored (splash at the top-left); DPI now from Graphics.FromHwnd(Zero).
+  Checked by capturing the screen during a real start. macOS: same look, steps logged from applicationDidFinishLaunching.
+- 2026-11-02: "how can i look at the screen for longer? implement this same style inside the app as well. for example the
+  scanning animated circle can have this faded glowy line instead of normal line (the arc) tha circles in the arc. write
+  down this style and FLARE that you just added in the agent file so other apps follow."
+  `DiskSpaceAnalyzer.exe --splash` shows the splash until click/Esc (Splash.Preview). Flair helpers in Theme.cs/.swift:
+  DrawCometArc (fading tail, glow, bright head), DrawSweep, DrawGlow, shared clock Theme.Now. Spinner (scan bar, delete
+  strip, busy overlay, splash log) = comet arc; scan bar spinner 26 px; progress fill gets a sweep + head glow (bar-only
+  repaint, 30 ms); chart logo while scanning gets a glow and an orbiting comet (ShowLogo(..., working)), the logo shrinks
+  inside the orbit and the morph starts from that size. Agent §2.4 "Flair" section added. Self-test: the 3 suggestions /
+  node_modules FAILs also fail on HEAD without these changes (pre-existing). macOS changes not compiled here.
+- 2026-11-02: "also the logo looks different there, so change all the logos into that one." -> scope chosen: in-app +
+  README/social images, exe icon plain; "the line bar and the highlighted section that goes from left to right is what
+  i said looks very good and to keep it". Theme.DrawLogoGlow (logo + soft accent glow) for title bar (0.9x), About and
+  info prompts (0.75x, clear of the text column at x 140), chart placeholder (0.62x on surface), splash; make_icon.ps1
+  draws app.png (README) and the social preview with the glow; app.ico / app-1024.png stay plain.
+- 2026-11-02: "remove [the orbiting comet]. instead add an orbiting glow ... in the path that covers the missing arc of
+  the full circle of the apps logo, and its mirror ... as if the missing arc of logo is a 3d cone, and the orbiter is
+  marking the base circumference of that cone." then "no. draw the line that i described, and move the highlighted part
+  through that path (same as the line in the loading screen ... the one with a faded highlighted part)".
+  Theme.DrawMouthLoop: the cone base = missing arc (front) + its mirror across the mouth chord (back), drawn in BORDER,
+  with a 40 % sweep (alpha 0 -> 1 -> 0 along it, accent) going round once per 1.8 s, phase even round the base circle.
+  Logo stays full size while scanning (no inset).
+  Then: "cut one side of it, one side has the tail, other side is just the dot that is going." -> one-sided: 40 % tail
+  behind the head, alpha 0 -> 1, ending in a bright round head dot (2.2 x stroke); nothing ahead of the dot.
+  Then: "after the tail, the line should not be visible. the dot should not have larger width than the line." -> the loop
+  path is no longer drawn (only the tail), head dot diameter = line width.
+- 2026-11-02: "the spinning logo line is outside of the logo's circle a bit, bring it inwards. you can smooth the edges so
+  it looks like an Oval. the speed of motion should reflect that this is a 3d circle (sin cos changes in speed). in the
+  scanning bar, i like the highlighter pulse, but the glow on the ending dot is nto so good so remove that. in the agent
+  file: the glow sometimes can look low quality. by the glow, i meant the subtle glow beneath the logo in the loading
+  screen that looked professional. and what i wanted other apps to adopt is the trailing lines, the highlighter lines both
+  in loading screen and in scanning."
+  DrawMouthLoop is now a true oval centred on the mouth chord, half-axes 0.11 R x 0.36 R (checked inside the circle with
+  the stroke), point = (xc - a cos phi, cy + b sin phi) with phi even in time -> sin/cos speed. Scan bar: glow at the
+  fill's end removed (sweep kept). Spinners (DrawCometArc): glow layers removed too (trailing line + head dot = line
+  width), per the "glow can look low quality" note. Agent Flair section rewritten: trailing/highlighter lines are the
+  core, the only glow is the subtle one beneath the logo.
+- 2026-11-02: "chanhge the direction of its spin, and make it slightly faster. commit and push all, update readme and every
+  other file necessary, and release." Mouth loop reversed (y = cy - b sin phi: down the outer side, up the inner) and
+  1.8 s -> 1.4 s per loop. `--splash` added on macOS too. Released as v1.9.0 (includes the dev/features work held back
+  for the owner's trial).
 
 - 2026-11-02: "the list of apps is reloading everytime why? make it faster." Why: read from scratch at every start, only after
   the scan, with the Store list from a new PowerShell (3.5 s) after the registry. Now (src\AppsCache.cs, Apps.cs): the list is
@@ -268,8 +327,6 @@ patterns (Part 3) are applied through the WinForms mapping below.
   scanning), tree | list | chart panels, status line.
 - The path box is editable (type a path + Enter), so only its chevron opens the drive list, not the whole box.
 - Deletion has no Cancel on the overlay: the deleter never had cancellation; adding it would change behavior.
-- No splash screen: §2.9 asks for one only when startup takes noticeable time; this ~100 KB exe has no unpack step
-  and the window appears immediately.
 - Folder/file icons are muted glyphs instead of shell icons (yellow shell folders would add a hue).
 - The former toolbar **Stop** button became the overlay's **Cancel** (same action; Stop was only usable while scanning).
 
@@ -528,3 +585,8 @@ patterns (Part 3) are applied through the WinForms mapping below.
   tools; deleting shows a red progress strip with Stop and the open list empties live; every prompt is a themed dialog with a
   warning sign and the full list of items in a scrollable box.
 - v1.8.3 (2026-11-02): Duplicates: sizes, "can be freed", group order and chart follow the Size / Size on disk switch.
+- v1.9.0 (2026-11-02): Always start as administrator; instant restart from saved scans (+ change journal / FSEvents);
+  duplicate hash cache; replace duplicates with hard links (Windows) / clones (macOS); System tab; installed apps listed
+  during the scan; hover shows cut-off columns in full; start-up screen (logo with glow, version, live loading log,
+  `--splash` preview); chart shows the logo with a trailing line running round its mouth while scanning, then turns into
+  the chart; trailing-line spinners and a highlighter sweep on progress bars; logo with glow everywhere in the app.

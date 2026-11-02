@@ -75,6 +75,7 @@ namespace DiskSpaceAnalyzer
         public MainForm(string initialPath)
         {
             // One dark tooltip for buttons, list rows and tree nodes.
+            Splash.Status("Building the main window");
             tips.OwnerDraw = true;
             tips.Popup += (s, e) =>
             {
@@ -109,6 +110,7 @@ namespace DiskSpaceAnalyzer
             try { Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); } catch (Exception) { }
 
             // Toolbar: path row, then the actions that work on the selection
+            Splash.Status("Listing drives");
             pathLabel = new Label { Text = "Drive / folder:", AutoSize = true, ForeColor = Theme.FG, BackColor = Theme.BG, Font = Theme.FONT };
             pathBox = new PathInput();
             foreach (var d in DriveInfo.GetDrives())
@@ -173,6 +175,7 @@ namespace DiskSpaceAnalyzer
             };
 
             // Folder tree. The image list only reserves the icon slot; glyphs are drawn by the tree.
+            Splash.Status("Creating the folder tree and lists");
             tree = new DarkTreeView
             {
                 Dock = DockStyle.None, ItemHeight = S(26), Indent = S(20), ContextMenuStrip = menu,
@@ -229,6 +232,7 @@ namespace DiskSpaceAnalyzer
             split.Panel1.Controls.Add(treePanel);
 
             // Pie chart pane (right). It is drawn from sizes already in memory, never from the disk.
+            Splash.Status("Preparing the chart");
             chart = new PieChart { Dock = DockStyle.Fill };
             chart.SliceClicked += sl => { if (sl.Dir != null && !busy) SelectDir(sl.Dir); };
             chart.CenterClicked += () => { if (ActivePage == pContents) GoUp(); };
@@ -305,6 +309,7 @@ namespace DiskSpaceAnalyzer
             };
             // Custom title bar (logo, name, menu items, window buttons) replacing the native caption. It spans the full
             // width, so it is placed at (0, 0) and anchored instead of docked (docking would respect the side padding).
+            Splash.Status("Opening the window");
             titleBar = new TitleBar();
             titleBar.AddItem("About", ShowAbout);
             titleBar.AddItem("Check for updates", () => updates.Check(true));
@@ -833,7 +838,7 @@ namespace DiskSpaceAnalyzer
             string sub = r != null && r.Total > 0
                 ? string.Format("{0} used of {1}  -  {2} free", Fmt.Size(r.Total - r.Free), Fmt.Size(r.Total), Fmt.Size(r.Free))
                 : (r != null ? r.Path : "");
-            chart.ShowLogo(r != null ? r.DisplayName : "", sub, "Scanning... the chart appears when the scan is done.");
+            chart.ShowLogo(r != null ? r.DisplayName : "", sub, "Scanning... the chart appears when the scan is done.", true);
         }
 
         /// <summary>Nothing scanned yet: the chart pane shows the app logo; it morphs into the chart once the scan is done.</summary>
@@ -845,7 +850,7 @@ namespace DiskSpaceAnalyzer
                 : r.Path;
             chart.ShowLogo(r.DisplayName, sub, r.Scanning
                 ? "Scanning... the chart appears when the scan is done."
-                : "Not scanned yet. Press Scan, or double-click the drive.");
+                : "Not scanned yet. Press Scan, or double-click the drive.", r.Scanning || scanning);
         }
 
         /// <summary>Blocking work (permanent delete): full-window overlay.</summary>

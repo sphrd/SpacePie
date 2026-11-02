@@ -7,8 +7,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Fast disk space analyzer and cleaner for Windows")]
 [assembly: AssemblyProduct("Disk Space Analyzer")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 sphrd - MIT License")]
-[assembly: AssemblyVersion("1.8.3.0")]
-[assembly: AssemblyFileVersion("1.8.3.0")]
+[assembly: AssemblyVersion("1.9.0.0")]
+[assembly: AssemblyFileVersion("1.9.0.0")]
 
 namespace DiskSpaceAnalyzer
 {
@@ -22,6 +22,8 @@ namespace DiskSpaceAnalyzer
             if (args.Length == 2 && args[0] == "--scan") return Headless(new[] { "--cli", "scan", args[1] });
             // Elevated helper started by the About window (one UAC prompt): turn "Always start as administrator" on or off.
             if (args.Length == 2 && args[0] == "--admin-task") return (args[1] == "on" ? Elevation.Enable() : Elevation.Disable()) == null ? 0 : 1;
+            // Splash preview (look at it for as long as you like): DiskSpaceAnalyzer.exe --splash
+            if (args.Length == 1 && args[0] == "--splash") { Application.EnableVisualStyles(); Splash.Preview(); return 0; }
             // Started by the task (elevated): the arguments of the normal start come through a file.
             if (args.Length == 1 && args[0] == "--from-task") args = Elevation.TakeTaskArgs();
             // Normal start with "Always start as administrator" on: run the task (no prompt) and let it open the window.

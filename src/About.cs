@@ -84,7 +84,8 @@ namespace DiskSpaceAnalyzer
             DrawIcon(e.Graphics, new Rectangle(Theme.S(32), Theme.S(32), d, d));
         }
 
-        protected virtual void DrawIcon(Graphics g, Rectangle r) { Theme.DrawLogo(g, r, 1f); }
+        // The logo with its glow, kept clear of the text column (labels have an opaque BG and would cut it).
+        protected virtual void DrawIcon(Graphics g, Rectangle r) { Theme.DrawLogoGlow(g, r, 1f, 46, 0.75f); }
     }
 
     internal enum AlertIcon { Logo, Warn, Danger }

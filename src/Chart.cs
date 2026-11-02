@@ -59,6 +59,9 @@ namespace DiskSpaceAnalyzer
         public event Action CenterClicked;
         string logoNote = "";
         readonly Timer animTimer = new Timer { Interval = 15 };
+        // While a scan runs a sweep runs round a line in the logo's mouth.
+        readonly Timer orbitTimer = new Timer { Interval = 16 };
+        bool working;
         readonly System.Diagnostics.Stopwatch animClock = new System.Diagnostics.Stopwatch();
         const double AnimMs = 650;
         float anim = 1;          // 0 = logo, 1 = chart
@@ -82,11 +85,16 @@ namespace DiskSpaceAnalyzer
                 if (anim >= 1) { animTimer.Stop(); animClock.Reset(); }
                 Invalidate();
             };
+            orbitTimer.Tick += (s, e) =>
+            {
+                // Only the mouth region (left part of the logo) changes.
+                if (Visible) Invalidate(new Rectangle(pieRect.X - Theme.S(20), pieRect.Y, pieRect.Width / 2, pieRect.Height));
+            };
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) animTimer.Dispose();
+            if (disposing) { animTimer.Dispose(); orbitTimer.Dispose(); }
             base.Dispose(disposing);
         }
 
@@ -95,9 +103,14 @@ namespace DiskSpaceAnalyzer
         /// <summary>The logo is shown instead of a chart.</summary>
         public bool ShowingLogo { get { return logoMode; } }
 
-        /// <summary>Shows the app logo instead of a chart (nothing scanned yet); the next SetData morphs it into the chart.</summary>
-        public void ShowLogo(string title, string subtitle, string note)
+        /// <summary>
+        /// Shows the app logo instead of a chart (nothing scanned yet); the next SetData morphs it into the chart.
+        /// working: a scan is running, so the logo's mouth shows a line with a sweep running round it (Theme.DrawMouthLoop).
+        /// </summary>
+        public void ShowLogo(string title, string subtitle, string note, bool working = false)
         {
+            this.working = working;
+            if (working) orbitTimer.Start(); else orbitTimer.Stop();
             this.title = title ?? "";
             this.subtitle = subtitle ?? "";
             logoNote = note ?? "";
@@ -150,6 +163,8 @@ namespace DiskSpaceAnalyzer
                 animTimer.Start();
             }
             logoMode = false;
+            working = false;
+            orbitTimer.Stop();
             Invalidate();
         }
 
@@ -230,7 +245,12 @@ namespace DiskSpaceAnalyzer
             d = Math.Max(Theme.S(60), d);
             int top = y + Math.Max(0, (Height - y - pad - d) / 3);
             pieRect = new Rectangle((Width - d) / 2, top, d, d);
-            if (logoMode) { DrawLogo(g, pieRect, 1f); DrawLogoNote(g); }
+            if (logoMode)
+            {
+                DrawLogo(g, pieRect, 1f);
+                if (working) Theme.DrawMouthLoop(g, pieRect, Theme.Now, Theme.ACCENT);
+                DrawLogoNote(g);
+            }
             else if (Animating) DrawMorph(g);
             else DrawDonut(g);
         }
@@ -241,7 +261,8 @@ namespace DiskSpaceAnalyzer
 
         static Color Fade(Color c, float a) { return Color.FromArgb((int)Math.Round(255 * Math.Max(0, Math.Min(1, a))), c); }
 
-        void DrawLogo(Graphics g, Rectangle circle, float alpha) { Theme.DrawLogo(g, circle, alpha); }
+        // The brand logo with its glow (fades with the logo during the morph).
+        void DrawLogo(Graphics g, Rectangle circle, float alpha) { Theme.DrawLogoGlow(g, circle, alpha, 34, 0.62f); }
 
         void DrawLogoNote(Graphics g)
         {

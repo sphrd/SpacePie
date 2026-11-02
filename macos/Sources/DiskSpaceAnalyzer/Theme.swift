@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 /// Danger tokens (permanent deletes, uninstall, the delete progress strip). gen_tokens.py leaves out any token defined
 /// here, so src/Theme.cs may define the same names without a clash.
@@ -37,6 +38,86 @@ enum Theme {
         } else {
             fill.setFill(); roundRect(r, radius).fill()
         }
+    }
+
+    // ---- flair (busy states only), the same as src/Theme.cs: comet arc, glow, shared clock
+
+    /// Animation clock (seconds) shared by spinners, the orbit and the splash, so they move in step.
+    static var now: Double { CACurrentMediaTime() }
+
+    /// Trailing arc on a circle (every spinner; same as Theme.DrawCometArc in src/Theme.cs): the tail `sweep` degrees
+    /// behind the head fades to transparent, ending in a lighter head dot no wider than the line. No glow. Flipped view.
+    static func drawCometArc(in circle: NSRect, head: CGFloat, sweep: CGFloat, width: CGFloat, color: NSColor) {
+        let c = NSPoint(x: circle.midX, y: circle.midY), r = circle.width / 2
+        let steps = 28, step = sweep / CGFloat(steps)
+        for i in 0..<steps {
+            let k = CGFloat(i + 1) / CGFloat(steps)
+            let start = head - sweep + CGFloat(i) * step
+            let p = NSBezierPath()
+            p.appendArc(withCenter: c, radius: r, startAngle: start, endAngle: start + step + 0.6, clockwise: false)
+            p.lineWidth = width
+            color.withAlphaComponent(k * k).setStroke()
+            p.stroke()
+        }
+        let rad = head * .pi / 180
+        let hx = c.x + cos(rad) * r, hy = c.y + sin(rad) * r
+        (color.blended(withFraction: 0.3, of: .white) ?? color).setFill()
+        NSBezierPath(ovalIn: NSRect(x: hx - width / 2, y: hy - width / 2, width: width, height: width)).fill()
+    }
+
+    /// Sweep: a `seg`-wide highlight fading transparent -> colour -> transparent glides left to right along `track`, one
+    /// pass per `period` seconds, clipped to `clip` (the track itself if nil).
+    static func drawSweep(_ track: NSRect, seg: CGFloat, period: Double, color: NSColor, clip: NSBezierPath? = nil) {
+        guard track.width > 0, track.height > 0 else { return }
+        let pos = track.minX - seg + CGFloat(now.truncatingRemainder(dividingBy: period) / period) * (track.width + seg)
+        NSGraphicsContext.saveGraphicsState()
+        (clip ?? NSBezierPath(rect: track)).addClip()
+        NSGradient(colors: [color.withAlphaComponent(0), color, color.withAlphaComponent(0)])?
+            .draw(in: NSRect(x: pos, y: track.minY, width: seg, height: track.height), angle: 0)
+        NSGraphicsContext.restoreGraphicsState()
+    }
+
+    /// Working state of the logo (same as Theme.DrawMouthLoop in src/Theme.cs): the mouth read as a 3D cone opening left;
+    /// a tail runs round its base circle, seen in perspective as an oval centred on the mouth's chord (half-axes 0.11 R
+    /// across, 0.36 R high: inside the logo's circle). Only the tail is drawn: alpha 0 -> full over 40 % of the loop,
+    /// ending in a lighter head dot no wider than the line; even phase round the 3D circle, so the motion follows sin/cos
+    /// (quick across the front and back, slow at the top and bottom). Flipped view.
+    static let logoMouth: CGFloat = 30
+    static func drawMouthLoop(in circle: NSRect, seconds: Double, color: NSColor) {
+        let R = Double(circle.width / 2), cx = Double(circle.midX), cy = Double(circle.midY)
+        let xc = cx - R * cos(Double(logoMouth) * .pi / 180)
+        let a = 0.11 * R, b = 0.36 * R
+        func at(_ phi: Double) -> NSPoint { NSPoint(x: xc - a * cos(phi), y: cy - b * sin(phi)) }
+        let w = max(2, CGFloat(R) / 70)
+        let period = 1.4, span = 0.4 * 2 * Double.pi, pieces = 48
+        let head = seconds.truncatingRemainder(dividingBy: period) / period * 2 * .pi
+        for i in 0..<pieces {
+            let t0 = Double(i) / Double(pieces), t1 = Double(i + 1) / Double(pieces)
+            let k = CGFloat((t0 + t1) / 2)          // 0 at the tail end, 1 at the head
+            let seg = NSBezierPath()
+            seg.move(to: at(head - span + t0 * span))
+            seg.line(to: at(head - span + t1 * span))
+            seg.lineWidth = w; seg.lineCapStyle = .round
+            color.withAlphaComponent(k * k).setStroke(); seg.stroke()
+        }
+        let hp = at(head), d = w
+        (color.blended(withFraction: 0.3, of: .white) ?? color).setFill()
+        NSBezierPath(ovalIn: NSRect(x: hp.x - d / 2, y: hp.y - d / 2, width: d, height: d)).fill()
+    }
+
+    /// The brand logo: drawLogo with the soft accent glow behind it (as on the splash); glowAlpha ~0.18 on bg, ~0.13 on surface.
+    static func drawLogoGlow(in circle: NSRect, alpha: CGFloat = 1, glowAlpha: CGFloat = 0.18, glowFactor: CGFloat = 1.15) {
+        guard alpha > 0 else { return }
+        drawGlow(at: NSPoint(x: circle.midX, y: circle.midY), radius: circle.width * glowFactor, color: T.ACCENT, alpha: glowAlpha * min(1, alpha))
+        drawLogo(in: circle, alpha: alpha)
+    }
+
+    /// Soft radial glow: `color` at `alpha` in the centre, transparent at `radius`.
+    static func drawGlow(at center: NSPoint, radius: CGFloat, color: NSColor, alpha: CGFloat) {
+        guard radius >= 1 else { return }
+        NSGradient(colors: [color.withAlphaComponent(alpha), color.withAlphaComponent(0)])?
+            .draw(in: NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius)),
+                  relativeCenterPosition: .zero)
     }
 
     /// Pie slice path in a flipped view: angles in degrees, 0 = 3 o'clock, clockwise positive (like GDI+ FillPie).

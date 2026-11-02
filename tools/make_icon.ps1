@@ -34,14 +34,29 @@ function Draw-Logo($g, [float]$x, [float]$y, [float]$n) {
     $g.FillPie((New-Object System.Drawing.SolidBrush $LOGO_BOTTOM_LEFT), $L, $T, $D, $D, 90 - $under, 90 - $mouth + $under)
     $g.FillPie((New-Object System.Drawing.SolidBrush $LOGO_RIGHT), $L, $T, $D, $D, -90, 180)
 }
-function New-IconBitmap([int]$size) {
+# Soft radial glow (Theme.DrawGlow): ACCENT at alpha in the centre, transparent at radius r.
+function Draw-Glow($g, [float]$cx, [float]$cy, [float]$r, [int]$alpha) {
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddEllipse($cx - $r, $cy - $r, 2 * $r, 2 * $r)
+    $b = New-Object System.Drawing.Drawing2D.PathGradientBrush $path
+    $b.CenterColor = [System.Drawing.Color]::FromArgb($alpha, $ACCENT)
+    $b.SurroundColors = @([System.Drawing.Color]::FromArgb(0, $ACCENT))
+    $g.FillPath($b, $path)
+    $b.Dispose(); $path.Dispose()
+}
+function New-IconBitmap([int]$size, [bool]$glow = $false) {
     $n = 4 * $size
     $big = New-Object System.Drawing.Bitmap $n, $n
     $g = [System.Drawing.Graphics]::FromImage($big)
     $g.SmoothingMode = 'AntiAlias'
     $g.PixelOffsetMode = 'HighQuality'
     $g.Clear([System.Drawing.Color]::Transparent)
-    Draw-Logo $g 0 0 $n
+    if ($glow) {
+        # Brand logo (README image): the soft accent glow behind a smaller logo, as on the splash and in the app.
+        Draw-Glow $g (0.5 * $n) (0.5 * $n) (0.5 * $n) 46
+        $m = 0.32 * $n
+        Draw-Logo $g ($m / 2) ($m / 2) ($n - $m)
+    } else { Draw-Logo $g 0 0 $n }
     $g.Dispose()
 
     $bmp = New-Object System.Drawing.Bitmap $size, $size
@@ -66,10 +81,12 @@ $sizes = 16, 24, 32, 48, 64, 128, 256
 $pngs = @()
 foreach ($s in $sizes) {
     $bmp = New-IconBitmap $s
-    if ($s -eq 256) { $bmp.Save((Join-Path $assets 'app.png'), [System.Drawing.Imaging.ImageFormat]::Png) }
     $pngs += , (Get-PngBytes $bmp)
     $bmp.Dispose()
 }
+# README logo: the brand logo with its glow (the exe/taskbar icon stays the plain logo).
+$bmp = New-IconBitmap 256 $true
+$bmp.Save((Join-Path $assets 'app.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
 
 $big = New-IconBitmap 1024
 $big.Save((Join-Path $assets 'app-1024.png'), [System.Drawing.Imaging.ImageFormat]::Png); $big.Dispose()
@@ -98,6 +115,8 @@ $g = [System.Drawing.Graphics]::FromImage($card)
 $g.SmoothingMode = 'AntiAlias'; $g.InterpolationMode = 'HighQualityBicubic'; $g.TextRenderingHint = 'AntiAliasGridFit'
 $g.Clear($BG)
 $g.DrawRectangle((New-Object System.Drawing.Pen $SURFACE, 4), 2, 2, 1275, 635)
+# The logo with its glow, as on the splash (radius 1.15 x the logo's diameter).
+Draw-Glow $g 240 320 (1.15 * 0.94 * 288) 46
 $logo = New-IconBitmap 288
 $g.DrawImage($logo, 96, 176, 288, 288); $logo.Dispose()
 $fmt = New-Object System.Drawing.StringFormat; $fmt.Trimming = 'None'

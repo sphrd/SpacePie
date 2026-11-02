@@ -765,18 +765,20 @@ namespace DiskSpaceAnalyzer
         event EventHandler ScrollChanged;
     }
 
-    /// <summary>Rotating ACCENT arc: inset 4, extent 120 degrees, width 6, 18 degrees every 40 ms.</summary>
+    /// <summary>
+    /// Rotating comet arc (Theme.DrawCometArc): 270 degree tail fading to transparent, bright head with a soft glow,
+    /// one turn per second, inset so the glow is not clipped.
+    /// </summary>
     internal sealed class Spinner : Control
     {
-        readonly Timer timer = new Timer { Interval = 40 };
-        float angle;
+        readonly Timer timer = new Timer { Interval = 16 };
         public Color Color = Theme.ACCENT;
 
         public Spinner()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = Theme.BG;
-            timer.Tick += (s, e) => { angle = (angle + 18) % 360; Invalidate(); };
+            timer.Tick += (s, e) => Invalidate();
         }
 
         public bool Spinning
@@ -789,10 +791,9 @@ namespace DiskSpaceAnalyzer
         {
             var g = e.Graphics;
             g.Clear(BackColor);
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            float w = Math.Max(2f, 6f * Width / 64f), inset = 4f * Width / 64f + w / 2;
-            using (var pen = new Pen(Color, w) { StartCap = LineCap.Round, EndCap = LineCap.Round })
-                g.DrawArc(pen, inset, inset, Width - 2 * inset, Height - 2 * inset, angle, 120);
+            float w = Math.Max(2.5f, 5f * Width / 64f), inset = w * 1.5f;
+            float head = (float)(Theme.Now * 360 % 360);
+            Theme.DrawCometArc(g, new RectangleF(inset, inset, Width - 2 * inset, Height - 2 * inset), head, 270, w, Color);
         }
 
         protected override void Dispose(bool disposing)
@@ -812,6 +813,9 @@ namespace DiskSpaceAnalyzer
         public readonly RoundButton CancelButton = new RoundButton("Cancel", ButtonKind.Secondary) { MinChars = 8 };
         string status = "", detail = "";
         double fraction = -1;
+        // Repaints only the progress bar, for its accent sweep.
+        readonly Timer sweepTimer = new Timer { Interval = 30 };
+        Rectangle barArea;
         /// <summary>Delete progress: DANGER_BG fill, DANGER_BORDER outline, DANGER spinner and bar, "Stop" button.</summary>
         readonly bool danger;
 
@@ -828,6 +832,13 @@ namespace DiskSpaceAnalyzer
             Controls.Add(CancelButton);
             Height = Theme.S(70);
             Visible = false;
+            sweepTimer.Tick += (s, e) => { if (fraction > 0 && !barArea.IsEmpty) Invalidate(barArea); };
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) sweepTimer.Dispose();
+            base.Dispose(disposing);
         }
 
         public void Start(string text)
@@ -838,12 +849,14 @@ namespace DiskSpaceAnalyzer
             CancelButton.Enabled = true;
             Visible = true;
             spinner.Spinning = true;
+            sweepTimer.Start();
             Invalidate();
         }
 
         public void Stop()
         {
             spinner.Spinning = false;
+            sweepTimer.Stop();
             Visible = false;
         }
 
@@ -863,8 +876,8 @@ namespace DiskSpaceAnalyzer
         {
             base.OnLayout(e);
             var b = Box;
-            int sp = Theme.S(22);
-            spinner.Bounds = new Rectangle(b.X + Theme.S(14), b.Y + (b.Height - sp) / 2, sp, sp);
+            int sp = Theme.S(26);
+            spinner.Bounds = new Rectangle(b.X + Theme.S(12), b.Y + (b.Height - sp) / 2, sp, sp);
             var cs = CancelButton.GetPreferredSize(Size.Empty);
             CancelButton.Bounds = new Rectangle(b.Right - Theme.S(12) - cs.Width, b.Y + (b.Height - cs.Height) / 2, cs.Width, cs.Height);
         }
@@ -890,7 +903,17 @@ namespace DiskSpaceAnalyzer
                 Color track = danger ? Theme.DANGER_BORDER : Theme.BORDER, fill = danger ? Theme.DANGER : Theme.ACCENT;
                 Theme.FillRound(g, bar, barH / 2, track, track);
                 int w = (int)Math.Round(bar.Width * Math.Min(1, fraction));
-                if (w > 0) Theme.FillRound(g, new Rectangle(bar.X, bar.Y, Math.Max(w, barH), barH), barH / 2, fill, fill);
+                barArea = bar;
+                if (w > 0)
+                {
+                    var done = new Rectangle(bar.X, bar.Y, Math.Max(w, barH), barH);
+                    Theme.FillRound(g, done, barH / 2, fill, fill);
+                    // Flair: a light sweep gliding along the filled part (no glow at its end).
+                    var clip = g.Clip;
+                    using (var path = Theme.RoundRect(done, barH / 2f)) g.SetClip(path);
+                    Theme.DrawSweep(g, done, Theme.S(90), 1.6, Color.FromArgb(150, danger ? Theme.DANGER_FG : Theme.ACCENT_LIGHT));
+                    g.Clip = clip;
+                }
             }
         }
     }
@@ -949,7 +972,7 @@ namespace DiskSpaceAnalyzer
             Measure(g);
             Color text = active ? Theme.FG : Theme.MUTED;
             int ls = Theme.S(20);
-            Theme.DrawLogo(g, new Rectangle(Theme.S(12), (Height - ls) / 2, ls, ls), active ? 1f : 0.6f);
+            Theme.DrawLogoGlow(g, new Rectangle(Theme.S(12), (Height - ls) / 2, ls, ls), active ? 1f : 0.6f, 46, 0.9f);
             const TextFormatFlags f = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
             TextRenderer.DrawText(g, TitleText, Font, new Rectangle(Theme.S(40), 0, Width, Height), text, f);
             for (int i = 0; i < items.Count; i++)

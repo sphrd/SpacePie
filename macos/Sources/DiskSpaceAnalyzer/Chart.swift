@@ -62,12 +62,26 @@ final class PieChart: NSView {
     var showingLogo: Bool { logoMode }
     private(set) var morphs = 0
 
-    func showLogo(_ title: String, _ subtitle: String, _ note: String) {
+    func showLogo(_ title: String, _ subtitle: String, _ note: String, working: Bool = false) {
         self.title = title; self.subtitle = subtitle; logoNote = note
         slices = []; arcs = []; rings = 0; total = 0; hover = -1; hoverArc = -1; reported = -1
         logoMode = true
         animTimer?.invalidate(); animTimer = nil; anim = 1
+        setWorking(working)
         needsDisplay = true
+    }
+
+    // While a scan runs a fading tail runs round a loop in the logo's mouth (Theme.drawMouthLoop).
+    private var working = false
+    private var orbitTimer: Timer?
+    private func setWorking(_ on: Bool) {
+        working = on
+        if on, orbitTimer == nil {
+            orbitTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
+                guard let s = self else { return }
+                s.setNeedsDisplay(NSRect(x: s.pieRect.minX - 20, y: s.pieRect.minY, width: s.pieRect.width / 2, height: s.pieRect.height))
+            }
+        } else if !on { orbitTimer?.invalidate(); orbitTimer = nil }
     }
 
     /// Shows slices; rings > 0 adds that many outer rings with the subfolders of folder slices.
@@ -104,6 +118,7 @@ final class PieChart: NSView {
             }
         }
         logoMode = false
+        setWorking(false)
         needsDisplay = true
     }
 
@@ -156,7 +171,8 @@ final class PieChart: NSView {
         let top = y + max(0, (bounds.height - y - pad - d) / 3)
         pieRect = NSRect(x: ((bounds.width - d) / 2).rounded(), y: top.rounded(), width: d, height: d)
         if logoMode {
-            Theme.drawLogo(in: pieRect)
+            drawBrandLogo(pieRect, alpha: 1)
+            if working { Theme.drawMouthLoop(in: pieRect, seconds: Theme.now, color: T.ACCENT) }
             if !logoNote.isEmpty {
                 let ps = NSMutableParagraphStyle(); ps.alignment = .center
                 (logoNote as NSString).draw(in: NSRect(x: 10, y: pieRect.maxY + 14, width: bounds.width - 20, height: 40),
@@ -182,9 +198,14 @@ final class PieChart: NSView {
         PieChart.band(NSPoint(x: pieRect.midX, y: pieRect.midY), r0, r1, start, sweep).fill()
     }
 
+    /// The brand logo with its soft accent glow (fades with the logo during the morph).
+    private func drawBrandLogo(_ r: NSRect, alpha: CGFloat) {
+        Theme.drawLogoGlow(in: r, alpha: alpha, glowAlpha: 0.13, glowFactor: 0.62)
+    }
+
     private func drawMorph() {
         let e = PieChart.ease(anim), r = pieRect
-        Theme.drawLogo(in: r, alpha: 1 - e)
+        drawBrandLogo(r, alpha: 1 - e)
         let shrink = r.width * (1 - innerOuterRatio) / 2
         let pr = r.insetBy(dx: shrink, dy: shrink)
         let reveal = 360 * e, alpha = min(1, anim * 2.5)

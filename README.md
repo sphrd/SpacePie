@@ -24,9 +24,12 @@ to the Recycle Bin / Trash or permanently.
   NTFS drive's master file table directly: over a million files in about ten
   seconds. Otherwise, and on macOS, it scans folders in parallel with the
   operating system's fastest directory calls.
-- **Starts right away, in the background.** The system drive is scanned when the
-  app opens, with progress and **Cancel**; you can browse while it runs. Other
-  drives and USB disks are listed and scanned when you ask.
+- **Starts right away, in the background.** A start-up screen shows what is
+  being loaded the moment you launch it, without slowing the start. The system
+  drive is scanned when the app opens, with progress and **Cancel**; you can
+  browse while it runs, and the chart pane shows the animated logo until the
+  scan is done, then turns into the chart. Other drives and USB disks are
+  listed and scanned when you ask.
 - **Instant restart.** When you close it, the scan of each drive is saved; the
   next start shows it at once (a whole system drive in under two seconds). On
   Windows as administrator it then reads only what changed since, from the
@@ -127,7 +130,8 @@ open list, and hovering a slice highlights its row and the other way round)
   a click.
 - **About** lists the keyboard shortcuts and how to get the fastest, most
   complete scans.
-- Dark, flat, rounded design.
+- Dark, flat, rounded design, with calm animations only while something is
+  working.
 
 ## Download and install
 
@@ -219,6 +223,7 @@ Both apps take their version from `src/Program.cs` and their colours from `src/T
 - `--cli scan <folder>` prints sizes (Windows: add `--mft` for the master file table, `--files` for the largest files)
 - `--cli selftest <scratch folder>` runs the end-to-end self-test (exit code 0 = passed)
 - `--cli screenshot <out folder> <folder>` saves a picture of every tab
+- `--splash` shows the start-up screen until you click it or press Esc
 
 Every push is built and tested on Windows and macOS by GitHub Actions
 (`.github/workflows/build.yml`); a version tag publishes both apps as a release.

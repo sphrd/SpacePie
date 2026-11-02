@@ -9,6 +9,7 @@ import AppKit
 //                                          and the Full Disk Access dialog
 //   DiskSpaceAnalyzer --cli selftest <scratch-folder>
 //                                          end-to-end self-test of the real window; writes <scratch-folder>.log, exit code 0 = passed
+//   DiskSpaceAnalyzer --splash             shows the start-up screen until it is clicked or Esc is pressed
 
 func headlessScan(_ path: String) -> Int32 {
     let full = (path as NSString).expandingTildeInPath
@@ -56,11 +57,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Updater.cleanUp()
         NSApp.appearance = NSAppearance(named: .darkAqua)
+        splash?.step("Building the menu")
         buildMenu()
+        splash?.step("Building the main window")
         main = MainWindowController()
         main.selfTestDir = selfTestDir
         // Normal start: the last scan shows at once and is brought up to date (not in the --cli modes).
         main.fastStart = screenshotDir == nil && selfTestDir == nil
+        splash?.step("Opening the window")
         main.showWindow(nil)
         main.window?.makeKeyAndOrderFront(nil)
         if let s = splash {
@@ -198,7 +202,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 Dataless.disableMaterialization()      // before anything reads the disk: never download iCloud items (see Access.swift)
 
+/// `DiskSpaceAnalyzer --splash`: shows the splash until it is clicked or Esc is pressed (to look at it for as long as you
+/// like); the main window is not opened.
+final class SplashPreviewDelegate: NSObject, NSApplicationDelegate {
+    private var window: SplashWindow?
+    private var monitor: Any?
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .darkAqua)
+        let s = SplashWindow()
+        window = s
+        s.present()
+        s.step("Preview - click or press Esc to close")
+        NSApp.activate(ignoringOtherApps: true)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .keyDown]) { e in
+            if e.type == .leftMouseDown || e.keyCode == 53 { NSApp.terminate(nil) }   // 53 = Esc
+            return e
+        }
+    }
+}
+
 let args = CommandLine.arguments
+if args.count == 2 && args[1] == "--splash" {
+    let app = NSApplication.shared
+    let d = SplashPreviewDelegate()
+    app.delegate = d
+    app.setActivationPolicy(.regular)
+    app.run()
+    exit(0)
+}
 if args.count >= 2 && args[1] == "--cli" {
     if args.count == 4 && args[2] == "scan" { exit(headlessScan(args[3])) }
     if args.count == 5 && args[2] == "screenshot" {

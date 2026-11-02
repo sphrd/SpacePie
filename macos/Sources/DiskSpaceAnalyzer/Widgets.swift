@@ -97,10 +97,9 @@ final class RoundButton: NSView {
     }
 }
 
-/// Accent arc spinner: 120 degrees, rotating 18 degrees every 40 ms.
+/// Comet arc spinner (Theme.drawCometArc): 270 degree fading tail, glowing head, one turn per second.
 final class Spinner: NSView {
     private var timer: Timer?
-    private var angle: CGFloat = 0
     var background: NSColor = T.SURFACE { didSet { needsDisplay = true } }
     var color: NSColor = T.ACCENT { didSet { needsDisplay = true } }
     override var isFlipped: Bool { true }
@@ -110,22 +109,16 @@ final class Spinner: NSView {
         set {
             if newValue == spinning { return }
             if newValue {
-                timer = Timer.scheduledTimer(withTimeInterval: 0.04, repeats: true) { [weak self] _ in
-                    guard let s = self else { return }
-                    s.angle = (s.angle + 18).truncatingRemainder(dividingBy: 360); s.needsDisplay = true
-                }
+                timer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in self?.needsDisplay = true }
             } else { timer?.invalidate(); timer = nil }
         }
     }
 
     override func draw(_ dirtyRect: NSRect) {
         background.setFill(); bounds.fill()
-        let w = max(2, 6 * bounds.width / 64), inset = 4 * bounds.width / 64 + w / 2
-        let r = bounds.insetBy(dx: inset, dy: inset)
-        let p = NSBezierPath()
-        p.appendArc(withCenter: NSPoint(x: r.midX, y: r.midY), radius: r.width / 2, startAngle: angle, endAngle: angle + 120, clockwise: false)
-        p.lineWidth = w; p.lineCapStyle = .round
-        color.setStroke(); p.stroke()
+        let w = max(2.5, 5 * bounds.width / 64), inset = w * 1.5
+        let head = CGFloat((Theme.now * 360).truncatingRemainder(dividingBy: 360))
+        Theme.drawCometArc(in: bounds.insetBy(dx: inset, dy: inset), head: head, sweep: 270, width: w, color: color)
     }
 }
 
@@ -166,10 +159,11 @@ final class ScanBar: NSView {
         cancelButton.isEnabled = true
         isHidden = false
         spinner.spinning = true
+        setSweeping(true)
         needsLayout = true; needsDisplay = true
     }
 
-    func stop() { spinner.spinning = false; isHidden = true }
+    func stop() { spinner.spinning = false; setSweeping(false); isHidden = true }
 
     func set(_ text: String, _ detailText: String, _ frac: Double) {
         status = text; detail = detailText; fraction = frac
@@ -202,8 +196,27 @@ final class ScanBar: NSView {
             let bar = NSRect(x: x, y: y, width: max(0, right - x), height: barH)
             Theme.fillRound(bar, barH / 2, fill: outlineColor)
             let w = (bar.width * CGFloat(min(1, fraction))).rounded()
-            if w > 0 { Theme.fillRound(NSRect(x: bar.minX, y: bar.minY, width: max(w, barH), height: barH), barH / 2, fill: barColor) }
+            if w > 0 {
+                let done = NSRect(x: bar.minX, y: bar.minY, width: max(w, barH), height: barH)
+                Theme.fillRound(done, barH / 2, fill: barColor)
+                // Flair: a light sweep along the filled part (no glow at its end).
+                Theme.drawSweep(done, seg: 90, period: 1.6, color: (danger ? T.DANGER_FG : T.ACCENT_LIGHT).withAlphaComponent(0.6),
+                                clip: Theme.roundRect(done, barH / 2))
+            }
+            barArea = bar
         }
+    }
+
+    // Repaints only the progress bar, for its sweep.
+    private var barArea = NSRect.zero
+    private var sweepTimer: Timer?
+    private func setSweeping(_ on: Bool) {
+        if on, sweepTimer == nil {
+            sweepTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { [weak self] _ in
+                guard let s = self, s.fraction > 0, !s.barArea.isEmpty else { return }
+                s.setNeedsDisplay(s.barArea)
+            }
+        } else if !on { sweepTimer?.invalidate(); sweepTimer = nil }
     }
 }
 
