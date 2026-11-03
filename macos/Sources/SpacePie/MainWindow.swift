@@ -304,9 +304,11 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         measure.selectedIndex = DirNode.onDisk ? 1 : 0
         measure.onChange = { [unowned self] i in self.setMeasure(i == 1) }
         for v: NSView in [pathLabel, pathPanel, btnBrowse, btnScan, btnAccess, btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnDelete,
-                          btnBasket, btnOpenScan, btnExport, measure, scanBar, rightPane, statusLabel, liveLabel, driveLabel, versionLink] {
+                          btnBasket, btnOpenScan, btnExport, measure, scanBar, statusLabel, liveLabel, driveLabel, versionLink] {
             root.addSubview(v)
         }
+        // The main area lies below the toolbar in z-order too, so nothing it draws can cover the toolbar.
+        root.addSubview(rightPane, positioned: .below, relativeTo: nil)
         for l in [statusLabel, driveLabel, liveLabel] { l.font = Theme.font9; l.textColor = T.MUTED; l.lineBreakMode = .byTruncatingTail }
         driveLabel.alignment = .right
         liveLabel.alignment = .right
@@ -1000,12 +1002,21 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         contents.scrollRowToVisible(i)
     }
 
-    /// One row per drive, saved scan and scanned folder; scanned ones open into their folders.
+    /// A real drive of This Mac (not a scanned folder, not a saved scan): only these count in its totals and chart.
+    static func countsAsDrive(_ r: ScanRoot) -> Bool { r.isDrive && !r.readOnly }
+
+    /// The drives that count in This Mac's totals and chart.
+    var thisPcDrives: [ScanRoot] { roots.filter { MainWindowController.countsAsDrive($0) } }
+
+    /// One row per drive, saved scan and scanned folder; scanned ones open into their folders. A drive shows its used
+    /// space (of its capacity) and has a chart slice; a scanned folder or saved scan shows its own size (of its volume)
+    /// and has none.
     func thisPcRows() -> [ItemInfo] {
         var items: [ItemInfo] = []
         for r in roots {
             let n = r.node
-            let used: Int64 = r.total > 0 ? r.used : (n?.size ?? 0)
+            let drive = MainWindowController.countsAsDrive(r)
+            let size: Int64 = drive ? (r.total > 0 ? r.used : (n?.size ?? 0)) : (n?.size ?? 0)
             let it = ItemInfo()
             it.treeRow = true
             it.scanRoot = r
@@ -1013,12 +1024,14 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             it.isDir = n != nil
             it.dir = n
             it.path = r.path
+            it.noSlice = !drive
             it.name = r.displayName + (n == nil ? (r.scanning ? "  (scanning...)" : "  (not scanned)") : (r.scanning ? "  (rescanning...)" : ""))
-            it.size = used
+            it.size = size
             it.files = n?.files ?? 0
             it.dirs = n?.dirs ?? 0
-            it.percent = r.total > 0 ? 100 * Double(used) / Double(r.total) : 0
-            it.category = r.total > 0 ? "\(Fmt.size(r.free)) free of \(Fmt.size(r.total))" : (r.readOnly ? "Saved scan" : "")
+            it.percent = r.total > 0 ? 100 * Double(size) / Double(r.total) : 0
+            if drive { it.category = r.total > 0 ? "\(Fmt.size(r.free)) free of \(Fmt.size(r.total))" : "" }
+            else { it.category = r.readOnly ? "Saved scan" : "Scanned folder" }
             it.tip = r.displayName + "\n" + (n?.fullPath ?? r.path)
             it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), "", n != nil ? Fmt.count(it.files) : "", n != nil ? Fmt.count(it.dirs) : "",
                         "", it.category]
@@ -1039,7 +1052,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         updateCrumbs(nil)
         for r in roots { refreshCapacity(r) }
         fillContentsRows(thisPcRows(), keepView: false, empty: roots.isEmpty ? "No drives found." : "")
-        let drives = roots.filter { $0.isDrive }
+        let drives = thisPcDrives
         let used = drives.reduce(Int64(0)) { $0 + $1.used }, total = drives.reduce(Int64(0)) { $0 + $1.total }
         pContents.setCaption("\(Fmt.count(drives.count)) drive\(drives.count == 1 ? "" : "s")"
                              + (total > 0 ? ": \(Fmt.size(used)) used of \(Fmt.size(total))" : ""))
@@ -1048,16 +1061,15 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         updateButtons()
     }
 
-    /// This PC chart: the used space of every drive.
+    /// This PC chart: the used space of every drive (scanned folders and saved scans have no slice).
     func updateChartThisPc() {
         if chartOnHold { showScanLogo(); return }
-        let drives = roots.filter { $0.isDrive && $0.total > 0 }
+        let drives = thisPcDrives
         let total = drives.reduce(Int64(0)) { $0 + $1.total }
-        let sum = pContents.items.filter { $0.depth == 0 }.reduce(Int64(0)) { $0 + max(0, $1.size) }
-        let slices = buildSlices(pContents, max(1, sum), "of the used space")
+        let used = drives.reduce(Int64(0)) { $0 + $1.used }
+        let slices = buildSlices(pContents, max(1, used), "of the used space")
         chart.setData(MainWindowController.thisPcName, total > 0 ? "\(Fmt.size(total)) in \(drives.count) drive\(drives.count == 1 ? "" : "s")" : "", slices)
     }
-
     func showUnscanned(_ r: ScanRoot) {
         thisPc = false
         current = nil

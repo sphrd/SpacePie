@@ -302,7 +302,9 @@ enum Fmt {
 class FlatView: NSView {
     var fill: NSColor = T.BG { didSet { needsDisplay = true } }
     override var isFlipped: Bool { true }
-    override func draw(_ dirtyRect: NSRect) { fill.setFill(); dirtyRect.fill() }
+    // Only inside the view: since macOS 14 views do not clip to their bounds by default and dirtyRect may reach beyond
+    // them, so filling dirtyRect could paint over neighbouring views (it hid the toolbar above the main area).
+    override func draw(_ dirtyRect: NSRect) { fill.setFill(); dirtyRect.intersection(bounds).fill() }
 }
 
 /// Rounded panel: surface fill, 1 px border outline (accent while `highlight`).

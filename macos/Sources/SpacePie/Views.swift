@@ -32,6 +32,7 @@ final class ItemInfo {
     var depth = 0
     var expandable = false, expanded = false
     var scanRoot: ScanRoot?            // This PC: the drive or scanned folder of the row
+    var noSlice = false                // left out of the chart (This PC: scanned folders and saved scans)
     var chartSize: Int64 { chartValue >= 0 ? chartValue : size }
     var canDelete: Bool { !isSummary && !isGroup && scanRoot == nil && (isDir || file != nil || targets != nil) }
     var fullPath: String? { isDir ? dir?.fullPath : (file?.fullPath ?? path) }

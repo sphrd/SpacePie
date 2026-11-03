@@ -143,7 +143,7 @@ extension MainWindowController {
         rowSlice = [:]
         let rows = p.items
         let total = max(Int64(1), total0)
-        let big = rows.indices.filter { rows[$0].depth == 0 && rows[$0].groupOf == nil && rows[$0].chartSize > 0 &&
+        let big = rows.indices.filter { rows[$0].depth == 0 && !rows[$0].noSlice && rows[$0].groupOf == nil && rows[$0].chartSize > 0 &&
             Double(rows[$0].chartSize) >= MainWindowController.minOwnShare * Double(total) }
         let own = Set(big.sorted { rows[$0].chartSize > rows[$1].chartSize }.prefix(MainWindowController.maxOwnSlices))
         var slices: [ChartSlice] = []
@@ -153,7 +153,7 @@ extension MainWindowController {
         var colour = 0
         for (i, info) in rows.enumerated() {
             // Only the top level of a tree-list (Contents): expanded rows are inside their folder's slice.
-            if info.depth > 0 { continue }
+            if info.depth > 0 || info.noSlice { continue }
             if let g = info.groupOf, let head = headSlice[ObjectIdentifier(g)] {
                 slices[head].rows.append(i)
                 rowSlice[i] = head

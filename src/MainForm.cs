@@ -1186,14 +1186,19 @@ namespace SpacePie
             foreach (var r in roots)
             {
                 var n = r.Node;
-                long used = r.Total > 0 ? r.Total - r.Free : n != null ? n.Size : 0;
+                // Only real drives count their used space (and get a chart slice); a scanned folder or a saved scan
+                // shows its own size, so nothing is counted twice.
+                bool drive = CountsAsDrive(r);
+                long used = drive && r.Total > 0 ? r.Total - r.Free : n != null ? n.Size : 0;
                 var it = new ItemInfo
                 {
                     TreeRow = true, Data = r, FolderIcon = true, IsDir = n != null, Dir = n, Path = r.Path,
                     Name = r.DisplayName + (n == null ? (r.Scanning ? "  (scanning...)" : "  (not scanned)") : r.Scanning ? "  (rescanning...)" : ""),
                     Size = used, Files = n != null ? n.Files : 0, Dirs = n != null ? n.Dirs : 0,
                     Percent = r.Total > 0 ? 100.0 * used / r.Total : 0,
-                    Category = r.Total > 0 ? string.Format("{0} free of {1}", Fmt.Size(r.Free), Fmt.Size(r.Total)) : r.ReadOnly ? "Saved scan" : ""
+                    Category = r.ReadOnly ? "Saved scan" : !drive ? "Scanned folder"
+                        : r.Total > 0 ? string.Format("{0} free of {1}", Fmt.Size(r.Free), Fmt.Size(r.Total)) : "",
+                    ChartValue = drive ? -1 : 0
                 };
                 it.Expandable = HasContent(n);
                 it.Expanded = it.Expandable && expandedDirs.Contains(n);
@@ -1212,8 +1217,9 @@ namespace SpacePie
             contents.EmptyText = roots.Count == 0 ? "No drives found." : null;
             UpdateCrumbs(null);
             FillContentsRows(ThisPcRows(), false);
-            long used = roots.Where(r => r.Total > 0).Sum(r => r.Total - r.Free), total = roots.Where(r => r.Total > 0).Sum(r => r.Total);
-            pContents.Caption.Text = string.Format("{0:N0} drive{1}{2}", roots.Count(r => r.IsDrive), roots.Count(r => r.IsDrive) == 1 ? "" : "s",
+            var drives = roots.Where(CountsAsDrive).ToList();
+            long used = drives.Where(r => r.Total > 0).Sum(r => r.Total - r.Free), total = drives.Where(r => r.Total > 0).Sum(r => r.Total);
+            pContents.Caption.Text = string.Format("{0:N0} drive{1}{2}", drives.Count, drives.Count == 1 ? "" : "s",
                 total > 0 ? string.Format(": {0} used of {1}", Fmt.Size(used), Fmt.Size(total)) : "");
             foreach (var pg in pages) if (pg.FollowsFolder && pg != pContents) pg.Stale = true;
             if (ActivePage == pContents) RefreshChart();
@@ -1224,10 +1230,13 @@ namespace SpacePie
         void UpdateChartThisPc()
         {
             if (scanning) { ShowScanLogo(); return; }
-            long total = roots.Where(r => r.Total > 0).Sum(r => r.Total);
-            var slices = BuildSlices(contents, Math.Max(1, roots.Sum(r => r.Total > 0 ? r.Total - r.Free : 0)), "of the used space");
-            chart.SetData("This PC", total > 0 ? Fmt.Size(total) + " in " + roots.Count(r => r.IsDrive) + " drives" : "", slices);
+            var drives = roots.Where(r => CountsAsDrive(r) && r.Total > 0).ToList();
+            long total = drives.Sum(r => r.Total);
+            var slices = BuildSlices(contents, Math.Max(1, drives.Sum(r => r.Total - r.Free)), "of the used space");
+            chart.SetData("This PC", total > 0 ? Fmt.Size(total) + " in " + drives.Count + (drives.Count == 1 ? " drive" : " drives") : "", slices);
         }
+
+        static bool CountsAsDrive(ScanRoot r) { return r.IsDrive && !r.ReadOnly; }
 
         void ShowContents(DirNode d)
         {

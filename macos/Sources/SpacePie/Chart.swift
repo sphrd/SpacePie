@@ -30,7 +30,7 @@ final class PieChart: NSView {
     private var arcs: [ChartArc] = []
     private var rings = 0
     private var hoverArc = -1
-    private var total: Int64 = 0
+    private(set) var total: Int64 = 0
     private var title = "", subtitle = ""
     private var hover = -1, reported = -1
     private var pieRect = NSRect.zero

@@ -84,6 +84,10 @@ namespace SpacePie
                 // Up from the top of a scan leads to This PC (every drive and scanned folder), then disabled.
                 GoUp();
                 bool pc = thisPc && current == null && contents.Items.Count == roots.Count && !btnUp.Enabled;
+                // Only drives count: the scanned test folder shows its own size and gets no chart slice.
+                var folderRow = contents.Items.Cast<ListViewItem>().Select(x => (ItemInfo)x.Tag).FirstOrDefault(x => x.Dir == top);
+                bool noDouble = folderRow != null && folderRow.Size == top.Size && folderRow.ChartSize == 0;
+                check(noDouble, "this pc: a scanned folder shows its own size (" + (folderRow != null ? Fmt.Size(folderRow.Size) : "?") + "), not its drive's, and is not in the chart");
                 SelectDir(top);
                 check(pc && !thisPc, "this pc: Up from the scanned folder lists the " + roots.Count + " drives and folders; Up is then disabled");
             }

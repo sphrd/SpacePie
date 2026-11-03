@@ -96,6 +96,16 @@ extension SelfTestRun {
                 && sel.count == 1 && sel[0].scanRoot === w.rootOf(top) && w.crumbs.count == 1
                 && w.pContents.columns.count > 2 && (w.contents.tableColumns.first { $0.identifier.rawValue == "c2" }?.headerCell.stringValue.hasPrefix("% used") ?? false)
             w.crumbs.pick(0)
+            // Only real drives count in This Mac: the chart total is the drives' used space; the scanned scratch folder
+            // shows its own size, is a "Scanned folder" and has no slice.
+            w.updateChartThisPc()
+            let drivesUsed = w.thisPcDrives.reduce(Int64(0)) { $0 + $1.used }
+            let folderRow = w.pContents.items.first { $0.depth == 0 && $0.scanRoot === w.rootOf(top) }
+            let chartOk = w.chart.showingLogo || (w.chart.total == drivesUsed
+                && !w.chart.slices.contains { s in s.rows.contains { $0 < w.pContents.items.count && w.pContents.items[$0].noSlice } })
+            let folderOk = folderRow != nil && folderRow!.size == top.size && folderRow!.category == "Scanned folder" && folderRow!.noSlice
+            self.check(chartOk && folderOk,
+                       "this mac: the chart total (\(Fmt.size(w.chart.total))) is the drives' used space (\(Fmt.size(drivesUsed))); a scanned folder shows its own size and has no slice")
             w.selectDir(top)
             self.check(pc && !w.thisPc && w.current === top,
                        "this pc: Up from the scanned folder lists the \(w.roots.count) drives and folders with it selected; Up is then disabled")
