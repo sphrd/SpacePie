@@ -336,6 +336,14 @@ patterns (Part 3) are applied through the WinForms mapping below.
     only by 16 file symbolic links (robocopy counts their targets); dir /s and PowerShell follow folder links/junctions and
     count files twice. CI repeats it (Windows: robocopy, fails on a count mismatch or > 1 %; macOS: du/find, > 10 %).
   - Gotcha: executables in %TEMP% are blocked on the owner's machine (policy); test builds go to a scratch folder instead.
+  - macOS (Known/Navigation/SavedScans/Safety/Preview/SelfTestV2.swift): same features; treemap choice in UserDefaults;
+    Back/Forward ⌘[ ⌘] + mouse buttons 4/5; Space = Quick Look (QLPreviewPanel, never for dataless iCloud files), ⌘I = Finder
+    Get Info via AppleScript (NSAppleEventsUsageDescription in Info.plist, asks once for Automation); File > Open Scan... ⇧⌘O;
+    the unreadable banner also counts folders skipped without Full Disk Access; no Recycle Bin limit (the Trash has none) but
+    a volume without a Trash keeps its items ("Move the others"). Compiled first time on CI. Gotcha: `display()` does not draw
+    on the headless runner, so the self-test lays the treemap out with `layoutTreemapNow()`.
+  - CI accuracy: System32 differs on the elevated runner (robocopy lists SYSTEM-only subfolders the app sees as denied), so
+    the check uses both Program Files folders; results are in the README.
   - Self-test: SelfTestV2.cs adds 13 checks (last opened, search everywhere, treemap layout and drawing, navigation, known
     folders, unreadable banner, Recycle Bin limit, synced folders, scan file round trip + read-only guards, timeline/archive).
 
