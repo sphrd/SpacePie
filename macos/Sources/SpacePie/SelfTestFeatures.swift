@@ -94,10 +94,11 @@ extension SelfTestRun {
 
         // MARK: System view
         steps.then {
-            let want = ["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes", "Delete list"]
+            let want = ["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes"]
             let i = w.pages.firstIndex { $0 === w.pSystem } ?? -1
-            self.check(i == 3 && w.pages[2] === w.pApps && w.viewTabs.titles == w.pages.map { $0.title } && w.viewTabs.titles == want,
-                       "system: the System tab comes right after Apps (\(w.viewTabs.titles.joined(separator: ", ")))")
+            self.check(i == 3 && w.pages[2] === w.pApps && w.viewTabs.titles == w.railPages.map { $0.title } && w.viewTabs.titles == want
+                       && !w.railPages.contains { $0 === w.pBasket },
+                       "system: the System view comes right after Apps in the rail; the Delete list is not in it (\(w.viewTabs.titles.joined(separator: ", ")))")
             let snaps = SystemInfo.parseLocalSnapshots(SelfTestSamples.tmutil)
             self.check(snaps.map { $0.date } == ["2026-10-30-093012", "2026-11-01-180455"] && snaps.first?.name == "com.apple.TimeMachine.2026-10-30-093012.local"
                        && SystemInfo.parseLocalSnapshots(SelfTestSamples.tmutilOld).map { $0.date } == ["2019-11-02-101530"]
@@ -119,7 +120,7 @@ extension SelfTestRun {
             self.check(SystemInfo.isLow(available: 9 * gb, total: 1000 * gb) && SystemInfo.isLow(available: 40 * gb, total: 500 * gb)
                        && !SystemInfo.isLow(available: 60 * gb, total: 500 * gb) && !SystemInfo.isLow(available: 0, total: 0),
                        "system: low space = under 10 GB or under 10 % available")
-            if i >= 0 { w.viewTabs.selectedIndex = i }
+            if i >= 0 { w.pageIndex = i }
         }
         steps.waitUntil(120) { w.systemGroups != nil && !w.systemLoading }
         steps.then {
@@ -228,7 +229,7 @@ extension SelfTestRun {
         steps.then {
             if let r = self.root { w.selectDir(r) }
             w.dupeMin.selectedIndex = 3
-            w.viewTabs.selectedIndex = w.pages.firstIndex { $0 === w.pDupes } ?? 6
+            w.pageIndex = w.pages.firstIndex { $0 === w.pDupes } ?? 6
             w.findDuplicates()
         }
         steps.waitUntil(60) { w.dupeFinder == nil }
@@ -328,7 +329,7 @@ extension SelfTestRun {
         var logoAtReplayDone = false
         steps.then {
             restartAt = Date()
-            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.viewTabs.selectedIndex = i }
+            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.pageIndex = i }
             w.onReplayDone = { path, why in
                 guard PathUtil.same(path, sd) else { return }
                 replayWhy = why

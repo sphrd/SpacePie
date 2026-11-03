@@ -184,7 +184,7 @@ namespace SpacePie
         {
             livePending = false;
             lastLiveRefresh = DateTime.UtcNow;
-            tree.Invalidate();
+            contents.Invalidate();
             UpdateDriveLabel();
             if (current == null || !IsAttached(current)) return;
             if (ActivePage != pContents) return;

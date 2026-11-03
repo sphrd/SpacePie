@@ -127,3 +127,46 @@ extension NSTableView {
         }
     }
 }
+
+/// Text a custom-drawn view cut off with "..." (same as CutText in src/CutText.cs): the view records each cut text and
+/// where it was drawn while painting; resting the mouse there shows the full text in the hover tip. Call begin() at the
+/// start of each paint and feed the view's mouseMoved / mouseExited to track / exit.
+final class CutTips {
+    private(set) var cuts: [(rect: NSRect, text: String)] = []
+
+    func begin() { cuts.removeAll() }
+
+    /// Remembers that text was cut in r.
+    func add(_ r: NSRect, _ text: String) { if !text.isEmpty && r.width > 0 { cuts.append((rect: r, text: text)) } }
+
+    /// Draws one line like Theme.drawText and remembers it when it does not fit.
+    func draw(_ s: String, in r: NSRect, font: NSFont = Theme.font, color: NSColor, align: NSTextAlignment = .left) {
+        Theme.drawText(s, in: r, font: font, color: color, align: align)
+        if Theme.isCut(s, font, r.width) { add(r, s) }
+    }
+
+    /// The full text of the cut text at p (in the view's coordinates), or nil.
+    func text(at p: NSPoint) -> String? {
+        for c in cuts.reversed() where c.rect.contains(p) { return c.text }
+        return nil
+    }
+
+    func track(_ v: NSView, _ e: NSEvent) {
+        let t = text(at: v.convert(e.locationInWindow, from: nil))
+        let key = t.map { Int(truncatingIfNeeded: $0.hashValue) & 0x3fff_ffff } ?? -1
+        HoverTip.shared.track(v, key: key, text: t, event: e)
+    }
+
+    func exit(_ v: NSView) { HoverTip.shared.reset(owner: v) }
+}
+
+/// One-line label that truncates with "..." and then shows its full text as its tooltip.
+final class CutLabel: NSTextField {
+    override var stringValue: String { didSet { updateTip() } }
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); updateTip() }
+    private func updateTip() {
+        let s = stringValue
+        let f = font ?? Theme.font
+        toolTip = Theme.isCut(s, f, bounds.width - 4) ? s : nil
+    }
+}

@@ -88,52 +88,73 @@ final class SelfTestRun {
         let w = self.w
         // Start-up: Contents is the first tab and open, Suggestions second; suggestions are found by themselves.
         steps.then {
-            self.check(w.pages.first === w.pContents && w.pages.count > 1 && w.pages[1] === w.pSuggest && w.viewTabs.selectedIndex == 0 && w.activePage === w.pContents && w.viewTabs.titles.first == "Contents",
+            self.check(w.pages.first === w.pContents && w.pages.count > 1 && w.pages[1] === w.pSuggest && w.pageIndex == 0 && w.activePage === w.pContents && w.viewTabs.titles.first == "Contents",
                        "start: Contents is the first tab and the one open, Suggestions second")
-            self.check(w.pages.count > 2 && w.pages[2] === w.pApps && w.viewTabs.titles == w.pages.map { $0.title },
-                       "start: Apps is the third tab; tab titles match the views (\(w.viewTabs.titles.joined(separator: ", ")))")
-            if let i = w.pages.firstIndex(where: { $0 === w.pSuggest }) { w.viewTabs.selectedIndex = i }
+            self.check(w.pages.count > 2 && w.pages[2] === w.pApps && w.viewTabs.titles == w.railPages.map { $0.title }
+                       && w.viewTabs.frame.width == NavRail.width && w.viewTabs.frame.minX == 0,
+                       "start: Apps is the third view; the rail on the left lists the views (\(w.viewTabs.titles.joined(separator: ", ")))")
+            if let i = w.pages.firstIndex(where: { $0 === w.pSuggest }) { w.pageIndex = i }
         }
         steps.waitUntil(90) { w.suggestions != nil && !w.suggestFinding }
         steps.then {
             self.check(w.suggestions != nil && !w.pSuggest.headline.text.isEmpty == !w.shownSuggestions.isEmpty,
                        "start: suggestions found when the tab is opened (headline \"\(w.pSuggest.headline.text)\")")
-            // Picking a folder in the tree (keyboard: Down) while Suggestions is open shows the Contents of that folder.
-            w.window?.makeFirstResponder(w.outline)
+            // Contents is a tree-list: Right opens the selected folder in place (its rows one level deeper below it), Left
+            // closes it again.
+            w.showView(w.pContents)
             if let r = self.root { w.selectDir(r) }
-            let before = w.outline.selectedRow
-            let down = String(UnicodeScalar(NSDownArrowFunctionKey)!)
-            if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
-                                        windowNumber: w.window?.windowNumber ?? 0, context: nil, characters: down,
-                                        charactersIgnoringModifiers: down, isARepeat: false, keyCode: 125) {
-                w.outline.keyDown(with: e)
+            w.window?.makeFirstResponder(w.contents)
+            let rowsBefore = w.pContents.items.count
+            let at = w.pContents.items.firstIndex { $0.depth == 0 && $0.expandable }
+            func key(_ code: UInt16, _ fn: Int) {
+                let s = String(UnicodeScalar(UInt32(fn)).map { Character($0) } ?? " ")
+                if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: w.window?.windowNumber ?? 0, context: nil, characters: s,
+                                            charactersIgnoringModifiers: s, isARepeat: false, keyCode: code) {
+                    w.contents.keyDown(with: e)
+                }
             }
-            self.check(w.outline.selectedRow != before && w.activePage === w.pContents,
-                       "tree: picking a folder while Suggestions is open switches to Contents (row \(before) -> \(w.outline.selectedRow))")
-            // Programmatic tree changes do not switch views.
-            if let i = w.pages.firstIndex(where: { $0 === w.pSuggest }) { w.viewTabs.selectedIndex = i }
+            var opened = false, rowsOpen = 0
+            if let i = at {
+                w.selectContentsRow(i)
+                key(124, NSRightArrowFunctionKey)
+                rowsOpen = w.pContents.items.count
+                opened = w.pContents.items.count > rowsBefore && i + 1 < w.pContents.items.count && w.pContents.items[i + 1].depth == 1
+                    && w.pContents.items[i].expanded && w.contents.selectedRowIndexes == IndexSet(integer: i)
+                key(123, NSLeftArrowFunctionKey)
+            }
+            self.check(at != nil && opened && w.pContents.items.count == rowsBefore,
+                       "tree-list: Right opens a folder in place (\(rowsBefore) -> \(rowsOpen) rows, selection kept), Left closes it")
+            // The delete list is not in the rail: its toolbar button opens it, and the rail then shows no selection.
+            w.btnBasket.onClick?()
+            let basketShown = w.activePage === w.pBasket && w.viewTabs.selectedIndex == -1
+            w.viewTabs.onChange?(0)
+            self.check(basketShown && w.activePage === w.pContents && w.viewTabs.selectedIndex == 0,
+                       "rail: the Delete list button opens the delete list (no rail row selected); the rail's first row opens Contents again")
+            // Folders opened by the app do not switch views.
+            if let i = w.pages.firstIndex(where: { $0 === w.pSuggest }) { w.pageIndex = i }
             if let r = self.root { w.selectDir(r) }
-            self.check(w.activePage === w.pSuggest, "tree: a folder selected by the app keeps the Suggestions view open")
+            self.check(w.activePage === w.pSuggest, "contents: a folder opened by the app keeps the Suggestions view open")
         }
         // While a scan runs the chart pane shows the logo on every tab; when it ends the logo turns into the chart.
         steps.then {
-            let back = w.viewTabs.selectedIndex
+            let back = w.pageIndex
             let m0 = w.chart.morphs
             var allLogo = true
             w.setScanning(true, "Scanning (test)...")
             for p in [w.pContents!, w.pFiles!, w.pTypes!] {
-                if let i = w.pages.firstIndex(where: { $0 === p }) { w.viewTabs.selectedIndex = i }
+                if let i = w.pages.firstIndex(where: { $0 === p }) { w.pageIndex = i }
                 w.refreshChart()
                 allLogo = allLogo && w.chart.showingLogo
             }
-            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.viewTabs.selectedIndex = i }
+            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.pageIndex = i }
             if let c = w.current { w.updateChart(c) }
             allLogo = allLogo && w.chart.showingLogo
             w.setScanning(false, nil)
             w.refreshChart()
             self.check(allLogo && !w.chart.showingLogo && w.chart.morphs == m0 + 1,
                        "chart: logo on Contents, Files and File types while scanning; the chart came back with the morph when the scan ended (morphs \(m0) -> \(w.chart.morphs))")
-            w.viewTabs.selectedIndex = back
+            w.pageIndex = back
         }
         // Splash: renders 520x300 from its view and is never shown in the --cli modes.
         steps.then {
@@ -189,7 +210,7 @@ final class SelfTestRun {
             // Duplicates: dup1.bin and dup2.bin are identical; other.bin has the same size but other content.
             if let r = self.root { w.selectDir(r) }
             w.dupeMin.selectedIndex = 3
-            w.viewTabs.selectedIndex = w.pages.firstIndex { $0 === w.pDupes } ?? 3
+            w.pageIndex = w.pages.firstIndex { $0 === w.pDupes } ?? 3
             w.findDuplicates()
         }
         steps.waitUntil(60) { w.dupeFinder == nil }
@@ -295,7 +316,7 @@ final class SelfTestRun {
         steps.waitUntil(20) { (1...4).allSatisfy { self.find("S/s\($0)")?.files == 15 } }
         steps.add { next in
             guard let s = self.find("S"), s.children.count == 4 else { self.check(false, "delete strip: folder S not noticed"); next(); return }
-            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.viewTabs.selectedIndex = i }
+            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.pageIndex = i }
             // The tree may not show S yet (live changes reach it a little later): reload it with S open.
             w.refreshTree(s)
             if w.current !== s { w.showContents(s) }
@@ -427,7 +448,7 @@ final class SelfTestRun {
                 self.check(nm.checkState == 1 && fake.checkState == 0, "suggestions view: safe items start checked, review-first items unchecked")
                 w.suggestions = list
                 w.suggestDirty = false
-                w.viewTabs.selectedIndex = w.pages.firstIndex { $0 === w.pSuggest } ?? 4
+                w.pageIndex = w.pages.firstIndex { $0 === w.pSuggest } ?? 4
                 w.showSuggestions()
                 w.checkAllSuggestions(true)
                 let total = list.reduce(Int64(0)) { $0 + $1.size }
@@ -491,11 +512,13 @@ final class SelfTestRun {
             }
             let ft = ItemInfo.forFile(f, 0).toolTip.components(separatedBy: "\n")
             let dt = ItemInfo.forDir(c, 0).toolTip.components(separatedBy: "\n")
-            let tt = (w.treeToolTip(c) ?? "").components(separatedBy: "\n")
+            let top = self.root
+            let rootRow = w.thisPcRows().first { $0.dir != nil && $0.dir === top }
+            let tt = (rootRow?.toolTip ?? "").components(separatedBy: "\n")
             self.check(ft.count == 2 && ft[0] == "dup1.bin" && PathUtil.same(ft[1], self.P("C")),
                        "tooltip: file row shows name and folder (\(ft.joined(separator: " | ")))")
-            self.check(dt.count == 2 && dt[0] == "C" && PathUtil.same(dt[1], self.P("C")) && tt == dt,
-                       "tooltip: folder row and tree node show name and path (\(dt.joined(separator: " | ")))")
+            self.check(dt.count == 2 && dt[0] == "C" && PathUtil.same(dt[1], self.P("C")) && tt.count == 2 && PathUtil.same(tt[1], self.dir),
+                       "tooltip: folder row and This PC row show name and path (\(dt.joined(separator: " | ")); \(tt.joined(separator: " | ")))")
             // A suggestion with several locations lists every path (at most 8, then how many more).
             func multi(_ n: Int) -> [String] {
                 let s = Suggestion("Multi", safe: true, note: "")
@@ -510,7 +533,7 @@ final class SelfTestRun {
                        "tooltip: a suggestion in 3 places lists the 3 paths (\(m3.joined(separator: " | ")))")
             self.check(m10.count == 10 && m10[1] == self.P("M/m1") && m10[8] == self.P("M/m8") && m10[9] == "... and 2 more",
                        "tooltip: a suggestion in 10 places lists 8 paths and \"... and 2 more\" (\(m10.count) lines, last \"\(m10.last ?? "")\")")
-            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.viewTabs.selectedIndex = i }
+            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.pageIndex = i }
             if let r = self.root { w.selectDir(r) }
             self.check(w.pContents.table.tipFor != nil && w.pContents.table.view(atColumn: 0, row: 0, makeIfNecessary: true)?.toolTip == nil,
                        "tooltip: list cells have no system tooltip of their own (the hover tip shows instead)")
@@ -548,15 +571,15 @@ final class SelfTestRun {
         }
         steps.then {
             self.check(!HoverTip.shared.isShown, "hover: tip hidden when the mouse leaves the list")
-            let row = w.outline.row(forItem: self.find("C"))
-            w.outline.simulateMouseMove(row: row)
+            let row = w.pContents.items.firstIndex { $0.dir != nil && $0.dir === self.find("C") } ?? -1
+            w.contents.simulateMouseMove(row: row)
         }
         steps.wait(0.75)
         steps.then {
-            let row = w.outline.row(forItem: self.find("C"))
-            let want = row >= 0 ? w.outline.item(atRow: row).flatMap { w.treeToolTip($0) } : nil
+            let row = w.pContents.items.firstIndex { $0.dir != nil && $0.dir === self.find("C") } ?? -1
+            let want = row >= 0 ? w.pContents.hoverText(row) : nil
             self.check(want != nil && HoverTip.shared.shownText == want,
-                       "hover: tree node tip shown (\(HoverTip.shared.shownText?.replacingOccurrences(of: "\n", with: " | ") ?? "none"))")
+                       "hover: folder row tip shown (\(HoverTip.shared.shownText?.replacingOccurrences(of: "\n", with: " | ") ?? "none"))")
             HoverTip.shared.reset()
             // A cell cut off with an ellipsis is shown in full under the name and path; a cell that fits is not repeated;
             // widening the column takes the line away (the tip is worked out again on every hover).
@@ -585,7 +608,7 @@ final class SelfTestRun {
             w.appRoots = [appsDir]
             w.apps = nil
             w.pApps.stale = true
-            w.viewTabs.selectedIndex = w.pages.firstIndex { $0 === w.pApps } ?? 2
+            w.pageIndex = w.pages.firstIndex { $0 === w.pApps } ?? 2
         }
         steps.waitUntil(60) { w.apps != nil && !w.appsLoading }
         steps.then {
@@ -746,7 +769,7 @@ final class ShotRun {
         // The app opens on Contents; the first shots show Suggestions.
         let suggestIndex = w.pages.firstIndex { $0 === w.pSuggest } ?? 1
         steps.waitUntil(90) { w.suggestions != nil && !w.suggestFinding }
-        steps.then { w.viewTabs.selectedIndex = suggestIndex }
+        steps.then { w.pageIndex = suggestIndex }
         steps.wait(1.5)
         steps.then { self.shot("0-suggestions-start") }
         var saved: [Suggestion]?
@@ -776,16 +799,37 @@ final class ShotRun {
             HoverTip.shared.reset()
             if let s = saved { w.suggestions = s; w.showSuggestions() }
         }
-        steps.then { w.viewTabs.selectedIndex = contentsIndex }
+        steps.then { w.pageIndex = contentsIndex }
         steps.wait(1.5)
         steps.then { self.shot("1-contents") }
+        var openDir: DirNode?
         steps.then {
-            print("panes: tree \(Int(w.treePanel.frame.width)), list \(Int(w.listPanel.frame.width)), chart \(Int(w.chartPanel.frame.width)) x \(Int(w.chartPanel.frame.height)), window \(Int(w.window?.frame.width ?? 0)) x \(Int(w.window?.frame.height ?? 0))")
-            // Hover a tree node under the selected one.
-            self.hover(w.outline, min(w.outline.numberOfRows - 1, max(0, w.outline.selectedRow + 1)))
+            print("panes: rail \(Int(w.viewTabs.frame.width)), list \(Int(w.listPanel.frame.width)), chart \(Int(w.chartPanel.frame.width)) x \(Int(w.chartPanel.frame.height)), window \(Int(w.window?.frame.width ?? 0)) x \(Int(w.window?.frame.height ?? 0))")
+            // Contents as a tree-list: the two largest folders opened in place.
+            openDir = w.current
+            for it in w.pContents.items.filter({ $0.isDir && $0.expandable }).prefix(2) { if let d = it.dir { w.setExpanded(d, true) } }
+            w.refillContents()
+        }
+        steps.wait(1.2)
+        steps.then {
+            self.shot("1b-tree-list")
+            // Hover a row inside an opened folder.
+            if let r = w.pContents.items.firstIndex(where: { $0.depth == 1 }) { self.hover(w.contents, r) }
         }
         steps.wait(0.9)
-        steps.then { self.shotWithTip("1b-hover-tree"); HoverTip.shared.reset() }
+        steps.then {
+            self.shotWithTip("1c-hover-tree-list")
+            HoverTip.shared.reset()
+            w.expandedDirs.removeAll()
+            // This PC: every drive and scanned folder.
+            w.showThisPc()
+        }
+        steps.wait(1.5)
+        steps.then {
+            self.shot("1d-this-pc")
+            if let d = openDir, w.isAttached(d) { w.selectDir(d) } else { w.refreshTree(nil) }
+        }
+        steps.wait(0.8)
         var n = 2
         for (i, p) in w.pages.enumerated() where p !== w.pContents {
             let num = n
@@ -802,7 +846,7 @@ final class ShotRun {
                 steps.waitUntil(90) { !w.scanning && (w.active?.previous != nil) }
             }
             if p === w.pDupes { steps.then { w.dupeMin.selectedIndex = 2 } }
-            steps.then { w.viewTabs.selectedIndex = i }
+            steps.then { w.pageIndex = i }
             if p === w.pDupes {
                 steps.then { w.findDuplicates() }
                 steps.waitUntil(100) { w.dupeFinder == nil }
@@ -910,7 +954,7 @@ final class ShotRun {
                 steps.then { self.shotWithTip("\(num)b-hover-file"); HoverTip.shared.reset() }
             }
         }
-        steps.then { w.viewTabs.selectedIndex = contentsIndex; w.measure.selectedIndex = 0 }
+        steps.then { w.pageIndex = contentsIndex; w.measure.selectedIndex = 0 }
         steps.wait(1.5)
         steps.then { self.shot("\(w.pages.count + 1)-file-size"); w.measure.selectedIndex = 1 }
         steps.then {
@@ -940,7 +984,7 @@ final class ShotRun {
         // The folder contents as a treemap (the Pie / Treemap choice is put back afterwards).
         var chartMode = 0
         steps.then {
-            w.viewTabs.selectedIndex = contentsIndex
+            w.pageIndex = contentsIndex
             chartMode = w.chartMode.selectedIndex
             w.chartMode.selectedIndex = 1
         }
@@ -967,7 +1011,7 @@ final class ShotRun {
                 w.addTarget(DeleteTarget(path: f, label: "project-\(i)/build-cache", isDir: true, size: Scanner().run(f).size))
             }
             w.basketChanged()
-            w.viewTabs.selectedIndex = w.pages.firstIndex { $0 === w.pBasket } ?? 0
+            w.pageIndex = w.pages.firstIndex { $0 === w.pBasket } ?? 0
         }
         steps.wait(1)
         steps.then { DeleteJob.throttle = 60_000; w.deleteBasket(trash: false) }

@@ -9,7 +9,7 @@ Open source, a single small app, nothing to install.</p>
 
 <p align="center"><a href="../../releases/latest"><b>Download the latest release</b></a> &middot; <a href="https://sphrd.github.io/SpacePie/">Website</a></p>
 
-![SpacePie: drive tree, folder contents and pie chart (demo data)](assets/screenshot.png)
+![SpacePie: the views bar, folder contents as an expandable tree-list and the pie chart (demo data)](assets/screenshot.png)
 
 It starts analyzing your system drive the moment it opens. See where your space
 went, find big, old and duplicate files, follow cleanup suggestions, uninstall
@@ -44,29 +44,39 @@ to the Recycle Bin / Trash or permanently.
   files that are not downloaded (OneDrive online-only, iCloud) count nothing and
   are never downloaded by the scan.
 
-**Seeing where the space went** (tabs above the list; the chart always shows the
-open list, and hovering a slice highlights its row and the other way round)
+**Seeing where the space went** (the views are in a bar on the left, a row with an
+icon and a name each; the chart always shows the open list, and hovering a slice
+highlights its row and the other way round)
 
 - **Pie or treemap:** the chart pane shows the open list as a pie chart or as a
   treemap (rectangles sized by space, folders with their subfolders inside), one
   click to switch; the choice is remembered.
 - **Back, Forward and a path bar:** go back to the folders you opened (also with
   the mouse side buttons), and jump to any parent from the path above the list.
+- **This PC:** the level above every drive lists all drives, scanned folders and
+  saved scans with their used space and free space, as a list and a chart. Go
+  **Up** from a drive, or click **This PC** in the path bar; double-click a drive
+  that is not scanned yet to scan it.
+- **Nothing cut off:** wherever a name or a text is too long and ends in "...",
+  hovering it shows it in full.
 - **What it is:** well-known folders and files (the Windows component store,
   `hiberfil.sys`, browser and developer caches, iPhone backups, Xcode data,
   `node_modules`...) are named in their own column, with whether they can go and
   where to clean them up properly; hover for the full explanation.
-- **Nothing hidden:** when folders could not be read (no permission), a banner
-  says how many and lists them, instead of quietly leaving them out of the totals.
+- **Nothing hidden:** when folders could not be read (no permission), a slim
+  line above the list says how many (and lists them), instead of quietly leaving
+  them out of the totals, and offers to run as administrator. Close it with ×.
 
-- **Contents:** the selected folder's subfolders and files with size, share,
-  change since the last scan, counts and dates. The pie chart shows the folder
+- **Contents:** the open folder's subfolders and files with size, share of the
+  parent, change since the last scan, counts and dates, as a tree-list: click the
+  arrow (or press → / ←) to expand a folder in place and compare what is inside
+  without leaving the folder; double-click to open it. The pie chart shows the folder
   and, in two outer rings, its subfolders. Click a part to open it; click the
   centre (the folder's name) to go back up. For a drive it also shows free space.
-- **The chart, in every tab:** every item of at least 2 % of the total (7.2° of
+- **The chart, in every view:** every item of at least 2 % of the total (7.2° of
   the circle) gets a slice of its own, in true proportion; all smaller items
   together form one grey "N smaller items" slice.
-- **Suggestions** (the green tab next to Contents): how much can be freed, in
+- **Suggestions** (the green view under Contents): how much can be freed, in
   large print, and what: the Recycle Bin / Trash, temporary files, caches
   (browsers, developer tools, Xcode, Homebrew...), the `node_modules` folders of
   your own projects (never those inside installed programs or editors), old
@@ -84,7 +94,7 @@ open list, and hovering a slice highlights its row and the other way round)
   again and asks to delete whatever is left (registry keys are saved to a `.reg`
   backup first). On macOS one confirmation moves the app and all its files to
   the Trash. The list is read in the background as soon as a drive scan
-  finishes, so it is ready when you open the tab.
+  finishes, so it is ready when you open the view.
 - **System (Windows):** space Windows itself uses and what you can do about it:
   Windows update leftovers (analyze and clean up the component store), restore
   points (delete the oldest or all but the newest), the hibernation and page
@@ -114,6 +124,8 @@ open list, and hovering a slice highlights its row and the other way round)
 
 ![Treemap: the same drive as rectangles sized by space, folders with their subfolders inside (demo data)](assets/screenshot-treemap.png)
 
+![This PC: every drive with its used and free space (demo data)](assets/screenshot-this-pc.png)
+
 ![Suggestions: how much can be freed, with a checkbox tree of every location (macOS)](assets/screenshot-suggestions.png)
 
 ![Apps: every installed app with its logo and size; expanded, it shows all its files (macOS)](assets/screenshot-apps.png)
@@ -122,7 +134,8 @@ open list, and hovering a slice highlights its row and the other way round)
 
 **Cleaning up**
 
-- **Delete list:** collect items from any tab, review them together, then
+- **Delete list:** always one click away, next to **Delete permanently** (with the
+  number of items on the button). Collect items from any view, review them together, then
   **Move to Recycle Bin / Trash** (can be undone) or **Delete permanently**
   (frees the space now). If some files are in use, the list keeps what is left,
   with its real size.
@@ -140,13 +153,15 @@ open list, and hovering a slice highlights its row and the other way round)
   for you.
 - **Watch it go:** a red progress strip (where the scan progress shows) counts
   the files removed and the space freed, and **Stop** halts it after the current
-  file. Whatever tab is open, items leave the list as they are deleted, and the
+  file. Whatever view is open, items leave the list as they are deleted, and the
   chart follows. What could not be deleted (in use, access denied) is listed
   afterwards with the reason for each item.
 - Links are never followed, so nothing outside what you picked is touched; very
   long paths work; caches are emptied and files in use are skipped.
 
 ![Deleting: the red progress strip while the list empties (demo data)](assets/screenshot-deleting.png)
+
+![The delete list, opened from its button next to Delete permanently (demo data)](assets/screenshot-delete-list.png)
 
 ![The confirmation before a permanent delete, listing every item (demo data)](assets/screenshot-delete-confirm.png)
 
@@ -180,7 +195,8 @@ the Windows prompt, turn on **Always start as administrator** in **About**
 ### macOS
 
 Download `SpacePie-macOS.dmg`, open it and drag **SpacePie**
-onto **Applications**. It runs natively on Apple silicon and Intel Macs, macOS 11
+onto **Applications**. Or with [Homebrew](https://brew.sh):
+`brew install --cask sphrd/tap/spacepie`. It runs natively on Apple silicon and Intel Macs, macOS 11
 or later.
 
 - **First start:** the app is not signed with an Apple Developer ID, so macOS
@@ -194,13 +210,15 @@ or later.
 ## Using it
 
 1. The app scans your system drive as soon as it opens.
-2. To analyze another drive, select it in the tree and press **Scan** (or
-   double-click it). For any folder, type or choose it, or drag it onto the
-   window, and press **Scan**.
-3. Explore the tree, the tabs and the chart. **Files**, **File types** and
-   **Duplicates** work on the folder selected in the tree.
-4. Add what you want gone to the **Delete list**, review it, then move it to the
-   Recycle Bin / Trash or delete it permanently.
+2. To analyze another drive, go **Up** to **This PC** and double-click it (or
+   choose it in the drive box and press **Scan**). For any folder, type or choose
+   it, or drag it onto the window, and press **Scan**.
+3. Explore the folders (expand them in place or open them), the views on the
+   left and the chart. **Files**, **File types** and **Duplicates** work on the
+   folder open in **Contents**.
+4. Add what you want gone to the **Delete list** (the button next to **Delete
+   permanently**), review it, then move it to the Recycle Bin / Trash or delete it
+   permanently.
 
 > ⚠️ **Delete permanently cannot be undone.** Use **Move to Recycle Bin / Trash**
 > if you may want something back.
@@ -210,7 +228,8 @@ or later.
 | Action | Windows | macOS |
 |---|---|---|
 | Open the selected folder or file | <kbd>Enter</kbd> | <kbd>Return</kbd> |
-| Up to the parent folder | <kbd>Backspace</kbd> | <kbd>⌘</kbd><kbd>↑</kbd> |
+| Up to the parent folder (from a drive: This PC) | <kbd>Backspace</kbd> | <kbd>⌘</kbd><kbd>↑</kbd> |
+| Expand / collapse the selected folder in Contents | <kbd>→</kbd> / <kbd>←</kbd> | <kbd>→</kbd> / <kbd>←</kbd> |
 | Back / Forward | <kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>Alt</kbd>+<kbd>→</kbd>, mouse side buttons | <kbd>⌘</kbd><kbd>[</kbd> / <kbd>⌘</kbd><kbd>]</kbd>, mouse side buttons |
 | Preview | <kbd>Space</kbd> | <kbd>Space</kbd> (Quick Look) |
 | Properties / Get Info | <kbd>Alt</kbd>+<kbd>Enter</kbd> | <kbd>⌘</kbd><kbd>I</kbd> |
@@ -294,7 +313,7 @@ Both apps take their version from `src/Program.cs` and their colours from `src/T
 
 - `--cli scan <folder>` prints sizes (Windows: add `--mft` for the master file table, `--files` for the largest files)
 - `--cli selftest <scratch folder>` runs the end-to-end self-test (exit code 0 = passed)
-- `--cli screenshot <out folder> <folder>` saves a picture of every tab
+- `--cli screenshot <out folder> <folder>` saves a picture of every view
 - `--splash` shows the start-up screen until you click it or press Esc
 
 Every push is built and tested on Windows and macOS by GitHub Actions

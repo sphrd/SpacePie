@@ -14,23 +14,22 @@ final class QuickLookSource: NSObject, QLPreviewPanelDataSource {
 }
 
 /// Preview and Get Info: Space opens Quick Look for the selected file or folder (in Contents, Files, Duplicates, the
-/// Delete list, Changes and the tree; in Suggestions, Apps and System Space ticks checkboxes); ⌘I (and Get Info in the
+/// Delete list and Changes; in Suggestions, Apps and System Space ticks checkboxes); ⌘I (and Get Info in the
 /// context menu) opens Finder's info window. Items in iCloud that are not downloaded are never previewed: Quick Look
 /// would download them.
 extension MainWindowController {
-    /// Space previews in the lists without checkboxes and in the tree.
+    /// Space previews in the lists without checkboxes.
     func spacePreviews(_ view: NSView) -> Bool {
-        if view === outline { return true }
         let previewing: [Page?] = [pContents, pFiles, pDupes, pBasket, pChanges]
         for p in previewing { if let pg = p, view === pg.table { return true } }
         return false
     }
 
-    /// The path of the one item selected (a file or a folder), or the folder shown when the tree has the focus.
+    /// The path of the one item selected (a file or a folder), or the folder shown when nothing is selected in Contents.
     private func selectedPath() -> String? {
         let sel = selection()
         if sel.count == 1 { return sel[0].fullPath }
-        if sel.isEmpty, lastView === outline, let c = current { return c.fullPath }
+        if sel.isEmpty, lastView == nil || lastView === contents, let c = current { return c.fullPath }
         return nil
     }
 

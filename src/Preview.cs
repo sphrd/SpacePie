@@ -229,7 +229,7 @@ namespace SpacePie
         /// <summary>Space previews in lists without checkboxes (in Suggestions and Apps it ticks and unticks).</summary>
         bool SpacePreviews()
         {
-            return lastView == tree || lastView == contents || (pFiles != null && lastView == pFiles.List) ||
+            return lastView == contents || (pFiles != null && lastView == pFiles.List) ||
                    (pDupes != null && lastView == pDupes.List) || (pBasket != null && lastView == pBasket.List) || (pChanges != null && lastView == pChanges.List);
         }
     }

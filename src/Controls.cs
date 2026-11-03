@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -45,6 +46,9 @@ namespace SpacePie
         public int Check = -1;
         /// <summary>Row with children that can be shown or hidden (chevron before the checkbox).</summary>
         public bool Expandable, Expanded;
+        /// <summary>Row of a tree-list: indented by Depth levels, keeps the chevron space even without children.</summary>
+        public bool TreeRow;
+        public int Depth;
         /// <summary>What the row stands for in its view (e.g. a suggestion or one of its targets).</summary>
         public object Data;
         /// <summary>Picture drawn instead of the folder/file icon (e.g. an app's own logo).</summary>
@@ -127,6 +131,8 @@ namespace SpacePie
         public event EventHandler ScrollChanged;
         int sortColumn = 1;
         HeaderPainter header;
+        /// <summary>Header titles drawn cut off, by column index (shown in full on hover).</summary>
+        readonly Dictionary<int, string> cutHeaders = new Dictionary<int, string>();
         const TextFormatFlags CellFlags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine |
             TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis;
 
@@ -257,21 +263,28 @@ namespace SpacePie
         public void GlyphRects(ItemInfo info, int cellX, Rectangle row, out Rectangle chevron, out Rectangle check)
         {
             chevron = check = Rectangle.Empty;
-            if (info == null || (info.Check < 0 && !info.Expandable)) return;
-            int x = cellX + Theme.S(6) + (info.GroupOf != null ? Theme.S(18) : 0);
+            if (info == null || (info.Check < 0 && !info.Expandable && !info.TreeRow)) return;
+            int x = cellX + Theme.S(6) + (info.GroupOf != null ? Theme.S(18) : 0) + Indent(info);
             int s = Theme.S(GlyphW);
-            if (info.GroupOf == null) { chevron = new Rectangle(x, row.Y + (row.Height - s) / 2, s, s); x += s + Theme.S(GlyphGap); }
+            if (info.GroupOf == null)
+            {
+                if (info.Expandable) chevron = new Rectangle(x, row.Y + (row.Height - s) / 2, s, s);
+                x += s + Theme.S(GlyphGap);
+            }
             if (info.Check >= 0) check = new Rectangle(x, row.Y + (row.Height - s) / 2, s, s);
         }
 
         /// <summary>Width taken by the chevron and checkbox before the icon.</summary>
         int GlyphSpace(ItemInfo info)
         {
-            if (info == null || (info.Check < 0 && !info.Expandable)) return 0;
+            if (info == null || (info.Check < 0 && !info.Expandable && !info.TreeRow)) return 0;
             int w = info.Check >= 0 ? Theme.S(GlyphW + GlyphGap) : 0;
             if (info.GroupOf == null) w += Theme.S(GlyphW + GlyphGap);
-            return w;
+            return w + Indent(info);
         }
+
+        /// <summary>Indentation of a tree-list row (one step per level).</summary>
+        static int Indent(ItemInfo info) { return info != null && info.TreeRow ? info.Depth * Theme.S(18) : 0; }
 
         bool HandleGlyphClick(int lParam)
         {
@@ -382,6 +395,28 @@ namespace SpacePie
             var flags = CellFlags | (e.Header.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left);
             var tr = new Rectangle(r.X + Theme.S(6), r.Y, r.Width - Theme.S(12), r.Height);
             TextRenderer.DrawText(g, e.Header.Text, Font, tr, e.ColumnIndex == sortColumn ? Theme.ACCENT : Theme.MUTED, flags);
+            var fit = (flags & ~TextFormatFlags.EndEllipsis) | TextFormatFlags.SingleLine;
+            if (TextRenderer.MeasureText(g, e.Header.Text, Font, new Size(int.MaxValue, tr.Height), fit).Width > tr.Width) cutHeaders[e.ColumnIndex] = Titles != null && e.ColumnIndex < Titles.Length ? Titles[e.ColumnIndex] : e.Header.Text;
+            else cutHeaders.Remove(e.ColumnIndex);
+        }
+
+        /// <summary>Mouse over the header at x (header coordinates); -1 = left the header.</summary>
+        void HeaderHover(int x)
+        {
+            int col = -1;
+            if (x >= 0)
+            {
+                int left = -Theme.GetScroll(Handle, false).Pos;
+                var order = new ColumnHeader[Columns.Count];
+                foreach (ColumnHeader c in Columns) order[c.DisplayIndex] = c;
+                foreach (var c in order)
+                {
+                    if (x >= left && x < left + c.Width) { col = c.Index; break; }
+                    left += c.Width;
+                }
+            }
+            string text;
+            CutText.Show(this, col >= 0 && cutHeaders.TryGetValue(col, out text) ? text : null);
         }
 
         // The whole row is painted here. On hover the native list repaints a row by raising DrawItem
@@ -431,7 +466,7 @@ namespace SpacePie
             if (col.Index == 0)
             {
                 int icon = Theme.S(16);
-                if (info != null && (info.Check >= 0 || info.Expandable))
+                if (info != null && (info.Check >= 0 || info.Expandable || info.TreeRow))
                 {
                     Rectangle chev, check;
                     GlyphRects(info, r.X, r, out chev, out check);
@@ -503,7 +538,7 @@ namespace SpacePie
                 int w = Columns[i].Width, pad = Theme.S(6), room;
                 if (i == 0)
                 {
-                    if (info != null && (info.Check >= 0 || info.Expandable)) pad += GlyphSpace(info);
+                    if (info != null && (info.Check >= 0 || info.Expandable || info.TreeRow)) pad += GlyphSpace(info);
                     if (info != null && info.GroupOf != null) pad += Theme.S(18);
                     room = w - pad - Theme.S(16) - Theme.S(12);
                 }
@@ -526,9 +561,35 @@ namespace SpacePie
                 AssignHandle(handle);
             }
 
+            bool tracking;
+
+            [StructLayout(LayoutKind.Sequential)]
+            struct TRACKMOUSEEVENT { public int cbSize; public int dwFlags; public IntPtr hwndTrack; public int dwHoverTime; }
+
+            [DllImport("user32.dll")]
+            static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT e);
+
             protected override void WndProc(ref Message m)
             {
                 base.WndProc(ref m);
+                if (m.Msg == 0x200)   // WM_MOUSEMOVE: full title of a cut-off column on hover
+                {
+                    if (!tracking)
+                    {
+                        var tme = new TRACKMOUSEEVENT { cbSize = Marshal.SizeOf(typeof(TRACKMOUSEEVENT)), dwFlags = 2, hwndTrack = Handle };   // TME_LEAVE
+                        tracking = TrackMouseEvent(ref tme);
+                    }
+                    var lv = owner as SizeListView;
+                    if (lv != null) lv.HeaderHover((short)((long)m.LParam & 0xFFFF));
+                    return;
+                }
+                if (m.Msg == 0x2A3)   // WM_MOUSELEAVE
+                {
+                    tracking = false;
+                    var lv = owner as SizeListView;
+                    if (lv != null) lv.HeaderHover(-1);
+                    return;
+                }
                 if (m.Msg != 0x0F && m.Msg != 0x14) return;
                 int right = -Theme.GetScroll(owner.Handle, false).Pos;
                 foreach (ColumnHeader c in owner.Columns) right += c.Width;

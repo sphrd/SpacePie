@@ -117,8 +117,9 @@ namespace SpacePie
                 int ic = S(18);
                 Theme.DrawWarningSign(g, new Rectangle(S(10), (r.Height - ic) / 2, ic, ic), Theme.WARN);
                 int x = S(10) + ic + S(10);
-                TextRenderer.DrawText(g, sysBannerText, Theme.FONT, new Rectangle(x, 0, Math.Max(0, sysBannerButton.Left - x - S(10)), r.Height), Theme.WARN_FG,
-                    TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+                CutText.Begin(sysBanner);
+                CutText.Draw(g, sysBanner, sysBannerText, Theme.FONT, new Rectangle(x, 0, Math.Max(0, sysBannerButton.Left - x - S(10)), r.Height), Theme.WARN_FG,
+                    TextFormatFlags.VerticalCenter);
             };
             sysBanner.Resize += (s, e) => sysBanner.Invalidate();
             p.Root.Controls.Add(sysBanner);

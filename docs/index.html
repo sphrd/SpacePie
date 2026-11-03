@@ -6,6 +6,7 @@
 <title>SpacePie: fast, free disk space analyzer and cleaner for Windows and macOS</title>
 <meta name="description" content="SpacePie is a fast, free and open-source disk space analyzer and cleaner for Windows and macOS. See where your space went, find big, old and duplicate files, uninstall apps completely and free space safely. One small app, nothing to install.">
 <meta name="google-site-verification" content="sp-hpuyUZw8Ah5Xj3ek5iqd3DTt6-d7TZOI0vQNX47M">
+<meta name="theme-color" content="#222831">
 <link rel="canonical" href="https://sphrd.github.io/SpacePie/">
 <link rel="icon" href="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png">
 <meta property="og:type" content="website">
@@ -28,88 +29,718 @@
   "downloadUrl": "https://github.com/sphrd/SpacePie/releases/latest",
   "image": "https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png",
   "screenshot": "https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png",
-  "author": { "@type": "Person", "name": "sphrd", "url": "https://github.com/sphrd" }
+  "author": { "@type": "Person", "name": "sphrd", "url": "https://github.com/sphrd" },
+  "featureList": [
+    "Scans a whole NTFS drive from the master file table as administrator on Windows; parallel folder scanning otherwise and on macOS",
+    "Instant restart from the saved scan, updated from the NTFS change journal or the macOS file system event history",
+    "Live updates without rescanning",
+    "Size on disk or file size; cloud files that are not downloaded are never downloaded",
+    "Pie chart or treemap of the open list",
+    "Cleanup suggestions with a checkbox tree of every location",
+    "Installed apps with their real size, uninstall with leftovers",
+    "System view: Windows update leftovers, restore points, hibernation and page files, Time Machine local snapshots",
+    "Largest files with search and filters by type, size and date",
+    "Space by file type and category",
+    "Duplicate files by content, replace with hard links or APFS clones",
+    "Changes between any two scans with a timeline",
+    "Delete list with Move to Recycle Bin / Trash or Delete permanently",
+    "Export as HTML report, CSV or .spacepie scan file",
+    "No account, no telemetry, no analytics, no advertising"
+  ]
 }
 </script>
 <style>
-  :root { --bg: #222831; --surface: #2d333d; --border: #3a414c; --fg: #ffffff; --muted: #aab4c0; --accent: #4da3ff; --accent-active: #7bbcff; }
+  :root {
+    --bg: #222831; --surface: #2d333d; --border: #3a414c; --fg: #ffffff; --muted: #aab4c0;
+    --accent: #4da3ff; --accent-active: #7bbcff; --accent-light: #cfe4ff; --free: #4cc38a;
+    --logo-tl: #3d6bcc; --logo-r: #5e88e6; --logo-bl: #81a2eb;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif; overflow-x: hidden; }
   a { color: var(--accent); text-decoration: none; }
   a:hover { color: var(--accent-active); }
-  main { max-width: 1040px; margin: 0 auto; padding: 48px 24px 64px; }
-  header { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
-  .logo { width: 128px; height: 128px; }
-  h1 { font-size: 44px; line-height: 1.1; margin: 0 0 8px; }
-  .tagline { color: var(--muted); font-size: 20px; margin: 0; }
-  .bar { width: 56px; height: 4px; border-radius: 2px; background: var(--accent); margin: 16px 0 0; }
-  .buttons { display: flex; gap: 12px; flex-wrap: wrap; margin: 32px 0 8px; }
-  .btn { display: inline-block; padding: 10px 22px; border-radius: 8px; background: var(--border); color: var(--fg); font-weight: 600; }
-  .btn:hover { background: #4a525e; color: var(--fg); }
-  .btn.primary { background: var(--accent); color: var(--bg); }
-  .btn.primary:hover { background: var(--accent-active); color: var(--bg); }
-  .note { color: var(--muted); font-size: 14px; margin: 0; }
-  img.shot { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); margin: 32px 0 8px; }
-  h2 { font-size: 26px; margin: 48px 0 16px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
-  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent-active); outline-offset: 3px; border-radius: 8px; }
+  img { max-width: 100%; }
+  code, kbd { font-family: Consolas, "SF Mono", Menlo, monospace; font-size: .9em; }
+  code { color: var(--accent-light); }
+  kbd { display: inline-block; padding: 0 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); line-height: 1.6; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  .skip { position: absolute; left: -9999px; }
+  .skip:focus { left: 16px; top: 12px; background: var(--surface); padding: 8px 14px; border-radius: 8px; z-index: 10; }
+
+  /* top bar */
+  .top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 5; }
+  .top .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--fg); font-weight: 600; font-size: 17px; }
+  .brand:hover { color: var(--fg); }
+  .brand img { width: 26px; height: 26px; }
+  .top nav { display: flex; gap: 22px; margin-left: auto; font-size: 15px; }
+  .top nav a { color: var(--muted); }
+  .top nav a:hover { color: var(--fg); }
+  .top .btn { padding: 7px 16px; font-size: 15px; }
+
+  /* buttons */
+  .btn { display: inline-flex; flex-direction: column; justify-content: center; padding: 11px 22px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--fg); font-weight: 600; line-height: 1.3; transition: background-color .15s; }
+  .btn:hover { background: var(--border); color: var(--fg); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  .btn.primary:hover { background: var(--accent-active); border-color: var(--accent-active); color: var(--bg); }
+  .btn small { font-weight: 400; font-size: 13px; opacity: .8; }
+
+  /* hero */
+  .hero { position: relative; text-align: center; padding: 64px 0 40px; overflow: hidden; }
+  .logo-box { position: relative; width: 168px; height: 168px; margin: 0 auto 24px; }
+  .logo-box::before { content: ""; position: absolute; left: 50%; top: 50%; width: 230%; height: 230%; transform: translate(-50%, -50%); border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(77,163,255,.18), rgba(77,163,255,0)); pointer-events: none; }
+  .logo-box svg, .logo-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  h1 { font-size: 56px; line-height: 1.05; margin: 0 0 12px; letter-spacing: -.5px; }
+  .tagline { color: var(--muted); font-size: 21px; margin: 0 auto; max-width: 760px; }
+  .tagline strong { color: var(--fg); font-weight: 600; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 32px 0 14px; }
+  .cta .btn { min-width: 210px; }
+  .systems { color: var(--muted); font-size: 14px; margin: 0; }
+  .values { list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 10px; padding: 0; margin: 28px 0 0; }
+  .values li { border: 1px solid var(--border); border-radius: 999px; padding: 3px 14px; font-size: 14px; color: var(--muted); }
+
+  /* highlighter sweep on a 2px line */
+  .sweep { position: relative; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; }
+  .sweep::after { content: ""; position: absolute; top: 0; left: -130px; width: 130px; height: 100%;
+    background: linear-gradient(90deg, rgba(77,163,255,0), var(--accent), rgba(77,163,255,0)); animation: sweep 1.6s linear infinite; }
+  @keyframes sweep { from { left: -130px; } to { left: 100%; } }
+
+  .hero-shot { margin: 40px 0 0; }
+  .shot-btn { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 12px; }
+  .shot-btn img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); }
+  .hero-shot figcaption, .caption { color: var(--muted); font-size: 14px; margin-top: 10px; }
+
+  /* sections */
+  section { padding: 72px 0 0; scroll-margin-top: 60px; }
+  .eyebrow { color: var(--accent); font-size: 13px; font-weight: 600; letter-spacing: 1.2px; text-transform: uppercase; margin: 0 0 8px; }
+  h2 { font-size: 34px; line-height: 1.2; margin: 0 0 14px; letter-spacing: -.3px; }
+  .lead { color: var(--muted); font-size: 18px; max-width: 760px; margin: 0 0 32px; }
+  h3 { font-size: 18px; margin: 0 0 6px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .grid.three { grid-template-columns: repeat(3, 1fr); }
+  .grid.four { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .sub { color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; margin: 32px 0 14px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px; }
   .card p { margin: 0; color: var(--muted); font-size: 15px; }
-  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-  .shots figure { margin: 0; }
-  .shots img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); }
-  .shots figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; }
-  footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--border); margin-top: 56px; padding-top: 20px; }
+  .card p + p { margin-top: 8px; }
+  .card ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
+  .card li + li { margin-top: 4px; }
+
+  /* how it works */
+  .step-num { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--accent); color: var(--accent); font-weight: 700; font-size: 14px; margin-bottom: 12px; }
+  .step.free .step-num { border-color: var(--free); color: var(--free); }
+  .scanbar { margin-top: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .scanbar .row { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; margin-bottom: 9px; }
+  .scanbar canvas { width: 16px; height: 16px; flex: none; }
+
+  /* views as tabs */
+  .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .tab-label { display: inline-block; font-size: 13px; font-weight: 600; padding: 2px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--accent-light); margin-bottom: 10px; }
+  .tab-label.green { color: var(--free); border-color: rgba(76,195,138,.45); }
+  .chart-notes { margin-bottom: 16px; }
+
+  /* split panel */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+  .panel h3 { margin-bottom: 10px; }
+  .panel ul { margin: 0; padding-left: 18px; color: var(--muted); }
+  .panel li + li { margin-top: 8px; }
+  .panel li strong { color: var(--fg); font-weight: 600; }
+  .warn { margin-top: 16px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 12px 12px 0; padding: 12px 18px; color: var(--muted); font-size: 15px; }
+  .warn strong { color: var(--fg); }
+
+  /* stats + table */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .stat b { display: block; font-size: 30px; line-height: 1.15; color: var(--accent-light); font-weight: 600; }
+  .stat span { color: var(--muted); font-size: 14px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; min-width: 640px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; }
+  tr:last-child td { border-bottom: 0; }
+  td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.fast { color: var(--accent-light); font-weight: 600; white-space: nowrap; }
+  td small { color: var(--muted); display: block; font-weight: 400; }
+  .group td { background: var(--bg); color: var(--muted); font-size: 13px; padding: 8px 16px; }
+  .fine { color: var(--muted); font-size: 14px; margin: 14px 0 0; max-width: 860px; }
+
+  /* gallery + lightbox */
+  .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .gallery figure { margin: 0; }
+  .gallery .shot-btn img { aspect-ratio: 16 / 9; object-fit: cover; object-position: top left; }
+  .gallery figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .lightbox { position: fixed; inset: 0; z-index: 20; background: rgba(20,24,30,.94); display: none; align-items: center; justify-content: center; flex-direction: column; padding: 56px 16px 20px; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 100%; max-height: calc(100vh - 140px); border-radius: 12px; border: 1px solid var(--border); }
+  .lightbox p { color: var(--muted); font-size: 15px; margin: 12px 0 0; text-align: center; max-width: 900px; }
+  .lb-btn { position: absolute; background: var(--surface); border: 1px solid var(--border); color: var(--fg); border-radius: 8px; width: 42px; height: 42px; font-size: 20px; line-height: 1; cursor: pointer; }
+  .lb-btn:hover { background: var(--border); }
+  .lb-close { top: 12px; right: 12px; }
+  .lb-prev { left: 12px; top: 50%; }
+  .lb-next { right: 12px; top: 50%; }
+
+  /* faq */
+  .faq { display: grid; gap: 10px; max-width: 860px; }
+  .faq details { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+  .faq summary { cursor: pointer; list-style: none; padding: 16px 48px 16px 20px; font-weight: 600; position: relative; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: ""; position: absolute; right: 22px; top: 50%; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-70%) rotate(45deg); transition: transform .2s; }
+  .faq details[open] summary::after { transform: translateY(-30%) rotate(-135deg); }
+  .faq .a { padding: 0 20px 16px; color: var(--muted); }
+  .faq .a p { margin: 0; }
+  .faq .a p + p { margin-top: 8px; }
+
+  .keys { margin-top: 16px; }
+  .keys summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+  .keys .table-wrap { margin-top: 12px; }
+  .keys table { min-width: 560px; }
+
+  /* final cta + footer */
+  .final { text-align: center; padding: 88px 0 24px; }
+  .final .lead { margin: 0 auto 8px; }
+  footer { border-top: 1px solid var(--border); margin-top: 72px; padding: 28px 0 40px; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 10px 24px; align-items: center; }
+  footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-left: auto; }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--fg); }
+
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .gallery { grid-template-columns: repeat(2, 1fr); }
+    .grid.three, .split { grid-template-columns: 1fr; }
+    .top nav a.opt { display: none; }
+  }
+  @media (max-width: 600px) {
+    .wrap { padding: 0 16px; }
+    .top nav { display: none; }
+    .top .btn { margin-left: auto; }
+    .hero { padding-top: 44px; }
+    .logo-box { width: 132px; height: 132px; }
+    h1 { font-size: 42px; }
+    .tagline { font-size: 18px; }
+    .cta .btn { width: 100%; }
+    h2 { font-size: 27px; }
+    .lead { font-size: 16px; }
+    section { padding-top: 56px; }
+    .grid, .tabs { grid-template-columns: 1fr; }
+    .gallery { grid-template-columns: 1fr; }
+    .stats { gap: 10px; }
+    .stat { padding: 14px; }
+    .stat b { font-size: 24px; }
+    .lb-prev, .lb-next { top: auto; bottom: 12px; }
+    .panel { padding: 18px; }
+    table.acc { min-width: 0; }
+    .acc thead { display: none; }
+    .acc tr { display: block; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+    .acc tr:last-child { border-bottom: 0; }
+    .acc td { display: block; padding: 2px 0; border: 0; white-space: normal; }
+    .acc td.na { display: none; }
+    .acc td:first-child { color: var(--fg); font-weight: 600; margin-bottom: 4px; }
+    .acc td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-weight: 400; }
+    .acc tr.group { padding: 8px 16px; background: var(--bg); }
+    .acc tr.group td { padding: 0; font-weight: 400; color: var(--muted); }
+    footer nav { margin-left: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .sweep::after { animation: none; display: none; }
+    *, *::before, *::after { transition: none !important; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <header>
-    <img class="logo" src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png" alt="SpacePie logo" width="128" height="128">
-    <div>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png" alt="" width="26" height="26">SpacePie</a>
+    <nav aria-label="Sections">
+      <a class="opt" href="#how">How it works</a>
+      <a href="#features">Features</a>
+      <a class="opt" href="#accuracy">Accuracy</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="btn primary" href="#download">Download</a>
+  </div>
+</header>
+
+<main id="main">
+  <div class="hero" id="top">
+    <div class="wrap">
+      <div class="logo-box">
+        <svg viewBox="0 0 200 200" role="img" aria-label="SpacePie logo: a pie chart shaped like Pac-Man facing left">
+          <path fill="#3d6bcc" d="M100 100 L16.86 52 A96 96 0 0 1 110.03 4.53 Z"/>
+          <path fill="#81a2eb" d="M100 100 L110.03 195.47 A96 96 0 0 1 16.86 148 Z"/>
+          <path fill="#5e88e6" d="M100 100 L100 4 A96 96 0 0 1 100 196 Z"/>
+        </svg>
+      </div>
       <h1>SpacePie</h1>
-      <p class="tagline">The fastest free disk space analyzer and cleaner for Windows and macOS.</p>
-      <div class="bar"></div>
+      <p class="tagline">The fastest free disk space analyzer and cleaner for <strong>Windows</strong> and <strong>macOS</strong>.</p>
+
+      <div class="cta" id="download">
+        <a class="btn primary" href="https://github.com/sphrd/SpacePie/releases/latest/download/SpacePie.exe">Download for Windows<small data-ver="SpacePie.exe">SpacePie.exe</small></a>
+        <a class="btn primary" href="https://github.com/sphrd/SpacePie/releases/latest/download/SpacePie-macOS.dmg">Download for macOS<small data-ver="SpacePie-macOS.dmg">SpacePie-macOS.dmg</small></a>
+        <a class="btn" href="https://github.com/sphrd/SpacePie">View on GitHub<small>Source, releases, issues</small></a>
+      </div>
+      <p class="systems">Windows 10 and 11 &middot; macOS 11 or later, native on Apple silicon and Intel</p>
+
+      <ul class="values" aria-label="At a glance">
+        <li>Free</li><li>Open source (MIT)</li><li>One small app</li><li>Nothing to install</li><li>No account</li><li>No telemetry</li>
+      </ul>
     </div>
-  </header>
-
-  <div class="buttons">
-    <a class="btn primary" href="https://github.com/sphrd/SpacePie/releases/latest/download/SpacePie.exe">Download for Windows</a>
-    <a class="btn primary" href="https://github.com/sphrd/SpacePie/releases/latest/download/SpacePie-macOS.dmg">Download for macOS</a>
-    <a class="btn" href="https://github.com/sphrd/SpacePie">Source code on GitHub</a>
-  </div>
-  <p class="note">Free and open source (MIT licence). One small app, nothing to install. Windows 10 and 11; macOS 11 or later on Apple silicon and Intel.</p>
-
-  <img class="shot" src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" alt="SpacePie: drive tree, folder contents and a pie chart of where the space went" width="1600" height="867">
-
-  <h2>See where your disk space went</h2>
-  <p>SpacePie starts analyzing your system drive the moment it opens. Find the folders and files that take the most space, big, old and duplicate files, and what every installed app really takes, then free the space: to the Recycle Bin / Trash or permanently.</p>
-
-  <div class="grid">
-    <div class="card"><h3>A whole drive in seconds</h3><p>As administrator on Windows it reads the NTFS master file table directly: over a million files in about ten seconds. Otherwise, and on macOS, it scans folders in parallel.</p></div>
-    <div class="card"><h3>Pie chart or treemap</h3><p>The chart follows the list you are looking at, with subfolders in outer rings or nested rectangles. Click a part to open it.</p></div>
-    <div class="card"><h3>Cleanup suggestions</h3><p>Caches, temporary files, old installers, build folders and more, with how much each frees. Safe items start checked; items to review first start unchecked.</p></div>
-    <div class="card"><h3>Uninstall apps completely</h3><p>Every installed app with its real size; expand it to see its settings, caches and other files, and remove them together.</p></div>
-    <div class="card"><h3>Duplicate files</h3><p>Find identical files by content and free the extra copies, or replace them with links so every file stays where it is.</p></div>
-    <div class="card"><h3>History and search</h3><p>Compare any two scans to see what grew, and search everything scanned by name and age.</p></div>
-    <div class="card"><h3>Instant restart</h3><p>Scans are saved when you close the app and brought up to date from the change journal (Windows) or the event history (macOS) the next time.</p></div>
-    <div class="card"><h3>Private and checked</h3><p>No account, no telemetry. Totals are checked against the operating system's own tools on every build.</p></div>
   </div>
 
-  <h2>Screenshots</h2>
-  <div class="shots">
-    <figure><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-treemap.png" alt="SpacePie treemap of a drive" loading="lazy"><figcaption>Treemap of a drive</figcaption></figure>
-    <figure><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" alt="SpacePie cleanup suggestions" loading="lazy"><figcaption>Cleanup suggestions</figcaption></figure>
-    <figure><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" alt="SpacePie installed apps with their sizes" loading="lazy"><figcaption>Installed apps and their files</figcaption></figure>
-    <figure><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" alt="SpacePie duplicate files" loading="lazy"><figcaption>Duplicate files</figcaption></figure>
-  </div>
+  <div class="wrap">
+    <div class="sweep" aria-hidden="true"></div>
 
-  <footer>
-    SpacePie by <a href="https://github.com/sphrd">sphrd</a> &middot; MIT licence &middot;
-    <a href="https://github.com/sphrd/SpacePie/releases">Releases</a> &middot;
-    <a href="https://github.com/sphrd/SpacePie/blob/main/PRIVACY.md">Privacy</a> &middot;
-    <a href="https://github.com/sphrd/SpacePie/blob/main/SECURITY.md">Security</a>
-  </footer>
+    <figure class="hero-shot">
+      <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" data-caption="SpacePie: the views bar, folder contents as an expandable tree-list and the pie chart (demo data)">
+        <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" alt="SpacePie main window: the views bar on the left, folder contents with sizes as an expandable tree-list in the middle and a pie chart of where the space went (demo data)" width="1600" height="867" fetchpriority="high">
+      </button>
+      <figcaption>It starts analyzing your system drive the moment it opens. See where your space went, find big, old and duplicate files, follow cleanup suggestions, uninstall apps together with everything they left behind, and delete what you don't need, to the Recycle Bin / Trash or permanently.</figcaption>
+    </figure>
+
+    <!-- How it works -->
+    <section id="how" aria-labelledby="how-h">
+      <p class="eyebrow">How it works</p>
+      <h2 id="how-h">Scan, explore, free space</h2>
+      <p class="lead">Three steps. Open the app and the first one has already started.</p>
+      <div class="grid three">
+        <div class="card step">
+          <span class="step-num">1</span>
+          <h3>Scan</h3>
+          <p>Your system drive is scanned as soon as the app opens, in the background, with progress and <strong>Cancel</strong>. Other drives, USB disks or any folder are scanned when you ask: select it and press <strong>Scan</strong>, or drag a folder onto the window.</p>
+          <div class="scanbar" aria-hidden="true">
+            <div class="row"><canvas class="spin"></canvas>Scanning the system drive&hellip;</div>
+            <div class="sweep"></div>
+          </div>
+        </div>
+        <div class="card step">
+          <span class="step-num">2</span>
+          <h3>Explore</h3>
+          <p>Browse while it runs. Folders that expand in place, the views on the left and a pie chart or treemap show where the space went: biggest folders, largest files, file types, duplicates, installed apps and what changed since the last scan.</p>
+        </div>
+        <div class="card step free">
+          <span class="step-num">3</span>
+          <h3>Free space</h3>
+          <p>Follow the suggestions or collect items on the <strong>Delete list</strong> (always one click away, next to <strong>Delete permanently</strong>), review them together, then move them to the Recycle Bin / Trash or delete them permanently. A confirmation listing every item always comes first.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Fast scanning -->
+    <section id="features" aria-labelledby="fast-h">
+      <p class="eyebrow">Fast scanning</p>
+      <h2 id="fast-h">A whole drive in seconds, and an instant restart</h2>
+      <p class="lead">SpacePie uses the fastest way to read your disk that the operating system offers, keeps working in the background, and remembers what it found.</p>
+      <div class="grid">
+        <div class="card"><h3>A whole drive in seconds</h3><p>On Windows, run as administrator and it reads an NTFS drive's master file table directly: over a million files in about ten seconds. Otherwise, and on macOS, it scans folders in parallel with the operating system's fastest directory calls.</p></div>
+        <div class="card"><h3>Starts right away, in the background</h3><p>A start-up screen shows what is being loaded the moment you launch it. The system drive is scanned when the app opens, with progress and Cancel, and you can browse while it runs. Other drives and USB disks are listed and scanned when you ask.</p></div>
+        <div class="card"><h3>Instant restart</h3><p>When you close it, the scan of each drive is saved; the next start shows it at once (a whole system drive in under two seconds). On Windows as administrator it then reads only what changed, from the NTFS change journal (on macOS, from the file system's event history), instead of scanning again.</p></div>
+        <div class="card"><h3>Live updates</h3><p>Files that appear, change or go away update the results within seconds, without rescanning.</p></div>
+        <div class="card"><h3>Size on disk or file size</h3><p>One click to switch. Compressed files count what they really take, hard links count once, and cloud files that are not downloaded (OneDrive online-only, iCloud) count nothing and are never downloaded by the scan.</p></div>
+        <div class="card"><h3>Nothing hidden</h3><p>When folders could not be read (no permission), a slim line says how many and lists them, instead of quietly leaving them out of the totals. Any text cut off with &hellip; shows in full on hover.</p></div>
+      </div>
+    </section>
+
+    <!-- Views -->
+    <section id="views" aria-labelledby="views-h">
+      <p class="eyebrow">Seeing where the space went</p>
+      <h2 id="views-h">Every view you need, one click away</h2>
+      <p class="lead">The chart always shows the open list, as a pie chart or a treemap, and hovering a slice highlights its row and the other way round. Every item of at least 2&nbsp;% of the total gets a slice of its own, in true proportion; smaller items together form one grey slice.</p>
+      <div class="grid chart-notes">
+        <div class="card"><h3>Pie or treemap</h3><p>A pie chart with subfolders in two outer rings, or a treemap of rectangles sized by space with folders nested inside. One click to switch; the choice is remembered.</p></div>
+        <div class="card"><h3>Knows what it is</h3><p>Well-known folders and files (the Windows component store, <code>hiberfil.sys</code>, browser and developer caches, iPhone backups, Xcode data, <code>node_modules</code>&hellip;) are named, with whether they can go and where to clean them up properly.</p></div>
+        <div class="card"><h3>Back, Forward and a path bar</h3><p>Go back to the folders you opened (also with the mouse side buttons) and jump to any parent from the path above the list.</p></div>
+      </div>
+      <h3 class="sub">The views</h3>
+      <div class="tabs">
+        <div class="card"><span class="tab-label">Contents</span><p>The open folder's subfolders and files with size, share of the parent, change since the last scan, counts and dates, as a tree-list: expand folders in place to compare what is inside. Above every drive, <strong>This PC</strong> lists all drives with their used and free space. Click a part of the chart to open it, click the centre to go back up.</p></div>
+        <div class="card"><span class="tab-label green">Suggestions</span><p>How much can be freed, in large print, and what: the Recycle Bin / Trash, temporary files, caches, the <code>node_modules</code> folders of your own projects, old installers in Downloads and more, each with what deleting it means. Check exactly what you want; safe items start checked, items to review first start unchecked.</p></div>
+        <div class="card"><span class="tab-label">Apps</span><p>Every installed app with its own logo and its real size on disk. Expand an app to see everything that belongs to it: program folder, settings and caches, shared data, shortcuts and, on Windows, registry keys. <strong>Uninstall&hellip;</strong> removes the app and asks to delete whatever is left.</p></div>
+        <div class="card"><span class="tab-label">System</span><p>Windows: update leftovers in the component store, restore points, hibernation and page files, WSL / Docker virtual disks, a registry check of broken entries, and every drive's free space and health. macOS: Time Machine local snapshots, purgeable space, iPhone / iPad backups and every volume's health (SMART status).</p></div>
+        <div class="card"><span class="tab-label">Files</span><p>The largest files, with a name search (<code>*.iso</code>, <code>invoice</code>) and filters by type, size and date: not changed, or <strong>not opened</strong>, for months or years. Search the open folder or everything scanned at once. Instant, from memory.</p></div>
+        <div class="card"><span class="tab-label">File types</span><p>Space by extension or by category: videos, images, archives, disk images, installers and more.</p></div>
+        <div class="card"><span class="tab-label">Duplicates</span><p>Files with identical content. <strong>Select extra copies</strong> keeps the newest of each group, or <strong>Replace with links</strong> keeps every file where it is but stores the data once (Windows hard links, APFS clones on macOS). A repeat search only reads new or changed files.</p></div>
+        <div class="card"><span class="tab-label">Changes</span><p>Which folders grew or shrank since the previous scan, or between any two scans: a timeline shows the used space at every scan, and one small copy per day is kept to compare with.</p></div>
+        <div class="card"><span class="tab-label">Delete list</span><p>Always one click away, next to <strong>Delete permanently</strong>. Collect items from any view, review them together, then <strong>Move to Recycle Bin / Trash</strong> (can be undone) or <strong>Delete permanently</strong> (frees the space now).</p></div>
+      </div>
+    </section>
+
+    <!-- Safety -->
+    <section id="safety" aria-labelledby="safety-h">
+      <p class="eyebrow">Safe cleaning</p>
+      <h2 id="safety-h">Free space without surprises</h2>
+      <p class="lead">Nothing is deleted without a confirmation that shows the total size and every single item. SpacePie tells you what deleting means before you do it.</p>
+      <div class="split">
+        <div class="panel">
+          <h3>Before you delete</h3>
+          <ul>
+            <li><strong>Confirmation first, always,</strong> with a warning sign, the total size and every item in a scrollable list, plus a warning for Windows / Program Files content. <strong>Copy list</strong> copies it.</li>
+            <li><strong>Synced folders:</strong> a warning when an item is in OneDrive, Dropbox, Google Drive, iCloud Drive and similar, because deleting it there deletes it in the cloud and on your other devices too.</li>
+            <li><strong>Recycle Bin limits:</strong> on Windows it says when an item can't go to the Recycle Bin (too large, the bin turned off, or a USB stick without one) and moves only the others.</li>
+            <li><strong>Uninstall leftovers you can trust:</strong> each one says how it was matched (exact, same developer, or name only). Name-only matches are shown but never selected for you. Registry keys are saved to a <code>.reg</code> backup first.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>While and after it deletes</h3>
+          <ul>
+            <li><strong>Recycle Bin / Trash or permanent:</strong> moving to the Recycle Bin / Trash can be undone; deleting permanently frees the space now.</li>
+            <li><strong>Watch it go:</strong> a progress strip counts the files removed and the space freed, and <strong>Stop</strong> halts it after the current file. Items leave the list as they are deleted, and the chart follows.</li>
+            <li><strong>Nothing silently skipped:</strong> what could not be deleted (in use, access denied) is listed afterwards with the reason for each item; the delete list keeps what is left, with its real size.</li>
+            <li><strong>Only what you picked:</strong> links are never followed, very long paths work, caches are emptied and files in use are skipped.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="warn"><strong>Delete permanently cannot be undone.</strong> Use Move to Recycle Bin / Trash if you may want something back.</p>
+    </section>
+
+    <!-- History and more -->
+    <section id="history" aria-labelledby="history-h">
+      <p class="eyebrow">History and saved scans</p>
+      <h2 id="history-h">See what changed, keep a record</h2>
+      <p class="lead">SpacePie remembers earlier scans so you can see where new space went, and lets you save a scan to look at later or send to someone.</p>
+      <div class="grid four">
+        <div class="card"><h3>Changes over time</h3><p>Compare the previous scan or any two scans. A timeline shows the used space at every scan; the list shows which folders grew or shrank.</p></div>
+        <div class="card"><h3>Save and open scans</h3><p><strong>Export</strong> a folder as an HTML report, as CSV, or as a <code>.spacepie</code> scan file that <strong>Open scan&hellip;</strong> shows again later, read-only, next to the drives.</p></div>
+        <div class="card"><h3>Preview and properties</h3><p>Space shows a preview (Quick Look on macOS); Alt+Enter opens the Windows Properties dialog (Get Info, &#8984;I, on macOS).</p></div>
+        <div class="card"><h3>Updates itself</h3><p>It checks for a new version at startup and installs it in a click. <strong>About</strong> lists the keyboard shortcuts and how to get the fastest, most complete scans.</p></div>
+      </div>
+      <details class="keys">
+        <summary>Keyboard shortcuts</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Action</th><th>Windows</th><th>macOS</th></tr></thead>
+            <tbody>
+              <tr><td>Open the selected folder or file</td><td><kbd>Enter</kbd></td><td><kbd>Return</kbd></td></tr>
+              <tr><td>Up to the parent folder</td><td><kbd>Backspace</kbd></td><td><kbd>&#8984;</kbd> <kbd>&uarr;</kbd></td></tr>
+              <tr><td>Back / Forward</td><td><kbd>Alt</kbd>+<kbd>&larr;</kbd> / <kbd>Alt</kbd>+<kbd>&rarr;</kbd>, mouse side buttons</td><td><kbd>&#8984;</kbd> <kbd>[</kbd> / <kbd>&#8984;</kbd> <kbd>]</kbd>, mouse side buttons</td></tr>
+              <tr><td>Preview</td><td><kbd>Space</kbd></td><td><kbd>Space</kbd> (Quick Look)</td></tr>
+              <tr><td>Properties / Get Info</td><td><kbd>Alt</kbd>+<kbd>Enter</kbd></td><td><kbd>&#8984;</kbd> <kbd>I</kbd></td></tr>
+              <tr><td>Rescan the selected folder</td><td><kbd>F5</kbd></td><td><kbd>&#8984;</kbd> <kbd>R</kbd></td></tr>
+              <tr><td>Add to the delete list</td><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td><kbd>&#8984;</kbd> <kbd>D</kbd></td></tr>
+              <tr><td>Delete permanently</td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> (or <kbd>Del</kbd>)</td><td><kbd>&#8679;</kbd> <kbd>&#8984;</kbd> <kbd>D</kbd> (or <kbd>&#8984;</kbd> <kbd>&#9003;</kbd>)</td></tr>
+              <tr><td>Check / uncheck in Suggestions and Apps leftovers</td><td><kbd>Space</kbd></td><td><kbd>Space</kbd></td></tr>
+              <tr><td>Search files</td><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td><kbd>&#8984;</kbd> <kbd>F</kbd></td></tr>
+              <tr><td>Copy path</td><td><kbd>Ctrl</kbd>+<kbd>C</kbd></td><td>right-click menu</td></tr>
+              <tr><td>Export</td><td></td><td><kbd>&#8679;</kbd> <kbd>&#8984;</kbd> <kbd>E</kbd></td></tr>
+              <tr><td>About</td><td><kbd>F1</kbd></td><td>app menu</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <!-- Privacy -->
+    <section id="privacy" aria-labelledby="privacy-h">
+      <p class="eyebrow">Privacy</p>
+      <h2 id="privacy-h">Nothing leaves your computer</h2>
+      <p class="lead">No account, no telemetry, no analytics and no advertising. SpacePie runs on your computer and keeps what it learns there.</p>
+      <div class="split">
+        <div class="panel">
+          <h3>What it reads and sends</h3>
+          <ul>
+            <li><strong>Names, sizes and dates</strong> of what you scan. It never reads the contents of a file, except to compare duplicates (only SHA-256 hashes are kept) and the first 64&nbsp;KB of a text file you choose to preview on Windows.</li>
+            <li><strong>Online-only cloud files</strong> are never opened, previewed or downloaded.</li>
+            <li><strong>The only network requests</strong> go to GitHub, for updates: at start and when you press Check for updates, and the release file when you press Update now. Nothing about your files or your computer is sent.</li>
+          </ul>
+        </div>
+        <div class="panel">
+          <h3>What it keeps and changes</h3>
+          <ul>
+            <li><strong>Kept locally only:</strong> scan history for the Changes timeline, the full scan of the last 4 drives for the instant restart, duplicate hashes and the list of installed apps, in <code>%LOCALAPPDATA%\SpacePie</code> or <code>~/Library/Application Support/SpacePie</code>. Delete the folder to remove all of it.</li>
+            <li><strong>Changes nothing unless you ask:</strong> deleting, uninstalling, the System view's clean-up actions, replacing duplicates with links, or turning "Always start as administrator" on or off.</li>
+            <li><strong>Check it yourself:</strong> every web address and network call is in the open source. <a href="https://github.com/sphrd/SpacePie/blob/main/PRIVACY.md">Read PRIVACY.md</a>.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Accuracy -->
+    <section id="accuracy" aria-labelledby="accuracy-h">
+      <p class="eyebrow">Accuracy and speed</p>
+      <h2 id="accuracy-h">Fast, and checked against the operating system's own tools</h2>
+      <p class="lead">On every build, GitHub Actions checks the totals against tools that come with the operating system: <code>robocopy</code> on Windows, <code>du</code> and <code>find</code> on macOS, and on Windows also the master file table against a folder-by-folder scan.</p>
+      <div class="stats">
+        <div class="stat"><b>~10&nbsp;s</b><span>about 1.2 million files, a whole drive from the master file table as administrator (folder by folder: over 7 minutes)</span></div>
+        <div class="stat"><b>&lt;&nbsp;2&nbsp;s</b><span>to show a saved scan of a whole system drive on the next start</span></div>
+        <div class="stat"><b>0.18&nbsp;s</b><span>for <code>C:\Windows\System32</code>, 23,188 files, matching to the byte</span></div>
+        <div class="stat"><b>Exact</b><span>on macOS: sizes and file counts match <code>du</code> and <code>find</code></span></div>
+      </div>
+      <div class="table-wrap">
+        <table class="acc">
+          <thead><tr><th>Folder</th><th>Files</th><th>SpacePie</th><th>Compared with</th></tr></thead>
+          <tbody>
+            <tr class="group"><td colspan="4">Windows 11 laptop, not as administrator, files already in the cache</td></tr>
+            <tr><td><code>C:\Windows\System32</code></td><td data-label="Files" class="num">23,188</td><td data-label="SpacePie" class="fast">0.18 s</td><td data-label="Compared with">Same files and bytes as <code>robocopy</code> and <code>dir /s</code> (0.86 s)</td></tr>
+            <tr><td><code>C:\Program Files</code></td><td data-label="Files" class="num">57,349</td><td data-label="SpacePie" class="fast">0.40 s</td><td data-label="Compared with">File count matches <code>robocopy</code>; <code>dir /s</code> took 2.02 s and counted files behind folder links twice<small>27.5 MB difference to <code>robocopy</code>: 16 file symbolic links, counted by SpacePie as the link itself, so nothing is counted twice</small></td></tr>
+            <tr class="group"><td colspan="4">GitHub's build machines, checked at every build</td></tr>
+            <tr><td>macOS <code>/Applications</code></td><td data-label="Files" class="num">726,361</td><td data-label="SpacePie" class="fast">5.4 s</td><td data-label="Compared with">Matches <code>du</code> and <code>find</code> exactly (37,434,699,776 bytes on disk)</td></tr>
+            <tr><td>macOS <code>/usr/share</code></td><td data-label="Files" class="num">15,380</td><td data-label="SpacePie" class="fast">0.12 s</td><td data-label="Compared with">Matches <code>du</code> and <code>find</code> exactly</td></tr>
+            <tr><td>Windows <code>C:\Program Files</code></td><td data-label="Files" class="num">266,696</td><td class="na" data-label="SpacePie">&ndash;</td><td data-label="Compared with">File count matches <code>robocopy</code>; size within 0.01 %</td></tr>
+            <tr><td>Windows <code>C:\Program Files (x86)</code></td><td data-label="Files" class="num">318,319</td><td class="na" data-label="SpacePie">&ndash;</td><td data-label="Compared with">File count matches <code>robocopy</code>; size within 0.01 %</td></tr>
+            <tr><td>Whole Windows drive, as administrator</td><td data-label="Files" class="num">about 1.2 million</td><td data-label="SpacePie" class="fast">about 10 s</td><td data-label="Compared with">Size on disk within 0.5 % of the drive's used space</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fine">On Windows the small size differences are file symbolic links: <code>robocopy</code> counts the file each one points to, SpacePie counts the link itself. Full numbers in the <a href="https://github.com/sphrd/SpacePie#accuracy-and-speed">README</a>.</p>
+    </section>
+
+    <!-- Gallery -->
+    <section id="screenshots" aria-labelledby="shots-h">
+      <p class="eyebrow">Screenshots</p>
+      <h2 id="shots-h">SpacePie screenshots</h2>
+      <p class="lead">Click a picture to enlarge it.</p>
+      <div class="gallery">
+        <figure>
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-treemap.png" data-caption="Treemap: the same drive as rectangles sized by space, folders with their subfolders inside (demo data)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-treemap.png" alt="SpacePie treemap: a drive shown as rectangles sized by space, folders with their subfolders inside" width="1600" height="867" loading="lazy" decoding="async">
+          </button>
+          <figcaption>Treemap of a drive</figcaption>
+        </figure>
+        <figure>
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" data-caption="Suggestions: how much can be freed, with a checkbox tree of every location (macOS)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" alt="SpacePie cleanup suggestions on macOS: how much space can be freed, with a checkbox tree of every location" width="1344" height="760" loading="lazy" decoding="async">
+          </button>
+          <figcaption>Cleanup suggestions (macOS)</figcaption>
+        </figure>
+        <figure>
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" data-caption="Apps: every installed app with its logo and size; expanded, it shows all its files (macOS)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" alt="SpacePie Apps view on macOS: installed apps with their logos and sizes, one expanded to show all its files" width="1344" height="760" loading="lazy" decoding="async">
+          </button>
+          <figcaption>Installed apps and their files (macOS)</figcaption>
+        </figure>
+        <figure>
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" data-caption="Duplicates: groups of identical files and the space their extra copies take (demo data)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" alt="SpacePie duplicate files: groups of identical files and the space their extra copies take" width="1600" height="867" loading="lazy" decoding="async">
+          </button>
+          <figcaption>Duplicate files</figcaption>
+        </figure>
+        <figure>
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" data-caption="Deleting: the red progress strip while the list empties (demo data)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" alt="SpacePie deleting files: the progress strip counts files removed and space freed while the list empties" width="1600" height="867" loading="lazy" decoding="async">
+          </button>
+          <figcaption>Deleting, with progress and Stop</figcaption>
+        </figure>
+        <figure>
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" data-caption="The confirmation before a permanent delete, listing every item (demo data)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" alt="SpacePie confirmation dialog before a permanent delete, listing every item and the total size" width="956" height="611" loading="lazy" decoding="async">
+          </button>
+          <figcaption>The confirmation lists every item</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" aria-labelledby="faq-h">
+      <p class="eyebrow">FAQ</p>
+      <h2 id="faq-h">Frequently asked questions</h2>
+      <div class="faq">
+        <details>
+          <summary>Is SpacePie free?</summary>
+          <div class="a"><p>Yes. SpacePie is free and open source under the MIT licence. There is no account and no advertising.</p></div>
+        </details>
+        <details>
+          <summary>Is it safe? What does it send?</summary>
+          <div class="a">
+            <p>Nothing about your files or your computer is sent. The only network requests go to GitHub, to check for and download updates; GitHub sees your IP address and the app's version, like for any download.</p>
+            <p>It changes nothing unless you ask, and every delete starts with a confirmation that lists every item. Move to Recycle Bin / Trash can be undone; Delete permanently cannot. Details: <a href="https://github.com/sphrd/SpacePie/blob/main/PRIVACY.md">PRIVACY.md</a>.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Why does Windows SmartScreen or macOS warn me on first start?</summary>
+          <div class="a">
+            <p>The app is not code-signed yet, so both systems show a warning the first time.</p>
+            <p><strong>Windows:</strong> click <strong>More info</strong>, then <strong>Run anyway</strong>. <strong>macOS:</strong> right-click the app, choose <strong>Open</strong>, then <strong>Open</strong> again (or click <strong>Open Anyway</strong> in System Settings &gt; Privacy &amp; Security).</p>
+            <p>To check the download, compare its SHA-256 with the one in the <a href="https://github.com/sphrd/SpacePie/releases/latest">release notes</a>, for example with <code>Get-FileHash .\SpacePie.exe</code> on Windows.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Does it need installation?</summary>
+          <div class="a">
+            <p><strong>Windows:</strong> no. Download <code>SpacePie.exe</code> and run it. For the fastest whole-drive scans, click <strong>Run as administrator</strong> in the toolbar.</p>
+            <p><strong>macOS:</strong> open <code>SpacePie-macOS.dmg</code> and drag SpacePie onto Applications. On first start it asks for Full Disk Access; turn it on in System Settings &gt; Privacy &amp; Security &gt; Full Disk Access, then reopen the app.</p>
+          </div>
+        </details>
+        <details>
+          <summary>Which systems does it run on?</summary>
+          <div class="a"><p>Windows 10 and Windows 11, and macOS 11 or later, natively on Apple silicon and Intel Macs.</p></div>
+        </details>
+        <details>
+          <summary>How do I update?</summary>
+          <div class="a"><p>Use <strong>Check for updates</strong> inside the app. It also checks for a new version at startup and installs it in a click.</p></div>
+        </details>
+        <details>
+          <summary>Is it open source?</summary>
+          <div class="a"><p>Yes, under the MIT licence. The source is on <a href="https://github.com/sphrd/SpacePie">GitHub</a>; every push is built and tested on Windows and macOS by GitHub Actions. On Windows it builds with the C# compiler built into Windows, no Visual Studio or SDK needed.</p></div>
+        </details>
+      </div>
+    </section>
+
+    <div class="final">
+      <h2>Find out where your space went</h2>
+      <p class="lead">Free, open source and one small app. It starts scanning the moment it opens.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/sphrd/SpacePie/releases/latest/download/SpacePie.exe">Download for Windows<small data-ver="SpacePie.exe">SpacePie.exe</small></a>
+        <a class="btn primary" href="https://github.com/sphrd/SpacePie/releases/latest/download/SpacePie-macOS.dmg">Download for macOS<small data-ver="SpacePie-macOS.dmg">SpacePie-macOS.dmg</small></a>
+      </div>
+      <p class="systems">All versions and release notes: <a href="https://github.com/sphrd/SpacePie/releases">Releases</a></p>
+    </div>
+  </div>
 </main>
+
+<footer>
+  <div class="wrap">
+    <span>SpacePie by <a href="https://github.com/sphrd">sphrd</a> &middot; <a href="https://github.com/sphrd/SpacePie/blob/main/LICENSE">MIT licence</a></span>
+    <nav aria-label="Project links">
+      <a href="https://github.com/sphrd/SpacePie/releases">Releases</a>
+      <a href="https://github.com/sphrd/SpacePie/blob/main/PRIVACY.md">Privacy</a>
+      <a href="https://github.com/sphrd/SpacePie/blob/main/SECURITY.md">Security</a>
+      <a href="https://github.com/sphrd/SpacePie">Source</a>
+    </nav>
+  </div>
+</footer>
+
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Screenshot" hidden>
+  <button class="lb-btn lb-close" type="button" aria-label="Close">&times;</button>
+  <button class="lb-btn lb-prev" type="button" aria-label="Previous screenshot">&lsaquo;</button>
+  <button class="lb-btn lb-next" type="button" aria-label="Next screenshot">&rsaquo;</button>
+  <img alt="">
+  <p></p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Latest version on the download buttons; silently keeps the file names on any failure.
+  if (window.fetch) {
+    fetch("https://api.github.com/repos/sphrd/SpacePie/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) {
+        var tag = j && typeof j.tag_name === "string" ? j.tag_name.trim() : "";
+        if (!tag || tag.length > 32) return;
+        if (/^\d/.test(tag)) tag = "v" + tag;
+        document.querySelectorAll("[data-ver]").forEach(function (el) {
+          el.textContent = tag + " \u00b7 " + el.getAttribute("data-ver");
+        });
+      })
+      .catch(function () {});
+  }
+
+  // Lightbox
+  var lb = document.getElementById("lightbox");
+  var lbImg = lb.querySelector("img"), lbCap = lb.querySelector("p");
+  var shots = Array.prototype.slice.call(document.querySelectorAll(".shot-btn"));
+  var current = -1, opener = null;
+  function show(i) {
+    current = (i + shots.length) % shots.length;
+    var b = shots[current];
+    lbImg.src = b.getAttribute("data-full");
+    lbImg.alt = b.querySelector("img").alt;
+    lbCap.textContent = b.getAttribute("data-caption") || "";
+  }
+  function open(i) {
+    opener = document.activeElement;
+    show(i);
+    lb.hidden = false; lb.classList.add("open");
+    document.body.style.overflow = "hidden";
+    lb.querySelector(".lb-close").focus();
+  }
+  function close() {
+    lb.classList.remove("open"); lb.hidden = true;
+    document.body.style.overflow = "";
+    lbImg.removeAttribute("src");
+    if (opener) opener.focus();
+  }
+  shots.forEach(function (b, i) { b.addEventListener("click", function () { open(i); }); });
+  lb.querySelector(".lb-close").addEventListener("click", close);
+  lb.querySelector(".lb-prev").addEventListener("click", function (e) { e.stopPropagation(); show(current - 1); });
+  lb.querySelector(".lb-next").addEventListener("click", function (e) { e.stopPropagation(); show(current + 1); });
+  lb.addEventListener("click", function (e) { if (e.target === lb || e.target === lbImg) close(); });
+  document.addEventListener("keydown", function (e) {
+    if (lb.hidden) return;
+    if (e.key === "Escape") close();
+    else if (e.key === "ArrowLeft") show(current - 1);
+    else if (e.key === "ArrowRight") show(current + 1);
+    else if (e.key === "Tab") {
+      var f = lb.querySelectorAll("button"), first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+
+  // Trailing lines (small spinners)
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) return;
+
+  var ACCENT = [77, 163, 255];
+  var HEAD = "rgb(" + ACCENT.map(function (c) { return Math.round(c + (255 - c) * 0.3); }).join(",") + ")";
+  var TAU = Math.PI * 2, SEGMENTS = 48;
+
+  function setup(canvas) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx: ctx, w: w, h: h };
+  }
+
+  // Tail runs from phi - tail*TAU (transparent) to phi (full colour), then a head dot as wide as the line.
+  function trail(ctx, point, phi, tail, width) {
+    ctx.lineWidth = width;
+    ctx.lineCap = "butt";
+    var span = tail * TAU, prev = point(phi - span);
+    for (var i = 1; i <= SEGMENTS; i++) {
+      var f = i / SEGMENTS, p = point(phi - span + span * f);
+      ctx.strokeStyle = "rgba(" + ACCENT.join(",") + "," + f.toFixed(3) + ")";
+      ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(p[0], p[1]); ctx.stroke();
+      prev = p;
+    }
+    ctx.fillStyle = HEAD;
+    ctx.beginPath(); ctx.arc(prev[0], prev[1], width / 2, 0, TAU); ctx.fill();
+  }
+
+  var items = [];
+  document.querySelectorAll("canvas.spin").forEach(function (c) {
+    items.push({
+      el: c,
+      draw: function (s, t) {
+        var w = 2, r = s.w / 2 - w, cx = s.w / 2, cy = s.h / 2;
+        trail(s.ctx, function (p) { return [cx + r * Math.cos(p), cy + r * Math.sin(p)]; }, (t / 1000) * TAU, 0.4, w);
+      }
+    });
+  });
+
+  function resize() { items.forEach(function (it) { it.s = setup(it.el); }); }
+  resize();
+  window.addEventListener("resize", resize);
+
+  if ("IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { e.target._visible = e.isIntersecting; });
+    });
+    items.forEach(function (it) { it.el._visible = true; io.observe(it.el); });
+  } else {
+    items.forEach(function (it) { it.el._visible = true; });
+  }
+
+  function frame(t) {
+    items.forEach(function (it) {
+      if (!it.el._visible) return;
+      it.s.ctx.clearRect(0, 0, it.s.w, it.s.h);
+      it.draw(it.s, t);
+    });
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
 </body>
 </html>

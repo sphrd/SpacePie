@@ -288,9 +288,9 @@ namespace SpacePie
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
+            CutText.Begin(this);
             var r = new Rectangle(Theme.S(10), 0, Width - Theme.S(36), Height);
-            TextRenderer.DrawText(g, prefix + choices[selected], Font, r, Enabled ? Theme.FG : Theme.DISABLED_FG,
-                TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            CutText.Draw(g, this, prefix + choices[selected], Font, r, Enabled ? Theme.FG : Theme.DISABLED_FG, TextFormatFlags.VerticalCenter);
             int s = Theme.S(10);
             Theme.DrawChevron(g, new Rectangle(Width - Theme.S(22), (Height - s) / 2, s, s), hover || popup.Visible ? Theme.ACCENT : Theme.MUTED, true);
         }
@@ -483,99 +483,6 @@ namespace SpacePie
             chevron.Invalidate();
             Highlight = true;
             popup.Show(this, new Point(0, Height + Theme.S(2)));
-        }
-    }
-
-    /// <summary>Text tabs: the current one is ACCENT with an underline pill, the others MUTED.</summary>
-    internal sealed class TabStrip : Control
-    {
-        readonly string[] titles;
-        int selected, hover = -1;
-        Rectangle[] rects = new Rectangle[0];
-        public event EventHandler SelectedIndexChanged;
-
-        public TabStrip(params string[] titles)
-        {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            SetStyle(ControlStyles.Selectable, false);
-            this.titles = titles;
-            Font = Theme.FONT;
-            Height = Font.Height + Theme.S(16);
-        }
-
-        public int SelectedIndex
-        {
-            get { return selected; }
-            set
-            {
-                if (selected == value) return;
-                selected = value;
-                Invalidate();
-                if (SelectedIndexChanged != null) SelectedIndexChanged(this, EventArgs.Empty);
-            }
-        }
-
-        public void SetTitle(int i, string text) { titles[i] = text; Invalidate(); }
-
-        readonly Dictionary<int, Color> colors = new Dictionary<int, Color>();
-
-        /// <summary>Gives one tab its own colour (text, and underline when current) instead of muted/accent.</summary>
-        public void SetColor(int i, Color c) { colors[i] = c; Invalidate(); }
-
-        void Measure(Graphics g)
-        {
-            rects = new Rectangle[titles.Length];
-            int x = 0;
-            for (int i = 0; i < titles.Length; i++)
-            {
-                int w = TextRenderer.MeasureText(g, titles[i], Font, Size.Empty, TextFormatFlags.NoPrefix).Width + Theme.S(12);
-                w = Math.Min(w, Math.Max(Theme.S(40), Width - x));
-                rects[i] = new Rectangle(x, 0, w, Height);
-                x += w + Theme.S(10);
-            }
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics;
-            g.Clear(Parent != null ? Parent.BackColor : Theme.SURFACE);
-            Measure(g);
-            for (int i = 0; i < titles.Length; i++)
-            {
-                var r = rects[i];
-                Color own;
-                bool hasOwn = colors.TryGetValue(i, out own);
-                Color c = hasOwn ? (i == hover && i != selected ? Theme.FG : own) : i == selected ? Theme.ACCENT : i == hover ? Theme.FG : Theme.MUTED;
-                TextRenderer.DrawText(g, titles[i], Font, new Rectangle(r.X, r.Y, r.Width, r.Height - Theme.S(4)), c,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
-                    TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
-                if (i == selected)
-                    Theme.FillRound(g, new Rectangle(r.X + Theme.S(6), r.Bottom - Theme.S(4), r.Width - Theme.S(12), Theme.S(3)),
-                        Theme.S(2), hasOwn ? own : Theme.ACCENT, hasOwn ? own : Theme.ACCENT);
-            }
-        }
-
-        int HitTest(Point p)
-        {
-            for (int i = 0; i < rects.Length; i++) if (rects[i].Contains(p)) return i;
-            return -1;
-        }
-
-        protected override void OnMouseMove(MouseEventArgs e)
-        {
-            base.OnMouseMove(e);
-            int h = HitTest(e.Location);
-            Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
-            if (h != hover) { hover = h; Invalidate(); }
-        }
-
-        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hover = -1; Invalidate(); }
-
-        protected override void OnMouseDown(MouseEventArgs e)
-        {
-            base.OnMouseDown(e);
-            int h = HitTest(e.Location);
-            if (h >= 0 && e.Button == MouseButtons.Left) SelectedIndex = h;
         }
     }
 
@@ -904,9 +811,10 @@ namespace SpacePie
             int lineH = Font.Height, smallH = Theme.FONT_9.Height, barH = Theme.S(6);
             int total = lineH + Theme.S(3) + smallH + (fraction >= 0 ? Theme.S(6) + barH : 0);
             int y = b.Y + (b.Height - total) / 2;
-            TextRenderer.DrawText(g, status, Theme.FONT, new Rectangle(x, y, Math.Max(0, right - x), lineH), Theme.FG, f);
+            CutText.Begin(this);
+            CutText.Draw(g, this, status, Theme.FONT, new Rectangle(x, y, Math.Max(0, right - x), lineH), Theme.FG, f);
             y += lineH + Theme.S(3);
-            TextRenderer.DrawText(g, detail, Theme.FONT_9, new Rectangle(x, y, Math.Max(0, right - x), smallH), danger ? Theme.DANGER_FG : Theme.MUTED, f);
+            CutText.Draw(g, this, detail, Theme.FONT_9, new Rectangle(x, y, Math.Max(0, right - x), smallH), danger ? Theme.DANGER_FG : Theme.MUTED, f);
             if (fraction >= 0)
             {
                 y += smallH + Theme.S(6);
@@ -985,7 +893,9 @@ namespace SpacePie
             int ls = Theme.S(20);
             Theme.DrawLogoGlow(g, new Rectangle(Theme.S(12), (Height - ls) / 2, ls, ls), active ? 1f : 0.6f, 46, 0.9f);
             const TextFormatFlags f = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, TitleText, Font, new Rectangle(Theme.S(40), 0, Width, Height), text, f);
+            CutText.Begin(this);
+            int titleRight = items.Count > 0 ? itemRects[0].X - Theme.S(8) : minRect.X - Theme.S(8);
+            CutText.Draw(g, this, TitleText, Font, new Rectangle(Theme.S(40), 0, Math.Max(0, titleRight - Theme.S(40)), Height), text, f);
             for (int i = 0; i < items.Count; i++)
             {
                 if (hoverItem == i) Theme.FillRound(g, itemRects[i], Theme.S(6), Theme.BORDER, Theme.BORDER);
@@ -1084,10 +994,10 @@ namespace SpacePie
                 Font = Theme.FONT_11, ForeColor = Theme.FG, BackColor = Theme.BG, TextAlign = ContentAlignment.TopCenter,
                 AutoSize = false, UseMnemonic = false
             };
-            detail = new Label
+            detail = new EllipsisLabel
             {
                 Font = Theme.FONT_9, ForeColor = Theme.MUTED, BackColor = Theme.BG, TextAlign = ContentAlignment.TopCenter,
-                AutoSize = false, AutoEllipsis = true, UseMnemonic = false
+                AutoSize = false
             };
             CancelButton = new RoundButton("Cancel", ButtonKind.Secondary) { MinChars = 10 };
             Controls.Add(spinner);
@@ -1186,215 +1096,23 @@ namespace SpacePie
     }
 
     /// <summary>
-    /// Folder tree drawn in the palette: chevrons, folder glyphs and the name on the left, plus right-aligned
-    /// value columns (size, percentage) that line up on every row. No horizontal scrolling: long names are ellipsized.
-    /// </summary>
-    internal sealed class DarkTreeView : TreeView, IScrollNotify
-    {
-        public event EventHandler ScrollChanged;
-        public event EventHandler ColumnsMoved;
-
-        /// <summary>Text for the value columns of a node (same order as ColumnSamples); null = none.</summary>
-        public Func<TreeNode, string[]> ColumnText;
-        /// <summary>Widest expected value per column; sets the column widths.</summary>
-        public string[] ColumnSamples = new string[0];
-        public bool[] ColumnMuted = new bool[0];
-        /// <summary>Column that also shows a percentage bar left of its text; BarValue returns 0-100, or a negative value for none.</summary>
-        public int BarColumn = -1;
-        public Func<TreeNode, double> BarValue;
-        int lastWidth = -1;
-
-        int BarWidth { get { return Theme.S(44); } }
-
-        const TextFormatFlags Flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter |
-            TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis;
-
-        public DarkTreeView()
-        {
-            DrawMode = TreeViewDrawMode.OwnerDrawAll;
-            BorderStyle = BorderStyle.None;
-            BackColor = Theme.SURFACE;
-            ForeColor = Theme.FG;
-            Font = Theme.FONT;
-            ShowLines = false;
-            FullRowSelect = true;
-            HideSelection = false;
-        }
-
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                var cp = base.CreateParams;
-                cp.Style |= 0x8000; // TVS_NOHSCROLL
-                return cp;
-            }
-        }
-
-        public int ColumnGap { get { return Theme.S(14); } }
-
-        /// <summary>Left x of each value column, in tree client coordinates (rightmost column ends 8 px from the edge).</summary>
-        public int[] ColumnLefts()
-        {
-            var lefts = new int[ColumnSamples.Length];
-            int right = ClientSize.Width - Theme.S(8);
-            for (int i = ColumnSamples.Length - 1; i >= 0; i--)
-            {
-                int w = TextRenderer.MeasureText(ColumnSamples[i], Font, Size.Empty, TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding).Width;
-                if (i == BarColumn) w += BarWidth + Theme.S(8);
-                lefts[i] = right - w;
-                right = lefts[i] - ColumnGap;
-            }
-            return lefts;
-        }
-
-        public int ColumnRight(int i)
-        {
-            var lefts = ColumnLefts();
-            return i + 1 < lefts.Length ? lefts[i + 1] - ColumnGap : ClientSize.Width - Theme.S(8);
-        }
-
-        protected override void OnHandleCreated(EventArgs e)
-        {
-            base.OnHandleCreated(e);
-            Theme.SendMessage(Handle, 0x112C, (IntPtr)0x4, (IntPtr)0x4); // TVS_EX_DOUBLEBUFFER
-        }
-
-        protected override void WndProc(ref Message m)
-        {
-            base.WndProc(ref m);
-            switch (m.Msg)
-            {
-                case 0x0F: case 0x114: case 0x115: case 0x20A: case 0x20E: case 0x05:
-                    if (ScrollChanged != null) ScrollChanged(this, EventArgs.Empty);
-                    if (ClientSize.Width != lastWidth)
-                    {
-                        // Columns hang off the right edge: repaint all rows (and the header) when the width changes,
-                        // e.g. when the vertical scrollbar appears or the splitter moves.
-                        lastWidth = ClientSize.Width;
-                        Invalidate();
-                        if (ColumnsMoved != null) ColumnsMoved(this, EventArgs.Empty);
-                    }
-                    break;
-            }
-        }
-
-        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
-        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
-
-        protected override void OnDrawNode(DrawTreeNodeEventArgs e)
-        {
-            var n = e.Node;
-            if (n == null || e.Bounds.Height <= 0) return;
-            var g = e.Graphics;
-            var row = new Rectangle(0, e.Bounds.Y, ClientSize.Width, e.Bounds.Height);
-            using (var b = new SolidBrush(BackColor)) g.FillRectangle(b, row);
-
-            bool sel = (e.State & TreeNodeStates.Selected) != 0;
-            bool strong = sel && Focused;
-            if (sel)
-            {
-                Color fill = strong ? Theme.ACCENT : Theme.BORDER;
-                Theme.FillRound(g, new Rectangle(row.X + Theme.S(2), row.Y + 1, row.Width - Theme.S(4), row.Height - 2), Theme.S(6), fill, fill);
-            }
-
-            int textX = n.Bounds.X;
-            int icon = Theme.S(16);
-            var iconRect = new Rectangle(textX - icon - Theme.S(3), row.Y + (row.Height - icon) / 2, icon, icon);
-            if (n.Nodes.Count > 0)
-            {
-                int cs = Theme.S(12);
-                var cr = new Rectangle(iconRect.X - Indent / 2 - cs / 2 - Theme.S(2), row.Y + (row.Height - cs) / 2, cs, cs);
-                Theme.DrawChevron(g, cr, strong ? Theme.BG : n.IsExpanded ? Theme.ACCENT : Theme.MUTED, n.IsExpanded);
-            }
-            Theme.DrawFolder(g, iconRect, strong ? Theme.BG : Theme.MUTED);
-
-            var values = ColumnText != null ? ColumnText(n) : null;
-            int nameRight = row.Right - Theme.S(8);
-            if (values != null && ColumnSamples.Length > 0)
-            {
-                var lefts = ColumnLefts();
-                nameRight = lefts[0] - ColumnGap;
-                for (int i = 0; i < lefts.Length && i < values.Length; i++)
-                {
-                    var cr = new Rectangle(lefts[i], row.Y, ColumnRight(i) - lefts[i], row.Height);
-                    bool muted = i < ColumnMuted.Length && ColumnMuted[i];
-                    if (i == BarColumn && BarValue != null)
-                    {
-                        double v = BarValue(n);
-                        if (v >= 0)
-                        {
-                            int bh = Theme.S(6);
-                            var bar = new Rectangle(cr.X, row.Y + (row.Height - bh) / 2, BarWidth, bh);
-                            Color track = strong ? Theme.BG : Theme.BORDER, fill = strong ? Theme.FG : Theme.ACCENT;
-                            Theme.FillRound(g, bar, bh / 2, track, track);
-                            int fw = (int)Math.Round(BarWidth * Math.Min(100, v) / 100);
-                            if (fw > 0) Theme.FillRound(g, new Rectangle(bar.X, bar.Y, Math.Max(fw, bh), bh), bh / 2, fill, fill);
-                        }
-                    }
-                    TextRenderer.DrawText(g, values[i] ?? "", Font, cr, strong ? Theme.BG : muted ? Theme.MUTED : Theme.FG, Flags | TextFormatFlags.Right);
-                }
-            }
-            bool dim = n.ForeColor == Theme.MUTED;
-            var tr = new Rectangle(textX, row.Y, Math.Max(0, nameRight - textX), row.Height);
-            TextRenderer.DrawText(g, n.Text, Font, tr, strong ? Theme.BG : dim ? Theme.MUTED : Theme.FG, Flags);
-        }
-    }
-
-    /// <summary>Header row for a DarkTreeView: "Name" on the left and the value column titles aligned over their columns.</summary>
-    internal sealed class TreeHeader : Control
-    {
-        readonly DarkTreeView tree;
-        readonly string name;
-        readonly string[] titles;
-
-        public TreeHeader(DarkTreeView tree, string name, params string[] titles)
-        {
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-            SetStyle(ControlStyles.Selectable, false);
-            this.tree = tree;
-            this.name = name;
-            this.titles = titles;
-            Font = Theme.FONT;
-            BackColor = Theme.SURFACE;
-            Height = Font.Height + Theme.S(12);
-            tree.ColumnsMoved += (s, e) => Invalidate();
-            tree.Resize += (s, e) => Invalidate();
-        }
-
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics;
-            g.Clear(BackColor);
-            const TextFormatFlags f = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, name, Font, new Rectangle(Theme.S(8), 0, Width, Height - 1), Theme.MUTED, f);
-            if (tree.IsHandleCreated)
-            {
-                var lefts = tree.ColumnLefts();
-                for (int i = 0; i < lefts.Length && i < titles.Length; i++)
-                {
-                    int right = tree.ColumnRight(i);
-                    TextRenderer.DrawText(g, titles[i], Font, new Rectangle(right - Theme.S(200), 0, Theme.S(200), Height - 1), Theme.MUTED, f | TextFormatFlags.Right);
-                }
-            }
-            using (var p = new Pen(Theme.BORDER)) g.DrawLine(p, 0, Height - 1, Width, Height - 1);
-        }
-    }
-
-    /// <summary>
-    /// Amber attention line at the top of a view (WARN_BG fill, WARN_BORDER outline, warning sign, WARN_FG text) with
-    /// compact buttons on the right. Hidden while it has no text.
+    /// Slim, calm notice line at the top of a view: a small amber warning sign, the message in MUTED (full text on hover),
+    /// compact buttons, and a close button (x) on the right. Hidden while it has no text or after it was closed.
     /// </summary>
     internal sealed class Banner : Panel
     {
         readonly List<RoundButton> buttons = new List<RoundButton>();
         string message = "";
+        Rectangle closeRect;
+        bool closeHover;
+        /// <summary>The user closed the banner with x.</summary>
+        public event EventHandler Closed;
 
         public Banner()
         {
             Dock = DockStyle.Top;
             BackColor = Theme.SURFACE;
-            Height = Theme.FONT.Height + Theme.S(26);
+            Height = Theme.FONT_9.Height + Theme.S(22);
             Visible = false;
             DoubleBuffered = true;
             ResizeRedraw = true;
@@ -1417,34 +1135,70 @@ namespace SpacePie
             set { message = value ?? ""; Visible = message.Length > 0; Invalidate(); }
         }
 
+        Rectangle Box { get { return new Rectangle(0, 0, Width - 1, Height - Theme.S(6)); } }
+
         protected override void OnLayout(LayoutEventArgs e)
         {
             base.OnLayout(e);
-            int x = Width - Theme.S(10);
+            var r = Box;
+            int cs = Theme.S(22);
+            closeRect = new Rectangle(r.Right - Theme.S(6) - cs, r.Y + (r.Height - cs) / 2, cs, cs);
+            int x = closeRect.X - Theme.S(6);
             for (int i = buttons.Count - 1; i >= 0; i--)
             {
                 var b = buttons[i];
                 if (!b.Visible) continue;
                 var sz = b.GetPreferredSize(Size.Empty);
+                int h = Math.Min(sz.Height, r.Height - Theme.S(6));
                 x -= sz.Width;
-                b.Bounds = new Rectangle(x, (Height - Theme.S(6) - sz.Height) / 2, sz.Width, sz.Height);
+                b.Bounds = new Rectangle(x, r.Y + (r.Height - h) / 2, sz.Width, h);
                 x -= Theme.S(6);
             }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            bool h = closeRect.Contains(e.Location);
+            if (h != closeHover) { closeHover = h; Cursor = h ? Cursors.Hand : Cursors.Default; Invalidate(closeRect); }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (closeHover) { closeHover = false; Cursor = Cursors.Default; Invalidate(closeRect); }
+        }
+
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            base.OnMouseClick(e);
+            if (e.Button != MouseButtons.Left || !closeRect.Contains(e.Location)) return;
+            Visible = false;
+            if (Closed != null) Closed(this, EventArgs.Empty);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
             g.Clear(BackColor);
+            CutText.Begin(this);
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            var r = new Rectangle(0, 0, Width - 1, Height - Theme.S(6));
-            Theme.FillRound(g, r, Theme.S(8), Theme.WARN_BG, Theme.WARN_BORDER);
-            int ic = Theme.S(18);
-            Theme.DrawWarningSign(g, new Rectangle(Theme.S(10), (r.Height - ic) / 2, ic, ic), Theme.WARN);
-            int x = Theme.S(10) + ic + Theme.S(10), right = Width - Theme.S(10);
-            foreach (var b in buttons) if (b.Visible) right = Math.Min(right, b.Left);
-            TextRenderer.DrawText(g, message, Theme.FONT, new Rectangle(x, 0, Math.Max(0, right - x - Theme.S(10)), r.Height), Theme.WARN_FG,
-                TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+            var r = Box;
+            Theme.FillRound(g, r, Theme.S(8), Theme.BG, Theme.BG);
+            int ic = Theme.S(14);
+            Theme.DrawWarningSign(g, new Rectangle(Theme.S(10), r.Y + (r.Height - ic) / 2, ic, ic), Theme.WARN);
+            int x = Theme.S(10) + ic + Theme.S(8), right = closeRect.X - Theme.S(8);
+            foreach (var b in buttons) if (b.Visible) right = Math.Min(right, b.Left - Theme.S(8));
+            CutText.Draw(g, this, message, Theme.FONT_9, new Rectangle(x, r.Y, Math.Max(0, right - x), r.Height), Theme.MUTED, TextFormatFlags.VerticalCenter);
+            if (closeHover) Theme.FillRound(g, closeRect, Theme.S(6), Theme.BORDER, Theme.BORDER);
+            var c = closeHover ? Theme.FG : Theme.MUTED;
+            int k = Theme.S(4);
+            float cx = closeRect.X + closeRect.Width / 2f, cy = closeRect.Y + closeRect.Height / 2f;
+            using (var pen = new Pen(c, Math.Max(1.4f, 1.5f * Theme.Scale)) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                g.DrawLine(pen, cx - k, cy - k, cx + k, cy + k);
+                g.DrawLine(pen, cx - k, cy + k, cx + k, cy - k);
+            }
         }
     }
 
@@ -1485,6 +1239,7 @@ namespace SpacePie
             var g = e.Graphics;
             g.Clear(BackColor);
             hits.Clear();
+            CutText.Begin(this);
             if (parts.Count == 0) return;
             const TextFormatFlags f = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
             int gap = Theme.S(6), chev = Theme.S(10), pad = Theme.S(4);
@@ -1511,6 +1266,10 @@ namespace SpacePie
                     {
                         DrawChevron(g, ref x, gap, chev);
                         TextRenderer.DrawText(g, "...", Font, new Rectangle(x, 0, dots, Height), Theme.MUTED, f | TextFormatFlags.HorizontalCenter);
+                        // The folders left out, in full, on hover.
+                        var hidden = new List<string>();
+                        for (int k = 1; k < first; k++) hidden.Add(parts[k].Key);
+                        CutText.Add(this, new Rectangle(x, 0, dots, Height), string.Join(" \u203A ", hidden));
                         x += dots;
                     }
                     DrawChevron(g, ref x, gap, chev);
@@ -1521,6 +1280,7 @@ namespace SpacePie
                 if (!last && i == hover) Theme.FillRound(g, r, Theme.S(6), Theme.BORDER, Theme.BORDER);
                 TextRenderer.DrawText(g, parts[i].Key, Font, r, last ? Theme.FG : i == hover ? Theme.FG : Theme.MUTED,
                     f | TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis);
+                if (w < widths[i]) CutText.Add(this, r, parts[i].Key);
                 if (!last) hits.Add(new KeyValuePair<Rectangle, int>(r, i));
                 x += w;
             }

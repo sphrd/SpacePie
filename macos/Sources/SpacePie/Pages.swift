@@ -9,15 +9,33 @@ extension MainWindowController {
     static let maxOwnSlices = 50          // every row of at least 2 % of the total (7.2 degrees) gets a slice of its own
     static let minOwnShare = 0.02         // (2 % allows at most 50); all smaller rows together form one "smaller items" slice
 
-    var activePage: Page { pages[min(max(0, viewTabs.selectedIndex), pages.count - 1)] }
+    var activePage: Page { pages[min(max(0, pageIndex), pages.count - 1)] }
+
+    /// The views listed in the rail (all but the delete list, which opens from its toolbar button), in rail order.
+    var railPages: [Page] { pages.filter { $0 !== pBasket } }
+
+    /// Shows view p (from the rail, the Delete list button or the app).
+    func showView(_ p: Page) { if let i = pages.firstIndex(where: { $0 === p }) { pageIndex = i } }
+
+    /// The rail follows the view shown (no row is selected while the delete list is shown).
+    func syncRail() {
+        let p = activePage
+        viewTabs.selectedIndex = railPages.firstIndex { $0 === p } ?? -1
+        btnBasket.ring = p === pBasket
+    }
 
     func buildViews() {
 
-        pContents = Page("Contents", [Column("name", "Name", 210), Column("size", "Size", 80, true), Column("size", "% of folder", 125, true),
+        pContents = Page("Contents", [Column("name", "Name", 210),         Column("size", "Size", 80, true), Column("size", "% of parent", 125, true),
                                       Column("change", "Change", 80, true), Column("files", "Files", 74, true), Column("dirs", "Folders", 66, true),
                                       Column("mod", "Modified", 128), Column("cat", "What it is", 240)], barColumn: 2, bar: nil)
         pContents.followsFolder = true
-        pContents.fill = { [unowned self] in if let c = self.current, self.isAttached(c) { self.showContents(c) } }
+        pContents.fill = { [unowned self] in
+            if self.thisPc { self.showThisPc() } else if let c = self.current, self.isAttached(c) { self.showContents(c) }
+        }
+        // Contents is a tree-list: sorting rebuilds it level by level; the chevron of a folder opens it in place.
+        pContents.onResort = { [unowned self] in self.refillContents() }
+        pContents.table.onClickAt = { [unowned self] r, p in self.contentsClick(r, p) }
         pages.append(pContents)
 
         // Suggestions comes right after Contents (the app opens on Contents).
@@ -30,7 +48,7 @@ extension MainWindowController {
         // Files: the whole index under the selected folder (or everything scanned), filtered; largest first.
         fileSearch.onChange = { [unowned self] in self.fillFiles() }
         fileSearch.toolTip = "Part of a name, or a pattern with * and ?. Several patterns: separate them with ; (⌘F). Folders with a matching name are listed too."
-        fileScope.tip = "Search the folder selected in the tree, or every scanned drive and folder at once"
+        fileScope.tip = "Search the folder open in Contents, or every scanned drive and folder at once"
         fileAge.tip = "Files not changed (modified), or not opened (nor changed), for at least this long. \"Opened\" uses the last-access time macOS records"
         for c in [fileScope, fileType, fileMinSize, fileAge] { c.onChange = { [unowned self] _ in self.fillFiles() } }
         pFiles = Page("Files", [Column("name", "Name", 210), Column("size", "Size", 80, true), Column("size", "% of folder", 125, true),
@@ -75,7 +93,8 @@ extension MainWindowController {
         if chartOnHold { showScanLogo(); return }
         let p = activePage
         if p === pContents {
-            if let c = current, isAttached(c) { updateChart(c) }
+            if thisPc { updateChartThisPc() }
+            else if let c = current, isAttached(c) { updateChart(c) }
             else if let a = active, a.node == nil { updateChartUnscanned(a) }
             return
         }
@@ -108,7 +127,7 @@ extension MainWindowController {
     func contentsChanged() {
         for p in pages where p.followsFolder && p !== pContents { p.stale = true }
         let a = activePage
-        if a === pContents { if let c = current { updateChart(c) } }
+        if a === pContents { if thisPc { updateChartThisPc() } else if let c = current { updateChart(c) } }
         else if a.stale { a.stale = false; a.fill() }
     }
 
@@ -124,7 +143,7 @@ extension MainWindowController {
         rowSlice = [:]
         let rows = p.items
         let total = max(Int64(1), total0)
-        let big = rows.indices.filter { rows[$0].groupOf == nil && rows[$0].chartSize > 0 &&
+        let big = rows.indices.filter { rows[$0].depth == 0 && rows[$0].groupOf == nil && rows[$0].chartSize > 0 &&
             Double(rows[$0].chartSize) >= MainWindowController.minOwnShare * Double(total) }
         let own = Set(big.sorted { rows[$0].chartSize > rows[$1].chartSize }.prefix(MainWindowController.maxOwnSlices))
         var slices: [ChartSlice] = []
@@ -133,6 +152,8 @@ extension MainWindowController {
         var restIndex = -1
         var colour = 0
         for (i, info) in rows.enumerated() {
+            // Only the top level of a tree-list (Contents): expanded rows are inside their folder's slice.
+            if info.depth > 0 { continue }
             if let g = info.groupOf, let head = headSlice[ObjectIdentifier(g)] {
                 slices[head].rows.append(i)
                 rowSlice[i] = head
@@ -220,7 +241,7 @@ extension MainWindowController {
             // Open the Files view with this type.
             if let e = info.ext { fileType.selectedIndex = 0; fileSearch.text = e.isEmpty ? "" : "*." + e }
             else { fileSearch.text = ""; fileType.selectedIndex = (FileTypes.categories.firstIndex(of: info.category) ?? -1) + 1 }
-            viewTabs.selectedIndex = pages.firstIndex { $0 === pFiles } ?? 1
+            pageIndex = pages.firstIndex { $0 === pFiles } ?? 1
             fillFiles()
             return
         }
@@ -236,7 +257,7 @@ extension MainWindowController {
     }
 
     func showFilesSearch() {
-        viewTabs.selectedIndex = pages.firstIndex { $0 === pFiles } ?? 1
+        pageIndex = pages.firstIndex { $0 === pFiles } ?? 1
         fileSearch.focus()
     }
 

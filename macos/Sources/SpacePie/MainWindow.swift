@@ -1,7 +1,7 @@
 import AppKit
 import Quartz
 
-/// A top-level entry of the tree: a drive (scanned or not) or a folder the user scanned.
+/// A top-level entry of This PC: a drive (scanned or not) or a folder the user scanned.
 final class ScanRoot {
     var path: String
     var isDrive = false, isSystem = false
@@ -29,62 +29,7 @@ final class ScanRoot {
     }
 }
 
-// MARK: - Tree and header views
-
-final class TreeRowView: NSTableRowView {
-    override var isFlipped: Bool { true }
-    override func drawBackground(in dirtyRect: NSRect) { T.SURFACE.setFill(); bounds.fill() }
-    override func drawSelection(in dirtyRect: NSRect) {
-        let fill = isEmphasized ? T.ACCENT : T.BORDER
-        Theme.fillRound(bounds.insetBy(dx: 2, dy: 1), 6, fill: fill)
-    }
-    override var interiorBackgroundStyle: NSView.BackgroundStyle { isSelected && isEmphasized ? .emphasized : .normal }
-}
-
-final class KeyOutline: NSOutlineView {
-    var onKey: ((NSEvent) -> Bool)?
-    /// The user picked a row with the mouse or the keyboard (also the row that was selected already, when clicked).
-    var onUserPick: (() -> Void)?
-    /// The hover tip of a row.
-    var tipFor: ((Int) -> String?)?
-
-    override func keyDown(with event: NSEvent) {
-        HoverTip.shared.hide()
-        let before = selectedRow
-        if onKey?(event) != true { super.keyDown(with: event) }
-        if selectedRow != before && selectedRow >= 0 { onUserPick?() }
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        HoverTip.shared.hide()
-        let p = convert(event.locationInWindow, from: nil)
-        let r = row(at: p)
-        let onDisclosure = r >= 0 && frameOfOutlineCell(atRow: r).contains(p)
-        super.mouseDown(with: event)
-        if r >= 0 && !onDisclosure && selectedRow == r && event.clickCount == 1 { onUserPick?() }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for a in trackingAreas where a.owner === self && a.userInfo?["tip"] != nil { removeTrackingArea(a) }
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                                       owner: self, userInfo: ["tip": true]))
-    }
-    override func mouseMoved(with event: NSEvent) {
-        let r = row(at: convert(event.locationInWindow, from: nil))
-        HoverTip.shared.track(self, key: r, text: r >= 0 ? tipFor?(r) : nil, event: event)
-    }
-    override func mouseExited(with event: NSEvent) { HoverTip.shared.reset(owner: self) }
-    override func scrollWheel(with event: NSEvent) { HoverTip.shared.reset(owner: self); super.scrollWheel(with: event) }
-
-    override func menu(for event: NSEvent) -> NSMenu? {
-        HoverTip.shared.hide()
-        let r = row(at: convert(event.locationInWindow, from: nil))
-        if r >= 0 { selectRowIndexes(IndexSet(integer: r), byExtendingSelection: false) }
-        window?.makeFirstResponder(self)
-        return super.menu(for: event)
-    }
-}
+// MARK: - Header views
 
 final class DarkHeaderCell: NSTableHeaderCell {
     var active = false
@@ -106,59 +51,6 @@ final class DarkHeaderView: NSTableHeaderView {
     }
 }
 
-/// Tree cell: folder glyph, name, then right-aligned Size and % of parent (with a pill bar) columns.
-final class TreeCell: NSTableCellView {
-    var name = "", size = "", pct = ""
-    var bar: Double = -1
-    var dim = false
-    override var isFlipped: Bool { true }
-    override var backgroundStyle: NSView.BackgroundStyle { didSet { needsDisplay = true } }
-
-    static let sizeW = Theme.textWidth("999.9 MB", Theme.font)
-    static let pctW = Theme.textWidth("100.0 %", Theme.font)
-    static let barW: CGFloat = 44
-    static let gap: CGFloat = 14
-
-    /// x of the size column and of the bar+pct column, measured from the right edge of `width`.
-    static func columns(_ width: CGFloat) -> (size: CGFloat, pct: CGFloat) {
-        let pctX = width - 8 - pctW - barW - 8
-        let sizeX = pctX - gap - sizeW
-        return (sizeX, pctX)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let strong = backgroundStyle == .emphasized
-        let b = bounds
-        let cols = TreeCell.columns(b.width)
-        Theme.drawFolder(NSRect(x: 2, y: (b.height - 16) / 2, width: 16, height: 16), strong ? T.BG : T.MUTED)
-        Theme.drawText(name, in: NSRect(x: 24, y: 0, width: max(0, cols.size - 24 - TreeCell.gap), height: b.height), color: strong ? T.BG : (dim ? T.MUTED : T.FG))
-        Theme.drawText(size, in: NSRect(x: cols.size, y: 0, width: TreeCell.sizeW, height: b.height), color: strong ? T.BG : T.FG, align: .right)
-        if bar >= 0 {
-            let bh: CGFloat = 6
-            let br = NSRect(x: cols.pct, y: (b.height - bh) / 2, width: TreeCell.barW, height: bh)
-            Theme.fillRound(br, bh / 2, fill: strong ? T.BG : T.BORDER)
-            let w = (TreeCell.barW * CGFloat(min(100, bar)) / 100).rounded()
-            if w > 0 { Theme.fillRound(NSRect(x: br.minX, y: br.minY, width: max(w, bh), height: bh), bh / 2, fill: strong ? T.FG : T.ACCENT) }
-        }
-        Theme.drawText(pct, in: NSRect(x: b.width - 8 - TreeCell.pctW, y: 0, width: TreeCell.pctW, height: b.height), color: strong ? T.BG : T.MUTED, align: .right)
-    }
-}
-
-/// "Name / Size / % of parent" header above the tree, aligned with the tree cells' columns.
-final class TreeHeader: NSView {
-    weak var outline: NSOutlineView?
-    override var isFlipped: Bool { true }
-    override func draw(_ dirtyRect: NSRect) {
-        T.SURFACE.setFill(); bounds.fill()
-        T.BORDER.setFill(); NSRect(x: 0, y: bounds.maxY - 1, width: bounds.width, height: 1).fill()
-        Theme.drawText("Name", in: NSRect(x: 8, y: 0, width: 100, height: bounds.height - 1), color: T.MUTED)
-        let cols = TreeCell.columns(bounds.width)
-        Theme.drawText("Size", in: NSRect(x: cols.size, y: 0, width: TreeCell.sizeW, height: bounds.height - 1), color: T.MUTED, align: .right)
-        let w = Theme.textWidth("% of parent", Theme.font)
-        Theme.drawText("% of parent", in: NSRect(x: bounds.width - 8 - w, y: 0, width: w, height: bounds.height - 1), color: T.MUTED, align: .right)
-    }
-}
-
 /// Rounded panel that lays out its content in the inner rectangle.
 final class ContainerPanel: PanelView {
     var onLayout: ((NSRect) -> Void)?
@@ -168,13 +60,15 @@ final class ContainerPanel: PanelView {
 
 // MARK: - Main window
 
-final class MainWindowController: NSWindowController, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate,
+final class MainWindowController: NSWindowController, NSMenuDelegate,
     NSSplitViewDelegate, NSTextFieldDelegate, NSWindowDelegate {
 
     static let topCount = 1000
     static let maxFilesShown = 2000
-    static let chromeHeight: CGFloat = 12 + 32 + 8 + 32 + 10 + 28     // toolbar rows above the split view, status line below
+    static let chromeHeight: CGFloat = 12 + 32 + 8 + 32 + 10 + 28     // toolbar rows above the main area, status line below
     static let listMinWidth: CGFloat = 360
+    /// The level above every drive (Contents, the path bar and the chart).
+    static let thisPcName = "This Mac"
 
     // Model
     var roots: [ScanRoot] = []
@@ -195,7 +89,12 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     var progressTimer: Timer?
     var onScanFinished: (() -> Void)?
     var readers = 0                       // background tasks reading the scanned trees (the trees must not change meanwhile)
-    var suppressTreeSelection = false
+    /// Contents lists the drives and scanned folders (This PC, the level above every drive).
+    var thisPc = false
+    /// Folders opened in place in the Contents tree-list.
+    var expandedDirs: [ObjectIdentifier: DirNode] = [:]
+    /// The view shown (index in pages); the rail follows it.
+    var pageIndex = 0 { didSet { if oldValue != pageIndex { syncRail(); showPage() } } }
 
     // Toolbar and panes
     let root = DropView()
@@ -213,28 +112,26 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     lazy var btnFinder = RoundButton("Show in Finder", .secondary) { [unowned self] in self.showInFinder() }
     lazy var btnAddList = RoundButton("Add to delete list", .secondary) { [unowned self] in self.addSelectionToBasket() }
     lazy var btnDelete = RoundButton("Delete permanently", .warn) { [unowned self] in self.deleteSelected() }
+    /// Opens the delete list (not in the rail); its title counts the items: "Delete list (4)".
+    lazy var btnBasket = RoundButton("Delete list", .secondary) { [unowned self] in self.showView(self.pBasket) }
     lazy var btnExport = RoundButton("Export...", .secondary) { [unowned self] in self.exportScan() }
     lazy var btnOpenScan = RoundButton("Open scan...", .secondary) { [unowned self] in self.openScanDialog() }
     let measure = Segmented(["Size", "Size on disk"])
     let scanBar = ScanBar()
-    let split = NSSplitView()
     let split2 = NSSplitView()
+    /// The main area under the toolbar: the rail of views on the left, then the list | chart split.
     let rightPane = LayoutView()
-    let treePanel = ContainerPanel()
-    let treeHeader = TreeHeader()
-    let outline = KeyOutline()
-    let treeScroll = NSScrollView()
     let listPanel = ContainerPanel()
-    // Keep in the order of buildViews() (Pages.swift).
-    let viewTabs = TabStrip(["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes", "Delete list"])
+    // Keep in the order of buildViews() (Pages.swift), without the delete list (railPages).
+    let viewTabs = NavRail(["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes"])
     let chartPanel = ContainerPanel()
     let chart = PieChart()
     /// Pie or treemap, top right of the chart pane; the choice is remembered (UserDefaults).
     let chartMode = Segmented(["Pie", "Treemap"])
     static let treemapKey = "ChartTreemap"
-    let statusLabel = NSTextField(labelWithString: "Choose a drive or folder and press Scan.")
-    let liveLabel = NSTextField(labelWithString: "")
-    let driveLabel = NSTextField(labelWithString: "")
+    let statusLabel = CutLabel(labelWithString: "Choose a drive or folder and press Scan.")
+    let liveLabel = CutLabel(labelWithString: "")
+    let driveLabel = CutLabel(labelWithString: "")
     lazy var versionLink = LinkLabel("v" + Updater.currentString) { [unowned self] in self.updates.check(manual: true) }
     let deleteBar = ScanBar()
     let workBar = ScanBar()               // long actions that delete nothing (replace with clones)
@@ -243,7 +140,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     var lowWarned = Set<String>()         // volumes warned about low space this session
     let contextMenu = NSMenu()
     lazy var updates = UpdateController(parent: window)
-    var splitPositioned = false, split2Positioned = false
+    var split2Positioned = false
 
     // Views (tabs)
     var pages: [Page] = []
@@ -337,6 +234,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     let crumbs = Breadcrumb()
     let unreadBanner = Banner()
     var unreadAccess: RoundButton?
+    /// Scanned trees whose unreadable-folders banner was closed (shown again after the next scan: a new tree).
+    var unreadClosed: [DirNode] = []
     var deniedCache: [ObjectIdentifier: (top: DirNode, list: [DirNode])] = [:]
     var mouseMonitor: Any?
     // Changes: compare any two scans (History.swift)
@@ -353,9 +252,9 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
     convenience init() {
         let vf = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        // Wide enough for the tree, a list of about 400 px and a chart pane 4/5 as wide as the split view is high.
+        // Wide enough for the rail of views, a list of about 400 px and a chart pane 4/5 as wide as the main area is high.
         let height = min(760, vf.height * 0.85)
-        let wanted = 2 * 15 + 430 + 2 + 400 + (height - MainWindowController.chromeHeight - 36) * 0.8
+        let wanted = 2 * 15 + NavRail.width + 10 + 400 + 2 + (height - MainWindowController.chromeHeight) * 0.8
         let size = NSSize(width: min(max(1280, wanted), vf.width * 0.92), height: height)
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         w.title = "SpacePie"
@@ -369,18 +268,6 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     }
 
     // MARK: Build
-
-    func styleScroll(_ s: NSScrollView, _ doc: NSView) {
-        s.documentView = doc
-        s.hasVerticalScroller = true
-        s.hasHorizontalScroller = true
-        s.autohidesScrollers = true
-        s.scrollerStyle = .overlay
-        s.scrollerKnobStyle = .light
-        s.drawsBackground = true
-        s.backgroundColor = T.SURFACE
-        s.borderType = .noBorder
-    }
 
     private func build() {
         guard let w = window else { return }
@@ -410,13 +297,14 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         btnRescan.tip = "Rescan the selected folder (⌘R)"
         btnAddList.tip = "Collect the selected items in the delete list; review them there, then delete them together (⌘D)"
         btnDelete.tip = "Permanently delete the selected items, bypassing the Trash (⇧⌘D or ⌘⌫)"
+        btnBasket.tip = "Show the delete list: the items collected with Add to delete list, to review and delete together"
         btnExport.tip = "Save the scan as an HTML report, a CSV file, or a scan file to open again later"
         btnOpenScan.tip = "Open a scan saved with Export (.\(Snapshot.scanFileExtension)): browse it read-only, next to the drives"
         measure.tip = "Size: file lengths, as Finder shows them. Size on disk: the space really used (blocks, files not downloaded from iCloud)"
         measure.selectedIndex = DirNode.onDisk ? 1 : 0
         measure.onChange = { [unowned self] i in self.setMeasure(i == 1) }
         for v: NSView in [pathLabel, pathPanel, btnBrowse, btnScan, btnAccess, btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnDelete,
-                          btnOpenScan, btnExport, measure, scanBar, split, statusLabel, liveLabel, driveLabel, versionLink] {
+                          btnBasket, btnOpenScan, btnExport, measure, scanBar, rightPane, statusLabel, liveLabel, driveLabel, versionLink] {
             root.addSubview(v)
         }
         for l in [statusLabel, driveLabel, liveLabel] { l.font = Theme.font9; l.textColor = T.MUTED; l.lineBreakMode = .byTruncatingTail }
@@ -425,38 +313,6 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
         scanBar.cancelButton.onClick = { [unowned self] in self.scanner?.cancel(); self.scanBar.cancelButton.isEnabled = false }
         updates.canRestart = { [unowned self] in !self.busy }
-
-        // Tree
-        let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("tree"))
-        col.resizingMask = .autoresizingMask
-        outline.addTableColumn(col)
-        outline.outlineTableColumn = col
-        outline.headerView = nil
-        outline.backgroundColor = T.SURFACE
-        outline.rowHeight = 26
-        outline.intercellSpacing = NSSize(width: 0, height: 0)
-        outline.indentationPerLevel = 16
-        if #available(macOS 11.0, *) { outline.style = .plain }
-        outline.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        outline.dataSource = self; outline.delegate = self
-        outline.target = self; outline.doubleAction = #selector(treeDoubleClick)
-        outline.menu = contextMenu
-        outline.onKey = { [unowned self] e in self.handleKey(e, in: self.outline) }
-        outline.tipFor = { [unowned self] r in self.outline.item(atRow: r).flatMap { self.treeToolTip($0) } }
-        // Picking a folder in the tree while Suggestions or Apps is open shows that folder's contents.
-        outline.onUserPick = { [unowned self] in
-            if self.activePage === self.pSuggest || self.activePage === self.pApps || self.activePage === self.pSystem,
-               let i = self.pages.firstIndex(where: { $0 === self.pContents }) { self.viewTabs.selectedIndex = i }
-        }
-        styleScroll(treeScroll, outline)
-        treeScroll.hasHorizontalScroller = false
-        treeHeader.outline = outline
-        treePanel.addSubview(treeHeader); treePanel.addSubview(treeScroll)
-        treePanel.onLayout = { [unowned self] r in
-            self.treeHeader.frame = NSRect(x: r.minX, y: r.minY, width: r.width, height: 28)
-            self.treeScroll.frame = NSRect(x: r.minX, y: r.minY + 32, width: r.width, height: r.height - 32)
-            self.treeHeader.needsDisplay = true
-        }
 
         // Views above the list and the chart
         buildViews()
@@ -472,13 +328,17 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
             }
             p.onSorted = { [unowned self] pg in if self.activePage === pg { self.refreshChart() } }
             p.onSelection = { [unowned self] pg in self.lastView = pg.table; self.updateButtons() }
-            p.knownFor = { it in MainWindowController.knownFor(it) }
+            p.knownFor = { it in it.scanRoot != nil ? nil : MainWindowController.knownFor(it) }
         }
         activePage.root.isHidden = false
-        if let si = pages.firstIndex(where: { $0 === pSuggest }) { viewTabs.colors[si] = T.SUGGEST }
+        if let si = railPages.firstIndex(where: { $0 === pSuggest }) { viewTabs.setColor(si, T.SUGGEST) }
         listPanel.onLayout = { [unowned self] r in for p in self.pages { p.root.frame = r } }
         viewTabs.background = T.BG
-        viewTabs.onChange = { [unowned self] _ in self.showPage() }
+        viewTabs.onChange = { [unowned self] i in
+            let rp = self.railPages
+            if i >= 0 && i < rp.count { self.showView(rp[i]) }
+        }
+        syncRail()
 
         // Chart
         chartPanel.addSubview(chart)
@@ -514,25 +374,19 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         rightPane.fill = T.BG
         rightPane.addSubview(viewTabs); rightPane.addSubview(split2)
         rightPane.onLayout = { [unowned self] r in
-            self.viewTabs.frame = NSRect(x: 0, y: 0, width: r.width, height: 30)
-            self.split2.frame = NSRect(x: 0, y: 36, width: r.width, height: max(50, r.height - 36))
-            // Once the tree has its width: the chart pane 4/5 as wide as it is high, the list gets the rest.
-            if self.splitPositioned && !self.split2Positioned && r.width > 400 {
+            self.viewTabs.frame = NSRect(x: 0, y: 0, width: NavRail.width, height: r.height)
+            let x = NavRail.width + 10
+            self.split2.frame = NSRect(x: x, y: 0, width: max(50, r.width - x), height: r.height)
+            // Once the main area has its width: the chart pane 4/5 as wide as it is high, the list gets the rest.
+            if !self.split2Positioned && r.width - x > 400 {
                 self.split2Positioned = true
-                let w = r.width, div = self.split2.dividerThickness
+                let w = r.width - x, div = self.split2.dividerThickness
                 // The height without the scan bar (the first scan may have started already).
-                let h = self.root.bounds.height - MainWindowController.chromeHeight - 36
+                let h = self.root.bounds.height - MainWindowController.chromeHeight
                 let chartW = max(180, min(h * 0.8, w - MainWindowController.listMinWidth - div))
                 self.split2.setPosition(w - chartW - div, ofDividerAt: 0)
             }
         }
-
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.delegate = self
-        split.addArrangedSubview(treePanel); split.addArrangedSubview(rightPane)
-        split.setHoldingPriority(NSLayoutConstraint.Priority(260), forSubviewAt: 0)
-        split.setHoldingPriority(NSLayoutConstraint.Priority(250), forSubviewAt: 1)
 
         // Context menu
         contextMenu.delegate = self
@@ -600,7 +454,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         pathPanel.needsLayout = true
         y += h + 8
         var x = m
-        for btn in [btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnDelete] {
+        for btn in [btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnDelete, btnBasket] {
             if btn === btnDelete { x += 10 }
             let p = btn.preferredSize
             let bw = btn.isIcon ? h : p.width
@@ -616,13 +470,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         if !deleteBar.isHidden { deleteBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
         if !workBar.isHidden { workBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
         let statusH: CGFloat = 28
-        split.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: max(100, b.height - y - statusH))
+        rightPane.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: max(100, b.height - y - statusH))
         layoutStatus()
-        if !splitPositioned && split.frame.width > 300 {
-            splitPositioned = true
-            let w = split.frame.width
-            split.setPosition(min(430, w * 0.30), ofDividerAt: 0)
-        }
     }
 
     func layoutStatus() {
@@ -644,10 +493,10 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        splitView === split ? 180 : MainWindowController.listMinWidth
+        MainWindowController.listMinWidth
     }
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        splitView === split ? splitView.bounds.width - 420 : splitView.bounds.width - 180
+        splitView.bounds.width - 180
     }
     func windowDidResize(_ notification: Notification) { layoutRoot() }
 
@@ -767,7 +616,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         }
         pathField.stringValue = path
         pathField.currentEditor()?.selectedRange = NSRange(location: path.count, length: 0)
-        window?.makeFirstResponder(outline)
+        window?.makeFirstResponder(contents)
         var r = findRoot(path)
         if r == nil { let n = ScanRoot(path: path); refreshCapacity(n); roots.append(n); sortRoots(); r = n }
         let target = r!
@@ -922,7 +771,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         btnScan.isEnabled = idle
         btnBrowse.isEnabled = idle
         pathField.isEnabled = !busy
-        btnUp.isEnabled = current?.parent != nil
+        btnUp.isEnabled = !thisPc && (current != nil || active != nil)
         btnRescan.isEnabled = idle && current != nil
         btnFinder.isEnabled = current != nil || active != nil
         btnDelete.isEnabled = idle && any
@@ -975,152 +824,252 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         }
     }
 
-    // MARK: Tree
+    // MARK: Contents: tree-list and This PC
 
-    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        if item == nil { return roots.count }
-        if let r = item as? ScanRoot { return r.node?.children.count ?? 0 }
-        if let d = item as? DirNode { return d.children.count }
-        return 0
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        if item == nil { return roots[index] }
-        if let r = item as? ScanRoot { return r.node!.children[index] }
-        return (item as! DirNode).children[index]
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        if let r = item as? ScanRoot { return !(r.node?.children.isEmpty ?? true) }
-        if let d = item as? DirNode { return !d.children.isEmpty }
-        return false
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? { TreeRowView() }
-
-    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
-        let c = (outlineView.makeView(withIdentifier: NSUserInterfaceItemIdentifier("treecell"), owner: nil) as? TreeCell) ?? {
-            let n = TreeCell(); n.identifier = NSUserInterfaceItemIdentifier("treecell"); return n
-        }()
-        if let r = item as? ScanRoot {
-            c.name = r.displayName + (r.node == nil ? (r.scanning ? "  (scanning...)" : "  (not scanned)") : (r.scanning ? "  (rescanning...)" : ""))
-            c.dim = r.node == nil
-            if let n = r.node {
-                c.size = Fmt.size(n.size)
-                c.bar = r.isDrive && r.total > 0 ? 100 * Double(n.size) / Double(r.total) : -1
-            } else {
-                c.size = r.total > 0 ? Fmt.size(r.used) : ""
-                c.bar = r.total > 0 ? 100 * Double(r.used) / Double(r.total) : -1
-            }
-            c.pct = c.bar >= 0 ? Fmt.pct(c.bar) : ""
-        } else if let d = item as? DirNode {
-            c.name = d.denied ? d.name + "  [access denied]" : d.displayName
-            c.dim = d.denied || d.skipped != .no
-            c.size = Fmt.size(d.size)
-            let parentSize = d.parent?.size ?? 0
-            c.bar = parentSize > 0 ? 100 * Double(d.size) / Double(parentSize) : 0
-            c.pct = Fmt.pct(c.bar)
-        }
-        c.needsDisplay = true
-        return c
-    }
-
-    /// Tooltip of a tree node: its full name, then its full path (a drive: its name and mount point).
-    func treeToolTip(_ item: Any) -> String? {
-        if let r = item as? ScanRoot { return r.displayName + "\n" + (r.node?.fullPath ?? r.path) }
-        if let d = item as? DirNode { let p = d.fullPath; return ItemInfo.nameOf(p) + "\n" + p }
-        return nil
-    }
-
-    func outlineViewSelectionDidChange(_ notification: Notification) {
-        if suppressTreeSelection { return }
-        lastView = outline
-        let item = outline.item(atRow: outline.selectedRow)
-        if let r = item as? ScanRoot {
-            if let n = r.node { showContents(n) } else { showUnscanned(r) }
-        } else if let d = item as? DirNode { showContents(d) }
-    }
-
-    @objc private func treeDoubleClick() {
-        if let r = outline.item(atRow: outline.clickedRow) as? ScanRoot, r.node == nil { scanPath(r.path) }
-    }
-
+    /// Shows target again after the scanned trees changed (or the drive it was on, or This PC).
     func refreshTree(_ target: DirNode?, fallback: ScanRoot? = nil) {
-        var expanded: [Any] = []
-        for i in 0..<outline.numberOfRows { if let it = outline.item(atRow: i), outline.isItemExpanded(it) { expanded.append(it) } }
-        HoverTip.shared.reset(owner: outline)
-        outline.reloadData()
-        for it in expanded {
-            if let r = it as? ScanRoot, roots.contains(where: { $0 === r }) { outline.expandItem(r) }
-            else if let d = it as? DirNode, rootOf(d.top) != nil { expandPath(to: d) }
-        }
-        if let t = target, rootOf(t.top) != nil { selectDir(t) }
-        else if let f = fallback ?? active, roots.contains(where: { $0 === f }) { selectRoot(f) }
+        pruneExpanded()
+        HoverTip.shared.reset(owner: contents)
+        if let t = target, isAttached(t) { selectDir(t) }
+        else if let f = fallback, roots.contains(where: { $0 === f }) { selectRoot(f) }
+        else if thisPc { showThisPc() }
+        else if let a = active, roots.contains(where: { $0 === a }) { selectRoot(a) }
         else if let first = roots.first { selectRoot(first) }
+        else { showThisPc() }
     }
 
-    /// Reloads the tree after live changes without touching the selection or the lists.
+    /// After live changes: folders that left the scans are forgotten and This PC is refilled in place (the folder shown
+    /// is refreshed by refreshAfterLive).
     func refreshTreeQuietly() {
-        var expanded: [Any] = []
-        for i in 0..<outline.numberOfRows { if let it = outline.item(atRow: i), outline.isItemExpanded(it) { expanded.append(it) } }
-        let selected = outline.item(atRow: outline.selectedRow)
-        suppressTreeSelection = true
-        HoverTip.shared.reset(owner: outline)
-        outline.reloadData()
-        for it in expanded {
-            if let r = it as? ScanRoot, roots.contains(where: { $0 === r }) { outline.expandItem(r) }
-            else if let d = it as? DirNode, rootOf(d.top) != nil { expandPath(to: d) }
-        }
-        if let s = selected {
-            let row = outline.row(forItem: s)
-            if row >= 0 { outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
-        }
-        suppressTreeSelection = false
-    }
-
-    private func expandPath(to d: DirNode) {
-        var chain: [DirNode] = []
-        var n: DirNode? = d
-        while let c = n { chain.insert(c, at: 0); n = c.parent }
-        guard let r = rootOf(chain.first) else { return }
-        outline.expandItem(r)
-        for c in chain.dropFirst() { outline.expandItem(c) }
+        pruneExpanded()
+        guard thisPc else { return }
+        if activePage === pContents { if NSEvent.pressedMouseButtons == 0 { refillContents() } } else { pContents.stale = true }
     }
 
     func selectRoot(_ r: ScanRoot) {
-        let row = outline.row(forItem: r)
-        if row < 0 { return }
-        if outline.selectedRow == row { if let n = r.node { showContents(n) } else { showUnscanned(r) } }
-        else { outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
+        if let n = r.node { selectDir(n) } else { showUnscanned(r) }
     }
 
     func selectDir(_ d: DirNode) {
-        guard let r = rootOf(d.top) else { return }
-        outline.expandItem(r)
-        var chain: [DirNode] = []
-        var n: DirNode? = d
-        while let c = n, c.parent != nil { chain.insert(c, at: 0); n = c.parent }
-        for c in chain.dropLast() { outline.expandItem(c) }
-        let item: Any = d.parent == nil ? r : d
-        let row = outline.row(forItem: item)
-        if row < 0 { return }
-        if outline.selectedRow == row { showContents(d) }
-        else { outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
-        outline.scrollRowToVisible(row)
+        guard isAttached(d) else { return }
+        showContents(d)
     }
 
-    // MARK: Contents
+    func isExpanded(_ d: DirNode) -> Bool { expandedDirs[ObjectIdentifier(d)] === d }
+
+    func setExpanded(_ d: DirNode, _ on: Bool) {
+        if on { expandedDirs[ObjectIdentifier(d)] = d } else { expandedDirs.removeValue(forKey: ObjectIdentifier(d)) }
+    }
+
+    private func pruneExpanded() {
+        expandedDirs = expandedDirs.filter { isAttached($0.value) }
+        unreadClosed.removeAll { !isAttached($0) }
+    }
+
+    /// A folder that has rows to show when it is opened in place.
+    static func hasContent(_ d: DirNode?) -> Bool {
+        guard let d = d else { return false }
+        return !d.denied && d.skipped == .no && (!d.children.isEmpty || d.files > 0)
+    }
+
+    /// Rows of folder d at depth, sorted like the list, each opened folder followed by its own rows.
+    func addContentRows(_ d: DirNode, _ depth: Int, _ into: inout [ItemInfo]) {
+        var level: [ItemInfo] = d.children.map { ItemInfo.forDir($0, d.size) }
+        var files = Scanner.listFiles(d)
+        files.sort { $0.size > $1.size }
+        let maxShown = MainWindowController.maxFilesShown
+        for f in files.prefix(maxShown) { level.append(ItemInfo.forFile(f, d.size)) }
+        if files.count > maxShown {
+            let rest = files.dropFirst(maxShown).reduce(Int64(0)) { $0 + $1.size }
+            let s = ItemInfo()
+            s.isSummary = true
+            s.name = "[\(Fmt.count(files.count - maxShown)) smaller files not listed]"
+            s.size = rest; s.files = Int64(files.count - maxShown)
+            s.percent = d.size > 0 ? 100 * Double(rest) / Double(d.size) : 0
+            s.tip = s.name + "\n" + d.fullPath
+            level.append(s)
+        }
+        setChanges(d, level)
+        for it in level {
+            let known = MainWindowController.knownFor(it)
+            it.category = known?.short ?? ""
+            it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), changeText(it), Fmt.count(it.files), it.isDir ? Fmt.count(it.dirs) : "",
+                        Fmt.date(it.modified), it.category]
+            if it.isDir, let dn = it.dir, dn.denied || dn.skipped != .no { it.color = T.MUTED }
+        }
+        for it in pContents.sorted(level) {
+            it.treeRow = true
+            it.depth = depth
+            if it.isDir, let dn = it.dir {
+                it.expandable = MainWindowController.hasContent(dn)
+                it.expanded = it.expandable && isExpanded(dn)
+            }
+            into.append(it)
+            if it.expanded, let dn = it.dir { addContentRows(dn, depth + 1, &into) }
+        }
+    }
+
+    /// Identity of a row across refills (the same folder, file or drive).
+    private func rowKey(_ it: ItemInfo) -> String {
+        if let r = it.scanRoot { return "r\(ObjectIdentifier(r).hashValue)" }
+        if it.isDir, let d = it.dir { return "d\(ObjectIdentifier(d).hashValue)" }
+        if let p = it.file?.fullPath { return "f" + p }
+        return "n" + it.name
+    }
+
+    /// Replaces the Contents rows; with keepView the scroll position and the selected rows (by folder or file) stay.
+    func fillContentsRows(_ items: [ItemInfo], keepView: Bool, empty: String) {
+        let t = contents
+        let clip = t.enclosingScrollView?.contentView
+        let origin = clip?.bounds.origin ?? .zero
+        var keep = Set<String>()
+        if keepView { for it in pContents.selectedItems { keep.insert(rowKey(it)) } }
+        pContents.setColumnTitle(2, thisPc ? "% used" : "% of parent")
+        pContents.setRows(items, empty, keepOrder: true)
+        var sel = IndexSet()
+        if !keep.isEmpty { for (i, it) in pContents.items.enumerated() where keep.contains(rowKey(it)) { sel.insert(i) } }
+        if sel != t.selectedRowIndexes { t.selectRowIndexes(sel, byExtendingSelection: false) }
+        if keepView, let c = clip {
+            let r = c.constrainBoundsRect(NSRect(origin: origin, size: c.bounds.size))
+            c.scroll(to: r.origin)
+            t.enclosingScrollView?.reflectScrolledClipView(c)
+        } else if t.numberOfRows > 0 { t.scrollRowToVisible(0) }
+    }
+
+    /// Text shown in Contents when folder d has no rows.
+    func contentsEmptyText(_ d: DirNode) -> String {
+        switch d.skipped {
+        case .notDownloaded:
+            return "This folder is in iCloud and not downloaded: it takes no space on this Mac.\nIt is not opened, so nothing gets downloaded."
+        case .needsAccess:
+            return "macOS protects this folder. Press Rescan folder (⌘R) to scan it (macOS asks once),\nor give the app Full Disk Access (button in the toolbar) and reopen it."
+        case .no: return ""
+        }
+    }
+
+    /// Rebuilds the Contents rows after a folder was opened or closed in place, or the sort order changed.
+    func refillContents() {
+        if thisPc { fillContentsRows(thisPcRows(), keepView: true, empty: roots.isEmpty ? "No drives found." : "") }
+        else if let c = current, isAttached(c) {
+            var items: [ItemInfo] = []
+            addContentRows(c, 0, &items)
+            fillContentsRows(items, keepView: true, empty: contentsEmptyText(c))
+        } else { return }
+        if activePage === pContents { refreshChart() }
+    }
+
+    /// A click on the chevron of a folder in Contents opens or closes it in place (true = handled).
+    func contentsClick(_ row: Int, _ p: NSPoint) -> Bool {
+        guard row >= 0, row < pContents.items.count else { return false }
+        let it = pContents.items[row]
+        guard it.treeRow, it.expandable, let d = it.dir else { return false }
+        let col = contents.column(at: p)
+        guard col >= 0, col < contents.tableColumns.count, contents.tableColumns[col].identifier.rawValue == "c0" else { return false }
+        let cell = contents.frameOfCell(atColumn: col, row: row)
+        let local = NSPoint(x: p.x - cell.minX, y: p.y - cell.minY)
+        guard ListCell.chevronHit(it, height: cell.height).contains(local) else { return false }
+        setExpanded(d, !it.expanded)
+        refillContents()
+        return true
+    }
+
+    /// Right opens the selected folder in place (or moves into it), Left closes it (or selects its parent row).
+    func expandSelected(_ expand: Bool) -> Bool {
+        let rows = contents.selectedRowIndexes
+        guard rows.count == 1, let r = rows.first, r < pContents.items.count else { return false }
+        let it = pContents.items[r]
+        guard it.treeRow else { return false }
+        if expand {
+            guard it.expandable, let d = it.dir else { return true }
+            if !it.expanded { setExpanded(d, true); refillContents(); return true }
+            if r + 1 < pContents.items.count { selectContentsRow(r + 1) }
+            return true
+        }
+        if it.expanded, let d = it.dir { setExpanded(d, false); refillContents(); return true }
+        var i = r - 1
+        while i >= 0 {
+            if pContents.items[i].depth < it.depth { selectContentsRow(i); break }
+            i -= 1
+        }
+        return true
+    }
+
+    func selectContentsRow(_ i: Int) {
+        guard i >= 0 && i < pContents.items.count else { return }
+        contents.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false)
+        contents.scrollRowToVisible(i)
+    }
+
+    /// One row per drive, saved scan and scanned folder; scanned ones open into their folders.
+    func thisPcRows() -> [ItemInfo] {
+        var items: [ItemInfo] = []
+        for r in roots {
+            let n = r.node
+            let used: Int64 = r.total > 0 ? r.used : (n?.size ?? 0)
+            let it = ItemInfo()
+            it.treeRow = true
+            it.scanRoot = r
+            it.folderIcon = true
+            it.isDir = n != nil
+            it.dir = n
+            it.path = r.path
+            it.name = r.displayName + (n == nil ? (r.scanning ? "  (scanning...)" : "  (not scanned)") : (r.scanning ? "  (rescanning...)" : ""))
+            it.size = used
+            it.files = n?.files ?? 0
+            it.dirs = n?.dirs ?? 0
+            it.percent = r.total > 0 ? 100 * Double(used) / Double(r.total) : 0
+            it.category = r.total > 0 ? "\(Fmt.size(r.free)) free of \(Fmt.size(r.total))" : (r.readOnly ? "Saved scan" : "")
+            it.tip = r.displayName + "\n" + (n?.fullPath ?? r.path)
+            it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), "", n != nil ? Fmt.count(it.files) : "", n != nil ? Fmt.count(it.dirs) : "",
+                        "", it.category]
+            if n == nil { it.color = T.MUTED }
+            it.expandable = MainWindowController.hasContent(n)
+            if let dn = n { it.expanded = it.expandable && isExpanded(dn) }
+            items.append(it)
+            if it.expanded, let dn = n { addContentRows(dn, 1, &items) }
+        }
+        return items
+    }
+
+    /// Contents shows This PC: every drive with its used space; Up from a drive leads here.
+    func showThisPc() {
+        thisPc = true
+        current = nil
+        unreadBanner.message = ""
+        updateCrumbs(nil)
+        for r in roots { refreshCapacity(r) }
+        fillContentsRows(thisPcRows(), keepView: false, empty: roots.isEmpty ? "No drives found." : "")
+        let drives = roots.filter { $0.isDrive }
+        let used = drives.reduce(Int64(0)) { $0 + $1.used }, total = drives.reduce(Int64(0)) { $0 + $1.total }
+        pContents.setCaption("\(Fmt.count(drives.count)) drive\(drives.count == 1 ? "" : "s")"
+                             + (total > 0 ? ": \(Fmt.size(used)) used of \(Fmt.size(total))" : ""))
+        for p in pages where p.followsFolder && p !== pContents { p.stale = true }
+        if activePage === pContents { refreshChart() }
+        updateButtons()
+    }
+
+    /// This PC chart: the used space of every drive.
+    func updateChartThisPc() {
+        if chartOnHold { showScanLogo(); return }
+        let drives = roots.filter { $0.isDrive && $0.total > 0 }
+        let total = drives.reduce(Int64(0)) { $0 + $1.total }
+        let sum = pContents.items.filter { $0.depth == 0 }.reduce(Int64(0)) { $0 + max(0, $1.size) }
+        let slices = buildSlices(pContents, max(1, sum), "of the used space")
+        chart.setData(MainWindowController.thisPcName, total > 0 ? "\(Fmt.size(total)) in \(drives.count) drive\(drives.count == 1 ? "" : "s")" : "", slices)
+    }
 
     func showUnscanned(_ r: ScanRoot) {
+        thisPc = false
         current = nil
         active = r
         refreshCapacity(r)
         if !busy && !scanning { pathField.stringValue = r.path }
-        updateCrumbs(nil)
+        updateCrumbs(nil, unscanned: r)
         unreadBanner.message = ""
+        pContents.setColumnTitle(2, "% of parent")
         pContents.setRows([], r.scanning
             ? "Scanning \(r.displayName)...\nThe results appear here when the scan finishes. You can browse other drives meanwhile."
-            : "\(r.displayName) has not been scanned yet.\nPress Scan, or double-click the drive, to analyze it.")
+            : "\(r.displayName) has not been scanned yet.\nPress Scan, or double-click the drive in \(MainWindowController.thisPcName), to analyze it.")
         viewsChanged()
         pContents.setCaption(r.displayName + (r.scanning ? "  -  scanning..." : "  -  not scanned"))
         if activePage === pContents { updateChartUnscanned(r) }
@@ -1130,6 +1079,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
     func showContents(_ d: DirNode) {
         recordNavigation(current, d)
+        let same = d === current && !thisPc
+        thisPc = false
         current = d
         if let r = rootOf(d.top), r !== active {
             active = r
@@ -1138,38 +1089,9 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         }
         updateCrumbs(d)
         updateUnreadBanner(d)
-        var items: [ItemInfo] = d.children.map { ItemInfo.forDir($0, d.size) }
-        var files = Scanner.listFiles(d)
-        files.sort { $0.size > $1.size }
-        let maxShown = MainWindowController.maxFilesShown
-        for f in files.prefix(maxShown) { items.append(ItemInfo.forFile(f, d.size)) }
-        if files.count > maxShown {
-            let rest = files.dropFirst(maxShown).reduce(Int64(0)) { $0 + $1.size }
-            let s = ItemInfo()
-            s.isSummary = true
-            s.name = "[\(Fmt.count(files.count - maxShown)) smaller files not listed]"
-            s.size = rest; s.files = Int64(files.count - maxShown)
-            s.percent = d.size > 0 ? 100 * Double(rest) / Double(d.size) : 0
-            s.tip = s.name + "\n" + d.fullPath
-            items.append(s)
-        }
-        setChanges(d, items)
-        for it in items {
-            let known = MainWindowController.knownFor(it)
-            it.category = known?.short ?? ""
-            it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), changeText(it), Fmt.count(it.files), it.isDir ? Fmt.count(it.dirs) : "",
-                        Fmt.date(it.modified), it.category]
-            if it.isDir, let dn = it.dir, dn.denied || dn.skipped != .no { it.color = T.MUTED }
-        }
-        var empty = ""
-        switch d.skipped {
-        case .notDownloaded:
-            empty = "This folder is in iCloud and not downloaded: it takes no space on this Mac.\nIt is not opened, so nothing gets downloaded."
-        case .needsAccess:
-            empty = "macOS protects this folder. Press Rescan folder (⌘R) to scan it (macOS asks once),\nor give the app Full Disk Access (button in the toolbar) and reopen it."
-        case .no: break
-        }
-        pContents.setRows(items, empty)
+        var items: [ItemInfo] = []
+        addContentRows(d, 0, &items)
+        fillContentsRows(items, keepView: same, empty: contentsEmptyText(d))
         // The path is in the path bar above; the caption gives the totals.
         pContents.setCaption("\(Fmt.size(d.size)) in \(Fmt.count(d.files)) files and \(Fmt.count(d.dirs)) folders" + changeCaption(d))
         contentsChanged()
@@ -1178,14 +1100,10 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
     // MARK: Selection and actions
 
-    /// The selected items of the tree or of the list that had the focus last.
+    /// The selected items of the list that had the focus last (Contents when none had it yet).
     func selection() -> [ItemInfo] {
-        if lastView === outline || lastView == nil {
-            if outline.item(atRow: outline.selectedRow) is ScanRoot, current == nil { return [] }
-            if let d = current { return [ItemInfo.forDir(d, d.parent?.size ?? d.size)] }
-            return []
-        }
-        if let p = pages.first(where: { $0.table === lastView }) {
+        let view: NSView = lastView ?? contents
+        if let p = pages.first(where: { $0.table === view }) {
             return p.selectedItems.filter { !$0.isSummary && !$0.isGroup && ($0.canDelete || $0.fullPath != nil) }
         }
         return []
@@ -1201,12 +1119,14 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         let sel = selection()
         guard sel.count == 1 else { return }
         let it = sel[0]
+        // A drive (or scanned folder) in This PC that is not scanned yet: scan it.
+        if let r = it.scanRoot, r.node == nil { scanPath(r.path); return }
         if it.isDir, let d = it.dir { if isAttached(d) { selectDir(d) }; return }
         guard let f = it.file else { showInFinder(); return }
         if lastView !== contents && isAttached(f.dir) {
             selectDir(f.dir)
-            viewTabs.selectedIndex = pages.firstIndex { $0 === pContents } ?? 1
-            if let i = pContents.items.firstIndex(where: { $0.file != nil && $0.file!.name == f.name }) {
+            showView(pContents)
+            if let i = pContents.items.firstIndex(where: { $0.depth == 0 && $0.file != nil && $0.file!.name == f.name }) {
                 contents.selectRowIndexes(IndexSet(integer: i), byExtendingSelection: false)
                 contents.scrollRowToVisible(i)
                 window?.makeFirstResponder(contents)
@@ -1217,7 +1137,14 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         showInFinder()
     }
 
-    func goUp() { if let p = current?.parent { selectDir(p) } }
+    /// The parent folder; from the top of a scan (or a drive not scanned yet) This PC, with that drive selected.
+    func goUp() {
+        if thisPc { return }
+        if let p = current?.parent { selectDir(p); return }
+        let from = current.flatMap { rootOf($0.top) } ?? active
+        showThisPc()
+        if let f = from, let i = pContents.items.firstIndex(where: { $0.scanRoot === f }) { selectContentsRow(i) }
+    }
 
     func showInFinder() {
         let sel = selection()
@@ -1239,8 +1166,11 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         if pSystem != nil && view === pSystem.table && systemKeyDown(e) { return true }
         switch e.keyCode {
         case 36, 76:                                                     // Return / Enter
-            if view === outline, let r = outline.item(atRow: outline.selectedRow) as? ScanRoot, r.node == nil { scanPath(r.path); return true }
-            if view !== outline { lastView = view; openSelected(); return true }
+            lastView = view; openSelected(); return true
+        case 123 where !cmd && view === contents:                       // Left: close a folder in place (or go to its parent row)
+            if expandSelected(false) { return true }
+        case 124 where !cmd && view === contents:                       // Right: open a folder in place (or go into it)
+            if expandSelected(true) { return true }
         case 51 where cmd: lastView = view; deleteSelected(); return true      // Cmd+Delete
         case 2 where cmd:                                                // Cmd+D add to the delete list, Shift+Cmd+D delete permanently
             lastView = view
@@ -1259,7 +1189,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
     func menuNeedsUpdate(_ m: NSMenu) {
         m.removeAllItems()
-        if let v = window?.firstResponder as? NSView, v === outline || pages.contains(where: { $0.table === v }) { lastView = v }
+        if let v = window?.firstResponder as? NSView, pages.contains(where: { $0.table === v }) { lastView = v }
         let sel = selection()
         let any = !sel.isEmpty
         let deletable = any && !busy && sel.allSatisfy { $0.canDelete && !fromReadOnly($0) }

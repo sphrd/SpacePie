@@ -60,6 +60,8 @@ final class PieChart: NSView {
     private var mapRect = NSRect.zero
     private var upRect = NSRect.zero
     /// Right margin of the title lines (room for the Pie / Treemap switch placed over the chart).
+    /// Title, subtitle, centre and treemap texts cut off with "..." (shown in full on hover).
+    private let cuts = CutTips()
     var titleRightMargin: CGFloat = 0 { didSet { if oldValue != titleRightMargin { needsDisplay = true } } }
 
     /// Rectangles instead of rings.
@@ -195,14 +197,15 @@ final class PieChart: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         T.SURFACE.setFill(); bounds.fill()
+        cuts.begin()
         guard !title.isEmpty else { return }
         let pad: CGFloat = 12
         var y = pad
         let titleW = max(10, bounds.width - 2 * pad - titleRightMargin)
-        Theme.drawText(title, in: NSRect(x: pad, y: y, width: titleW, height: 20), font: Theme.font11, color: T.FG)
+        cuts.draw(title, in: NSRect(x: pad, y: y, width: titleW, height: 20), font: Theme.font11, color: T.FG)
         y += 22
         if !subtitle.isEmpty {
-            Theme.drawText(subtitle, in: NSRect(x: pad, y: y, width: titleW, height: 16), font: Theme.font9, color: T.MUTED)
+            cuts.draw(subtitle, in: NSRect(x: pad, y: y, width: titleW, height: 16), font: Theme.font9, color: T.MUTED)
             y += 16
         }
         y += 16
@@ -323,9 +326,9 @@ final class PieChart: NSView {
         let inner = hr.insetBy(dx: 16, dy: 0)
         let h1: CGFloat = 15, h2: CGFloat = 19, h3: CGFloat = l3.isEmpty ? 0 : 15
         let ty = hr.minY + (hr.height - h1 - h2 - h3) / 2
-        Theme.drawText(l1, in: NSRect(x: inner.minX, y: ty, width: inner.width, height: h1), font: Theme.font9, color: up ? T.ACCENT : T.MUTED, align: .center)
-        Theme.drawText(l2, in: NSRect(x: inner.minX, y: ty + h1, width: inner.width, height: h2), font: Theme.font11, color: up ? T.ACCENT : T.FG, align: .center)
-        if h3 > 0 { Theme.drawText(l3, in: NSRect(x: inner.minX, y: ty + h1 + h2, width: inner.width, height: h3), font: Theme.font9, color: T.MUTED, align: .center) }
+        cuts.draw(l1, in: NSRect(x: inner.minX, y: ty, width: inner.width, height: h1), font: Theme.font9, color: up ? T.ACCENT : T.MUTED, align: .center)
+        cuts.draw(l2, in: NSRect(x: inner.minX, y: ty + h1, width: inner.width, height: h2), font: Theme.font11, color: up ? T.ACCENT : T.FG, align: .center)
+        if h3 > 0 { cuts.draw(l3, in: NSRect(x: inner.minX, y: ty + h1 + h2, width: inner.width, height: h3), font: Theme.font9, color: T.MUTED, align: .center) }
     }
 
     /// Names the folder in the centre (instead of "Total"); with canGoUp the centre is clickable. Call after setData.
@@ -378,6 +381,7 @@ final class PieChart: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        cuts.track(self, event)
         let p = convert(event.locationInWindow, from: nil)
         if treemapOn { treemapMouseMoved(p); return }
         let h = sliceAt(p), ha = arcAt(p)
@@ -388,6 +392,7 @@ final class PieChart: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
+        cuts.exit(self)
         NSCursor.arrow.set()
         if hover != -1 || hoverArc != -1 || hoverCenter || hoverTile != -1 || hoverUp {
             hover = -1; hoverArc = -1; hoverCenter = false; hoverTile = -1; hoverUp = false; needsDisplay = true
@@ -558,7 +563,7 @@ extension PieChart {
             if t.level == 1 && (rr.width < 70 || rr.height < lh * 2 + 6) { continue }
             let fg = s.empty ? T.MUTED : PieChart.readable(t.color)
             let tr = NSRect(x: rr.minX + 5, y: rr.minY + 3, width: rr.width - 10, height: lh)
-            Theme.drawText(t.label, in: tr, font: Theme.font9, color: fg)
+            cuts.draw(t.label, in: tr, font: Theme.font9, color: fg)
             if t.level == 0 && t.dir == nil && rr.height >= lh * 2 + 8 {
                 Theme.drawText(Fmt.size(t.size), in: NSRect(x: tr.minX, y: tr.minY + lh, width: tr.width, height: lh), font: Theme.font9, color: fg)
             }
@@ -603,8 +608,8 @@ extension PieChart {
             right = upRect.minX - 8
         }
         let h = Theme.lineHeight(Theme.font9)
-        Theme.drawText(l1, in: NSRect(x: r.minX, y: r.minY + 2, width: max(0, right - r.minX), height: h), font: Theme.font9, color: T.FG)
-        Theme.drawText(l2, in: NSRect(x: r.minX, y: r.minY + 2 + h, width: max(0, right - r.minX), height: h), font: Theme.font9, color: T.MUTED)
+        cuts.draw(l1, in: NSRect(x: r.minX, y: r.minY + 2, width: max(0, right - r.minX), height: h), font: Theme.font9, color: T.FG)
+        cuts.draw(l2, in: NSRect(x: r.minX, y: r.minY + 2 + h, width: max(0, right - r.minX), height: h), font: Theme.font9, color: T.MUTED)
     }
 
     // children come after their parents: the deepest tile first

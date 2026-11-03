@@ -60,13 +60,32 @@ namespace SpacePie
                 var a = FindScanned(Path.Combine(dir, "A"), true) ?? top.Children[0];
                 SelectDir(top);
                 SelectDir(a);
-                bool crumbOk = crumbs.Count == 2;
+                bool crumbOk = crumbs.Count == 3;
                 GoBack();
                 bool back = current == top;
                 GoForward();
                 bool fwd = current == a;
                 SelectDir(top);
-                check(crumbOk && back && fwd, string.Format("navigation: path bar shows 2 parts, Back returns to the folder before ({0}), Forward goes again ({1})", back, fwd));
+                check(crumbOk && back && fwd, string.Format("navigation: path bar shows This PC and 2 folders, Back returns to the folder before ({0}), Forward goes again ({1})", back, fwd));
+
+                // Contents is a tree-list: a folder expands in place, its rows one level deeper right below it.
+                var ex = top.Children.FirstOrDefault(HasContent);
+                int before = contents.Items.Count;
+                expandedDirs.Add(ex);
+                RefillContents();
+                int at = contents.Items.Cast<ListViewItem>().ToList().FindIndex(x => ((ItemInfo)x.Tag).Dir == ex);
+                bool below = at >= 0 && at + 1 < contents.Items.Count && ((ItemInfo)contents.Items[at + 1].Tag).Depth == 1;
+                int grown = contents.Items.Count - before;
+                expandedDirs.Remove(ex);
+                RefillContents();
+                check(ex != null && below && grown > 0 && contents.Items.Count == before, string.Format(
+                    "tree-list: expanding {0} shows its {1} rows below it at depth 1, collapsing hides them", ex != null ? ex.Name : "?", grown));
+
+                // Up from the top of a scan leads to This PC (every drive and scanned folder), then disabled.
+                GoUp();
+                bool pc = thisPc && current == null && contents.Items.Count == roots.Count && !btnUp.Enabled;
+                SelectDir(top);
+                check(pc && !thisPc, "this pc: Up from the scanned folder lists the " + roots.Count + " drives and folders; Up is then disabled");
             }
 
             // Well-known folders are named, with what to do about them.

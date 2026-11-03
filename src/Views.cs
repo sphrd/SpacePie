@@ -29,7 +29,7 @@ namespace SpacePie
 
         readonly List<Page> pages = new List<Page>();
         Page pContents, pFiles, pTypes, pDupes, pSuggest, pChanges, pBasket;
-        TabStrip viewTabs;
+        NavRail viewTabs;
         Page ActivePage { get { return pages[viewTabs != null ? viewTabs.SelectedIndex : 0]; } }
 
         // Files view
@@ -48,13 +48,13 @@ namespace SpacePie
         {
             pContents = AddPage("Contents", contents, null);
             pContents.FollowsFolder = true;
-            pContents.Fill = () => { if (current != null) ShowContents(current); };
+            pContents.Fill = () => { if (thisPc) ShowThisPc(); else if (current != null) ShowContents(current); };
 
             // Files: the whole index under the selected folder (or every scanned drive), filtered; largest first.
             fileSearch = new SearchBox("Search names  (e.g. *.iso, invoice, node_modules)");
             fileSearch.TextChangedDelayed += (s, e) => FillFiles();
             fileScope = new ChoiceBox("", "In the selected folder", "In everything scanned");
-            tips.SetToolTip(fileScope, "Search the folder selected in the tree, or every scanned drive and folder at once");
+            tips.SetToolTip(fileScope, "Search the folder open in Contents, or every scanned drive and folder at once");
             var types = new List<string> { "Any type" };
             types.AddRange(FileTypes.Categories);
             fileType = new ChoiceBox("", types.ToArray());
@@ -95,9 +95,10 @@ namespace SpacePie
             pSystem = BuildSystemPage();
             pages.Remove(pSystem);
             pages.Insert(pages.IndexOf(pApps) + 1, pSystem);
-            viewTabs = new TabStrip(pages.Select(p => p.Title).ToArray()) { Dock = DockStyle.Top };
+            viewTabs = new NavRail(pages.Select(p => p.Title).ToArray()) { Dock = DockStyle.Left };
             viewTabs.SelectedIndexChanged += (s, e) => ShowPage();
             viewTabs.SetColor(pages.IndexOf(pSuggest), Theme.SUGGEST);
+            viewTabs.Hide(pages.IndexOf(pBasket));
             foreach (var p in pages) listPanel.Controls.Add(p.Root);
             pContents.Root.Visible = true;
         }
@@ -114,9 +115,9 @@ namespace SpacePie
         {
             var p = new Page { Title = title, List = list };
             p.Root = new Panel { Dock = DockStyle.Fill, BackColor = Theme.SURFACE, Visible = false };
-            p.Caption = new Label
+            p.Caption = new EllipsisLabel
             {
-                Dock = DockStyle.Top, AutoEllipsis = true, UseMnemonic = false, Font = Theme.FONT_9, ForeColor = Theme.MUTED,
+                MaxLines = 2, Dock = DockStyle.Top, Font = Theme.FONT_9, ForeColor = Theme.MUTED,
                 BackColor = Theme.SURFACE, Height = Theme.FONT_9.Height + S(10), TextAlign = ContentAlignment.MiddleLeft,
                 Padding = new Padding(S(4), 0, 0, 0)
             };
@@ -141,6 +142,8 @@ namespace SpacePie
             {
                 if (list == (pDupes != null ? pDupes.List : null) || list == (pSuggest != null ? pSuggest.List : null) || list == (pApps != null ? pApps.List : null) || list == (pSystem != null ? pSystem.List : null)) return;   // groups and trees keep their order
                 list.SortBy(e.Column);
+                // Contents is a tree-list: sorted level by level, each folder keeping its expanded rows under it.
+                if (list == contents) { RefillContents(); return; }
                 if (ActivePage.List == list) RefreshChart();
             };
             list.HotItemChanged += it =>
@@ -226,6 +229,7 @@ namespace SpacePie
         {
             var p = ActivePage;
             foreach (var q in pages) q.Root.Visible = q == p;
+            if (btnBasket != null) { btnBasket.Kind = p == pBasket ? ButtonKind.Primary : ButtonKind.Secondary; btnBasket.Invalidate(); }
             if (p.Stale) { p.Stale = false; p.Fill(); }
             else RefreshChart();
             lastView = p.List;
@@ -239,7 +243,8 @@ namespace SpacePie
             if (scanning) { ShowScanLogo(); return; }
             if (p == pContents)
             {
-                if (current != null && IsAttached(current)) UpdateChart(current);
+                if (thisPc) UpdateChartThisPc();
+                else if (current != null && IsAttached(current)) UpdateChart(current);
                 else if (active != null && active.Node == null) UpdateChartUnscanned(active);
                 return;
             }
@@ -271,7 +276,7 @@ namespace SpacePie
         {
             foreach (var p in pages) if (p.FollowsFolder && p != pContents) p.Stale = true;
             var a = ActivePage;
-            if (a == pContents) UpdateChart(current);
+            if (a == pContents) { if (thisPc) UpdateChartThisPc(); else if (current != null) UpdateChart(current); }
             else if (a.Stale) { a.Stale = false; a.Fill(); }
         }
 

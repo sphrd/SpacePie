@@ -65,6 +65,11 @@ namespace SpacePie
         {
             if (viewTabs == null) return;
             viewTabs.SetTitle(pages.IndexOf(pBasket), basket.Count > 0 ? string.Format("Delete list ({0:N0})", basket.Count) : "Delete list");
+            if (btnBasket != null)
+            {
+                btnBasket.Text = basket.Count > 0 ? string.Format("Delete list ({0:N0})", basket.Count) : "Delete list";
+                if (IsHandleCreated) LayoutToolbar();
+            }
         }
 
         void BasketChanged()
@@ -85,7 +90,7 @@ namespace SpacePie
                     if (AddTarget(t)) added++;
             BasketChanged();
             statusLabel.Text = added == 0 ? "Already on the delete list."
-                : string.Format("Added {0:N0} item{1} to the delete list: now {2:N0} item{3}, {4}. Open the Delete list tab to review and delete them.",
+                : string.Format("Added {0:N0} item{1} to the delete list: now {2:N0} item{3}, {4}. Press Delete list (next to Delete permanently) to review and delete them.",
                     added, added == 1 ? "" : "s", basket.Count, basket.Count == 1 ? "" : "s", Fmt.Size(basket.Sum(t => t.Size)));
         }
 

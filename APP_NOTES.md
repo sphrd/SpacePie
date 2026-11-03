@@ -11,7 +11,9 @@ patterns (Part 3) are applied through the WinForms mapping below.
 | Entry point (GUI + headless `--cli scan <folder>`, alias `--scan <folder>`) | `src/Program.cs` |
 | Main window (layout, wiring, all behavior) | `src/MainForm.cs` |
 | Theme tokens (palette, fonts), drawing helpers, DWM interop | `src/Theme.cs` |
-| Widgets: RoundButton, RoundedPanel, PathInput, TabStrip, PillScrollBar, ScrollHost, BusyOverlay, Spinner, ScanBar, DarkRenderer, DarkTreeView, TreeHeader | `src/Widgets.cs` |
+| Widgets: RoundButton, RoundedPanel, PathInput, PillScrollBar, ScrollHost, BusyOverlay, Spinner, ScanBar, DarkRenderer, Banner, Breadcrumb | `src/Widgets.cs` |
+| Views bar on the left (icon + name rows, scrolls) | `src/NavRail.cs` |
+| Full text on hover for anything drawn cut off (`CutText`, `EllipsisLabel`) | `src/CutText.cs` |
 | List view (rows, bars, header, empty-state hint) + sorting | `src/Controls.cs` |
 | Self-update (GitHub latest release, download, verify, swap) and the update flow (`UpdateManager`) | `src/Updater.cs` |
 | About window and update window, both on the shared `AppDialog` frame (logo left, content column, buttons bottom right) | `src/About.cs` |
@@ -372,6 +374,22 @@ patterns (Part 3) are applied through the WinForms mapping below.
   bio/website (needs `gh auth refresh -s user`); the CLA comment on the winget PR. Gotcha: VS Code (and its browser
   preview of docs/index.html) keeps the project folder open, so the local folder can only be renamed from VS Code's own
   Explorer or with VS Code closed.
+- 2026-11-03: "Add some "flare" to the website of the app. give more detail and promote the app correctly. on the app i still
+  see issues, in the photo u see, in general wherever there is a text with ... it should be shown in full when hovering on
+  it. why isnt it doing that? new version now is hoswing that alarm at the top which is not nice. I have been thinking to
+  make changes: merge the left and middle panes, instead add a column bar with appropriate icons on the left for each
+  functionality: Contents, Suggestions, Apps, File Search, duplicates, etc... Cause now the left pane is kinda useless."
+  Decisions (asked): the unreadable-folders banner becomes a slim closable line pointing to Run as administrator; the
+  rail has icon + name per view; Contents becomes a tree-list (folders expand in place, like WinDirStat) and a **This PC**
+  level above every drive lists the drives (Up from a drive, or "This PC" in the path bar). Homebrew: own tap
+  `sphrd/homebrew-tap` (`brew install --cask sphrd/tap/spacepie`); the official cask needs notability and, since 2025,
+  signed + notarized apps.
+- 2026-11-03: "the menu column should e scrollable and smaller in size. the text should be on the right of the icons
+  instead of below, increasing column width but reducing length. the loading orbit in logo mouth is not necessary for
+  hte site. the delete list should be next to delete permanently button and always visible as the main utility place for
+  deleting files." -> rail rows 36 px (icon left, name right, 150 px wide), mouse-wheel scrolling with a thin pill;
+  Delete list left the rail: a toolbar button "Delete list (n)" right of Delete permanently, accent while open; the site
+  logo has no orbit.
 
 ## WinForms mapping of the design language
 
@@ -626,6 +644,17 @@ patterns (Part 3) are applied through the WinForms mapping below.
 - **Live updates:** `FileSystemWatcher` per scanned root; changes are applied every 2 s on the UI thread (re-read a
   folder's own files, scan new folders, drop removed ones, rename in place); the contents list refreshes at most every
   4 s and not while rows are selected. Our own deletes are ignored for 3 s. Overflow shows "Changes missed - rescan".
+- **Layout (v2.1.0):** no folder tree any more. Left: `NavRail` (same index as `pages`; `Hide(i)` keeps a page out of
+  the bar, used for the delete list, which opens from `btnBasket` next to Delete permanently). Then the list|chart split.
+  Contents is a tree-list: `ItemInfo.TreeRow/Depth` indent column 0 by 18 px per level (chevron space kept for files so
+  they align), `expandedDirs` holds the expanded folders, `AddContentRows` sorts each level with the list's sorter and
+  recurses, `RefillContents` keeps scroll and selection; the chart uses depth-0 rows only. **This PC** (`thisPc`,
+  `current == null`): one row per scan root, "% used" column, chart of used space per drive; the path bar always starts
+  with "This PC". `CutText` records every text drawn cut off per control and raises `Hover` with the full text; the main
+  window shows it in its dark tooltip (list headers too, via the header's WM_MOUSEMOVE).
+- **Gotcha (scripted edits in PowerShell):** `@(@("a","b"))` flattens to `@("a","b")`, so a loop over "pairs" replaced
+  single characters (every "r" -> "e" in Views.cs, "A" -> " " in MainForm.cs). Recovered from HEAD + a vocabulary of the
+  other sources. Use Python (or `,@(...)`) for replacement lists.
 - **Checks:** `--cli selftest <scratch>` (14 checks incl. live updates, Recycle Bin on CI, contents-only delete,
   duplicates, export, history) and `--cli screenshot <out> <folder>` (every view) run the real window; CI runs the
   self-test and the master file table check on the elevated Windows runner.

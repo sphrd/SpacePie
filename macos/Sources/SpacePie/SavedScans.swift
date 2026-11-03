@@ -1,7 +1,7 @@
 import AppKit
 
 /// Scan files: a whole scan (every folder and file with sizes and dates, compressed) saved as a .spacepie file, to keep it,
-/// compare later or send it to someone. Opened again it shows as a read-only entry in the tree, below the drives: every
+/// compare later or send it to someone. Opened again it shows as a read-only entry in This PC, below the drives: every
 /// view works on it, but nothing is rescanned, watched or deleted.
 extension MainWindowController {
     static func isScanFile(_ path: String) -> Bool {
@@ -76,7 +76,7 @@ extension MainWindowController {
         }
     }
 
-    /// Removes a saved scan from the tree (the file stays where it is).
+    /// Removes a saved scan from This PC (the file stays where it is).
     func closeSavedScan(_ r: ScanRoot?) {
         guard let r = r, r.readOnly, !busy else { return }
         let top = r.node

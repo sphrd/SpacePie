@@ -7,7 +7,7 @@ namespace SpacePie
 {
     /// <summary>
     /// Scan files: a whole scan (every folder and file with sizes and dates, compressed) saved as a .spacepie file, to keep
-    /// it, compare later or send it to someone. Opened again it shows as a read-only entry in the tree, below the drives:
+    /// it, compare later or send it to someone. Opened again it shows as a read-only row in This PC, below the drives:
     /// every view works on it, but nothing is rescanned, watched or deleted.
     /// </summary>
     internal sealed partial class MainForm
@@ -72,7 +72,7 @@ namespace SpacePie
                 info.Root, info.Saved, Fmt.Size(r.Node.Size), r.Node.Files, r.Node.Dirs, sw.Elapsed.TotalSeconds);
         }
 
-        /// <summary>Removes a saved scan from the tree (the file stays where it is).</summary>
+        /// <summary>Removes a saved scan from This PC (the file stays where it is).</summary>
         void CloseSavedScan(ScanRoot r)
         {
             if (r == null || !r.ReadOnly || busy) return;

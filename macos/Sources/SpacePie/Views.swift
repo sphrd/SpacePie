@@ -27,8 +27,13 @@ final class ItemInfo {
     var sysGroup: SysGroup?            // system: the group of the row (head or member)
     var hideBar = false                // no percentage bar (the bar column's cell stays empty)
     var icon: NSImage?                 // drawn instead of the folder/file icon (apps: the app's own icon)
+    /// Row of a tree-list (Contents): indented by depth levels; keeps the chevron space even when it cannot expand.
+    var treeRow = false
+    var depth = 0
+    var expandable = false, expanded = false
+    var scanRoot: ScanRoot?            // This PC: the drive or scanned folder of the row
     var chartSize: Int64 { chartValue >= 0 ? chartValue : size }
-    var canDelete: Bool { !isSummary && !isGroup && (isDir || file != nil || targets != nil) }
+    var canDelete: Bool { !isSummary && !isGroup && scanRoot == nil && (isDir || file != nil || targets != nil) }
     var fullPath: String? { isDir ? dir?.fullPath : (file?.fullPath ?? path) }
     var tip: String?                   // tooltip set by the view (file types, summaries, group heads, removed folders)
 
@@ -107,9 +112,18 @@ protocol PageStrip: NSView {
 
 /// Muted caption text above a list: one line, or two when it needs them (then the last line ends in an ellipsis).
 final class CaptionView: NSView {
-    var text = "" { didSet { if text != oldValue { needsDisplay = true } } }
+    var text = "" { didSet { if text != oldValue { needsDisplay = true; updateTip() } } }
     override var isFlipped: Bool { true }
     static let lineH = ceil(Theme.font9.ascender - Theme.font9.descender + Theme.font9.leading)
+
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); updateTip() }
+
+    /// The full text as the tooltip when it does not fit (the last line then ends in "...").
+    private func updateTip() {
+        guard bounds.width > 0, !text.isEmpty else { toolTip = nil; return }
+        let need = (text as NSString).boundingRect(with: NSSize(width: bounds.width, height: 10000), options: [.usesLineFragmentOrigin], attributes: attributes).height
+        toolTip = need > bounds.height + 1 ? text : nil
+    }
 
     private var attributes: [NSAttributedString.Key: Any] {
         let ps = NSMutableParagraphStyle()
@@ -129,11 +143,13 @@ final class CaptionView: NSView {
 
 /// Large bold line above a page's caption (the Suggestions total).
 final class HeadlineView: NSView {
-    var text = "" { didSet { if text != oldValue { needsDisplay = true } } }
+    var text = "" { didSet { if text != oldValue { needsDisplay = true; updateTip() } } }
     var color: NSColor = T.FG
     override var isFlipped: Bool { true }
     static let font = Theme.font15Bold
     static let height = Theme.lineHeight(HeadlineView.font)
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); updateTip() }
+    private func updateTip() { toolTip = Theme.isCut(text, HeadlineView.font, bounds.width) ? text : nil }
     override func draw(_ dirtyRect: NSRect) { Theme.drawText(text, in: bounds, font: HeadlineView.font, color: color) }
 }
 
@@ -263,6 +279,10 @@ final class ListCell: NSTableCellView {
         let text = index < it.cells.count ? it.cells[index] : ""
         let b = bounds
         if index == 0 {
+            if it.treeRow && it.expandable {
+                Theme.drawChevron(NSRect(x: ListCell.indent(it) + ListCell.chevronX + 1, y: ((b.height - 12) / 2).rounded(), width: 12, height: 12),
+                                  strong ? T.BG : T.MUTED, down: it.expanded)
+            }
             if it.chevron >= 0 {
                 let cx = ListCell.chevronX + 7, cy = (b.height / 2).rounded()
                 let tri = NSBezierPath()
@@ -302,9 +322,21 @@ final class ListCell: NSTableCellView {
 
     static let chevronX: CGFloat = 4
     static let pctW = Theme.textWidth("100.0 %", Theme.font)
+    static let indentStep: CGFloat = 18
 
-    /// x of the icon in the name column: after the checkbox or the chevron, members of a group indented.
+    /// Indentation of a tree-list row (one step per level).
+    static func indent(_ it: ItemInfo) -> CGFloat { it.treeRow ? CGFloat(it.depth) * indentStep : 0 }
+
+    /// Where a click opens or closes a tree-list row, in the name cell's coordinates (empty when it cannot expand).
+    static func chevronHit(_ it: ItemInfo, height: CGFloat) -> NSRect {
+        guard it.treeRow && it.expandable else { return .zero }
+        return NSRect(x: indent(it) + chevronX - 3, y: 0, width: 20, height: height)
+    }
+
+    /// x of the icon in the name column: after the checkbox or the chevron, members of a group indented, tree-list rows
+    /// indented by their depth (with room for the chevron whether or not they can expand).
     static func iconX(_ it: ItemInfo) -> CGFloat {
+        if it.treeRow { return ListCell.checkX(it) + indent(it) }
         if it.check >= 0 { return ListCell.checkX(it) + 14 + 6 }
         if it.chevron >= 0 { return ListCell.checkX(it) }                    // after the chevron
         if let g = it.groupOf, g.chevron >= 0 { return 42 }                  // under an opened head with a chevron
@@ -381,6 +413,8 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var onSorted: ((Page) -> Void)?
     var onSelection: ((Page) -> Void)?
     var pinFirst: ((ItemInfo) -> Bool)?    // heads listed before the others whatever the sort order
+    /// A tree-list builds its rows level by level: a click on a column header calls this instead of sorting the rows.
+    var onResort: (() -> Void)?
     /// Strips above the caption (top to bottom) and one between the bar and the list.
     private(set) var above: [PageStrip] = []
     private(set) var strip: PageStrip?
@@ -592,6 +626,16 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
 
     func select(_ rows: IndexSet) { table.selectRowIndexes(rows, byExtendingSelection: false) }
 
+    /// Renames column i (keeping its sort arrow), e.g. "% of parent" / "% used" in Contents.
+    func setColumnTitle(_ i: Int, _ title: String) {
+        guard let col = table.tableColumns.first(where: { $0.identifier.rawValue == "c\(i)" }) else { return }
+        let cur = col.headerCell.stringValue
+        let arrow = cur.hasSuffix("  ▲") ? "  ▲" : (cur.hasSuffix("  ▼") ? "  ▼" : "")
+        if cur == title + arrow { return }
+        col.headerCell.stringValue = title + arrow
+        table.headerView?.needsDisplay = true
+    }
+
     // MARK: data source
 
     func numberOfRows(in tableView: NSTableView) -> Int { items.count }
@@ -618,9 +662,11 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         guard sortable, let i = Int(tableColumn.identifier.rawValue.dropFirst()), i < columns.count else { return }
         let key = columns[i].key
         if sortKey == key { ascending.toggle() } else { sortKey = key; ascending = key == "name" || key == "folder" || key == "cat" || key == "note" }
-        items = sorted(items)
-        table.resetHover()
-        table.reloadData()
+        if let refill = onResort { refill() } else {
+            items = sorted(items)
+            table.resetHover()
+            table.reloadData()
+        }
         for c in tableView.tableColumns {
             (c.headerCell as? DarkHeaderCell)?.active = c === tableColumn
             let base = c.headerCell.stringValue.replacingOccurrences(of: "  ▲", with: "").replacingOccurrences(of: "  ▼", with: "")

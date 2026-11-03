@@ -491,7 +491,7 @@ extension MainWindowController {
     }
 
     func showSuggestionsTab() {
-        if let i = pages.firstIndex(where: { $0 === pSuggest }) { viewTabs.selectedIndex = i }
+        if let i = pages.firstIndex(where: { $0 === pSuggest }) { pageIndex = i }
     }
 
     // MARK: deleting snapshots and backups

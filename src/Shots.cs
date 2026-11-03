@@ -138,7 +138,7 @@ namespace SpacePie
                     if (ShotDemo && (p == pSuggest || p == pChanges || p == pApps || p == pSystem)) continue;   // they would show this computer
                     if (p == pBasket)
                         foreach (var it in pFiles.List.Items.Cast<ListViewItem>().Select(x => x.Tag as ItemInfo).Where(x => x != null && x.CanDelete).Take(4))
-                            foreach (var t in DeleteTarget.From(it)) AddTarget(t);
+                            foreach (var t in DeleteTarget.From(it)) AddTarget(t); UpdateBasketTitle();
                     viewTabs.SelectedIndex = i;
                     if (p == pDupes && !(ShotDemo && dupeGroups != null))
                     {
@@ -170,11 +170,26 @@ namespace SpacePie
                     if (p == pSystem) SaveShot("system");
                     if (!ShotDemo && (p == pContents || p == pSuggest || p == pApps)) await HoverShot(p.List, name + "-hover");
                 }
-                if (!ShotDemo) await HoverShot(tree, "tree-hover");                viewTabs.SelectedIndex = pages.IndexOf(pContents);
+                viewTabs.SelectedIndex = pages.IndexOf(pContents);
                 measure.SelectedIndex = 0;
                 await Task.Delay(1500);
                 SaveShot((pages.Count + 1) + "-file-size");
                 measure.SelectedIndex = 1;
+                // Contents as a tree-list (the two largest folders expanded), then This PC (every drive).
+                var openDir = current;
+                if (ShotDemo) measure.SelectedIndex = 0;
+                foreach (var it in contents.Items.Cast<ListViewItem>().Select(x => x.Tag as ItemInfo).Where(x => x != null && x.IsDir && x.Expandable).Take(2).ToList())
+                    expandedDirs.Add(it.Dir);
+                RefillContents();
+                await Task.Delay(1200);
+                SaveShot((pages.Count + 8) + "-tree-list");
+                expandedDirs.Clear();
+                ShowThisPc();
+                await Task.Delay(1500);
+                SaveShot((pages.Count + 9) + "-this-pc");
+                if (openDir != null) SelectDir(openDir);
+                measure.SelectedIndex = 1;
+                await Task.Delay(800);
                 using (var about = new AboutForm(null))
                 {
                     about.StartPosition = FormStartPosition.Manual;

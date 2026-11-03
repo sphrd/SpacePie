@@ -45,7 +45,7 @@ extension SelfTestRun {
             for i in sizes.indices where abs(Double(rects[i].width * rects[i].height) / 120000 - sizes[i] / 100) >= 0.01 { prop = false }
             let inside = rects.allSatisfy { $0.minX >= -0.5 && $0.minY >= -0.5 && $0.maxX <= 400.5 && $0.maxY <= 300.5 }
             self.check(abs(area - 120000) < 1 && prop && inside, "treemap: rectangles fill the area, each in proportion to its size")
-            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.viewTabs.selectedIndex = i }
+            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.pageIndex = i }
             guard let top = self.root else { self.check(false, "treemap: nothing scanned"); return }
             w.selectDir(top)
             let was = w.chart.treemap
@@ -64,13 +64,41 @@ extension SelfTestRun {
             guard let top = self.root, let a = self.find("A") ?? top.children.first else { self.check(false, "navigation: nothing scanned"); return }
             w.selectDir(top)
             w.selectDir(a)
-            let crumbOk = w.crumbs.count == 2 && !w.crumbs.isHidden
+            let crumbOk = w.crumbs.count == 3 && !w.crumbs.isHidden && w.crumbs.texts.first == MainWindowController.thisPcName
             w.goBack()
             let back = w.current === top
             w.goForward()
             let fwd = w.current === a
             w.selectDir(top)
-            self.check(crumbOk && back && fwd, "navigation: path bar shows 2 parts, Back returns to the folder before (\(back)), Forward goes again (\(fwd))")
+            self.check(crumbOk && back && fwd, "navigation: path bar shows \(MainWindowController.thisPcName) and 2 folders (\(w.crumbs.texts.joined(separator: " > "))), Back returns to the folder before (\(back)), Forward goes again (\(fwd))")
+
+            // Contents is a tree-list: a folder opens in place, its rows one level deeper right below it.
+            let ex = top.children.first { MainWindowController.hasContent($0) }
+            let before = w.pContents.items.count
+            var below = false, grown = 0
+            if let e = ex {
+                w.setExpanded(e, true)
+                w.refillContents()
+                if let at = w.pContents.items.firstIndex(where: { $0.dir === e && $0.depth == 0 }) {
+                    below = at + 1 < w.pContents.items.count && w.pContents.items[at + 1].depth == 1 && w.pContents.items[at].expanded
+                }
+                grown = w.pContents.items.count - before
+                w.setExpanded(e, false)
+                w.refillContents()
+            }
+            self.check(ex != nil && below && grown > 0 && w.pContents.items.count == before,
+                       "tree-list: opening \(ex?.name ?? "?") shows its \(grown) rows below it at depth 1, closing hides them")
+
+            // Up from the top of a scan leads to This PC (every drive and scanned folder, that one selected), then disabled.
+            w.goUp()
+            let sel = w.pContents.selectedItems
+            let pc = w.thisPc && w.current == nil && w.pContents.items.filter { $0.depth == 0 }.count == w.roots.count && !w.btnUp.isEnabled
+                && sel.count == 1 && sel[0].scanRoot === w.rootOf(top) && w.crumbs.count == 1
+                && w.pContents.columns.count > 2 && (w.contents.tableColumns.first { $0.identifier.rawValue == "c2" }?.headerCell.stringValue.hasPrefix("% used") ?? false)
+            w.crumbs.pick(0)
+            w.selectDir(top)
+            self.check(pc && !w.thisPc && w.current === top,
+                       "this pc: Up from the scanned folder lists the \(w.roots.count) drives and folders with it selected; Up is then disabled")
         }
 
         // Well-known folders are named, with what to do about them.
@@ -97,11 +125,18 @@ extension SelfTestRun {
             w.updateUnreadBanner(top)
             let msg = w.unreadBanner.message
             let shown = !w.unreadBanner.isHidden && msg.hasPrefix("1 folder in this scan could not be read")
+            // Closed with x: it stays hidden for this scan.
+            w.current = top
+            w.unreadBanner.close()
+            w.updateUnreadBanner(top)
+            let staysClosed = w.unreadBanner.isHidden
+            w.unreadClosed.removeAll()
             top.children.removeAll { $0 === fake }
             fake.parent = nil
             w.deniedCache.removeAll()
             w.updateUnreadBanner(top)
-            self.check(shown && w.unreadBanner.isHidden, "unreadable: the banner counts folders that could not be read (\"\(msg)\"), and hides when there are none")
+            self.check(shown && staysClosed && w.unreadBanner.isHidden,
+                       "unreadable: the banner counts folders that could not be read (\"\(msg)\"), stays closed after x (\(staysClosed)), and hides when there are none")
         }
 
         // Synced folders are recognized before deleting, and the confirmation says so.
@@ -190,11 +225,11 @@ extension SelfTestRun {
             self.check(tl.count >= 1 && !ar.isEmpty && days.count == ar.count && kept != nil && (tl.last?.files ?? 0) > 0,
                        "history: \(tl.count) timeline point(s), \(ar.count) kept cop\(ar.count == 1 ? "y" : "ies") (one per day), read back (\(kept != nil))")
             // The Changes view offers the scans to compare (From / To) and shows the timeline.
-            if let i = w.pages.firstIndex(where: { $0 === w.pChanges }) { w.viewTabs.selectedIndex = i }
+            if let i = w.pages.firstIndex(where: { $0 === w.pChanges }) { w.pageIndex = i }
             w.fillChanges()
             self.check(w.changeTo.count >= 1 && w.historyStrip.isHidden == tl.isEmpty,
                        "changes: From (\(w.changeFrom.count) choice(s)) / To (\(w.changeTo.count)) and the timeline strip")
-            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.viewTabs.selectedIndex = i }
+            if let i = w.pages.firstIndex(where: { $0 === w.pContents }) { w.pageIndex = i }
         }
     }
 }

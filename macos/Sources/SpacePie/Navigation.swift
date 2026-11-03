@@ -41,12 +41,23 @@ extension MainWindowController {
     static let maxHistory = 100
 
     func buildNavigation() {
-        crumbs.onPick = { [unowned self] d in if self.isAttached(d) && !self.busy { self.selectDir(d) } }
+        crumbs.onPick = { [unowned self] t in
+            if self.busy { return }
+            switch t {
+            case .thisPc: self.showThisPc()
+            case .root(let r): if self.roots.contains(where: { $0 === r }) { self.selectRoot(r) }
+            case .dir(let d): if self.isAttached(d) { self.selectDir(d) }
+            }
+        }
         unreadBanner.addButton("Show them", tip: "List the folders that could not be read") { [unowned self] in self.showUnreadable() }
         unreadAccess = unreadBanner.addButton("Full Disk Access...", tip: "Let the app read every folder (System Settings > Privacy & Security > Full Disk Access)") {
             _ = NSWorkspace.shared.open(FullDiskAccess.settingsURL)
         }
         unreadAccess?.isHidden = FullDiskAccess.granted
+        // Closed with x: hidden for this scan (a new scan is a new tree and shows it again).
+        unreadBanner.onClose = { [unowned self] in
+            if let c = self.current, self.isAttached(c), !self.unreadClosed.contains(where: { $0 === c.top }) { self.unreadClosed.append(c.top) }
+        }
         // Top to bottom: banner, path bar, caption, list.
         pContents.addAbove(unreadBanner)
         pContents.addAbove(crumbs)
@@ -86,7 +97,7 @@ extension MainWindowController {
             }
             navigating = true
             selectDir(target)
-            if !activePage.followsFolder, let i = pages.firstIndex(where: { $0 === pContents }) { viewTabs.selectedIndex = i }
+            if !activePage.followsFolder, let i = pages.firstIndex(where: { $0 === pContents }) { pageIndex = i }
             navigating = false
             break
         }
@@ -105,16 +116,22 @@ extension MainWindowController {
         return r.readOnly
     }
 
-    /// The saved scan whose top folder is selected in the tree (nil otherwise).
+    /// The saved scan selected in Contents (its row in This PC), or the one whose top folder is shown with nothing
+    /// selected (nil otherwise).
     func selectedSavedScan() -> ScanRoot? {
-        guard lastView === outline, let r = outline.item(atRow: outline.selectedRow) as? ScanRoot, r.readOnly else { return nil }
-        return r
+        guard lastView == nil || lastView === contents else { return nil }
+        let sel = pContents.selectedItems
+        if sel.count == 1, let r = sel[0].scanRoot, r.readOnly { return r }
+        if sel.isEmpty, !thisPc, let c = current, c.parent == nil, let r = rootOf(c), r.readOnly { return r }
+        return nil
     }
 
     // MARK: Path bar
 
-    func updateCrumbs(_ d: DirNode?) {
-        var parts: [(text: String, dir: DirNode)] = []
+    /// This PC, then the drive (not scanned) or every folder from the scanned top down to d.
+    func updateCrumbs(_ d: DirNode?, unscanned: ScanRoot? = nil) {
+        var parts: [(text: String, target: CrumbTarget)] = [(text: MainWindowController.thisPcName, target: .thisPc)]
+        if let u = unscanned { parts.append((text: u.displayName, target: .root(u))) }
         if let d = d {
             var chain: [DirNode] = []
             var n: DirNode? = d
@@ -122,7 +139,7 @@ extension MainWindowController {
             let r = rootOf(chain.first)
             for c in chain {
                 let text = c.parent == nil ? (r.map { $0.isDrive ? $0.displayName : $0.path } ?? c.name) : c.name
-                parts.append((text: text, dir: c))
+                parts.append((text: text, target: .dir(c)))
             }
         }
         crumbs.setParts(parts)
@@ -143,13 +160,16 @@ extension MainWindowController {
     /// Shows or hides the banner for the tree that holds d: how many folders could not be read and what to do.
     func updateUnreadBanner(_ d: DirNode?) {
         guard let d = d, isAttached(d), let r = rootOf(d.top), !r.readOnly else { unreadBanner.message = ""; return }
+        if unreadClosed.contains(where: { $0 === d.top }) { unreadBanner.message = ""; return }
         let here = deniedUnder(d.top).filter { $0.isUnder(d) }
         if here.isEmpty { unreadBanner.message = ""; return }
         let one = here.count == 1
-        unreadAccess?.isHidden = FullDiskAccess.granted
+        let granted = FullDiskAccess.granted
+        unreadAccess?.isHidden = granted
         unreadBanner.needsLayout = true
-        unreadBanner.message = "\(Fmt.count(here.count)) folder\(one ? "" : "s") \(d.parent == nil ? "in this scan" : "in here") could not be read (access denied), "
-            + "so \(one ? "its" : "their") size\(one ? "" : "s") \(one ? "is" : "are") missing from these totals."
+        unreadBanner.message = "\(Fmt.count(here.count)) folder\(one ? "" : "s") \(d.parent == nil ? "in this scan" : "in here") could not be read (access denied); "
+            + "\(one ? "its" : "their") size\(one ? "" : "s") \(one ? "is" : "are") not in these totals."
+            + (granted ? "" : " Give the app Full Disk Access to read them.")
     }
 
     func showUnreadable() {

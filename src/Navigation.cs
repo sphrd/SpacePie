@@ -19,6 +19,8 @@ namespace SpacePie
         Breadcrumb crumbs;
         Banner unreadBanner;
         RoundButton unreadAdmin;
+        /// <summary>Scanned trees whose unreadable-folders banner was closed (shown again after the next scan).</summary>
+        readonly HashSet<DirNode> unreadClosed = new HashSet<DirNode>();
         const int MaxHistory = 100;
 
         void BuildNavigation()
@@ -31,12 +33,19 @@ namespace SpacePie
             toolbar.Controls.Add(btnForward);
 
             crumbs = new Breadcrumb();
-            crumbs.PartClicked += o => { var d = o as DirNode; if (d != null && IsAttached(d) && !busy) SelectDir(d); };
+            crumbs.PartClicked += o =>
+            {
+                if (busy) return;
+                if (o == ThisPcPart) { ShowThisPc(); return; }
+                var d = o as DirNode;
+                if (d != null && IsAttached(d)) SelectDir(d);
+            };
 
             unreadBanner = new Banner();
             unreadBanner.AddButton("Show them", "List the folders that could not be read", tips, ShowUnreadable);
             unreadAdmin = unreadBanner.AddButton("Run as administrator", "Restart elevated: administrators can read these folders (and drives are read from the master file table)", tips, RestartAsAdmin);
             unreadAdmin.Visible = !isAdmin;
+            unreadBanner.Closed += (s, e) => { if (current != null && IsAttached(current)) unreadClosed.Add(current.Top); };
             // Top to bottom: banner, path bar, caption, list (the last docked control is the topmost).
             pContents.Root.Controls.Add(crumbs);
             pContents.Root.Controls.Add(unreadBanner);
@@ -107,10 +116,12 @@ namespace SpacePie
 
         // ---------------------------------------------------------------- path bar
 
-        void UpdateCrumbs(DirNode d)
+        /// <summary>This PC, then the drive (unscanned) or every folder from the scanned top down to d.</summary>
+        void UpdateCrumbs(DirNode d, ScanRoot unscanned = null)
         {
             if (crumbs == null) return;
-            var parts = new List<KeyValuePair<string, object>>();
+            var parts = new List<KeyValuePair<string, object>> { new KeyValuePair<string, object>("This PC", ThisPcPart) };
+            if (unscanned != null) parts.Add(new KeyValuePair<string, object>(unscanned.DisplayName, unscanned));
             if (d != null)
             {
                 var chain = new List<DirNode>();
@@ -145,11 +156,11 @@ namespace SpacePie
             var r = RootOf(d.Top);
             var denied = DeniedUnder(d.Top);
             var here = denied.Where(n => n.IsUnder(d)).ToList();
-            if (here.Count == 0 || (r != null && r.ReadOnly)) { unreadBanner.Message = null; return; }
+            if (here.Count == 0 || (r != null && r.ReadOnly) || unreadClosed.Contains(d.Top)) { unreadBanner.Message = null; return; }
             unreadAdmin.Visible = !isAdmin;
-            unreadBanner.Message = string.Format("{0:N0} folder{1} {2} could not be read (access denied), so {3} size{4} {5} missing from these totals.",
+            unreadBanner.Message = string.Format("{0:N0} folder{1} {2} could not be read (access denied); {3} size{4} {5} not in these totals.{6}",
                 here.Count, here.Count == 1 ? "" : "s", d.Parent == null ? "in this scan" : "in here", here.Count == 1 ? "its" : "their",
-                here.Count == 1 ? "" : "s", here.Count == 1 ? "is" : "are");
+                here.Count == 1 ? "" : "s", here.Count == 1 ? "is" : "are", isAdmin ? "" : " Run as administrator to read them.");
             unreadBanner.PerformLayout();
         }
 

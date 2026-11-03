@@ -230,15 +230,16 @@ namespace SpacePie
         {
             var g = e.Graphics;
             g.Clear(BackColor);
+            CutText.Begin(this);
             if (title.Length == 0) return;
             int pad = Theme.S(10);
             int y = pad;
             const TextFormatFlags one = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, title, Theme.FONT_11, new Rectangle(pad, y, Width - 2 * pad - TitleRightMargin, Theme.FONT_11.Height), Theme.FG, one);
+            CutText.Draw(g, this, title, Theme.FONT_11, new Rectangle(pad, y, Width - 2 * pad - TitleRightMargin, Theme.FONT_11.Height), Theme.FG, one);
             y += Theme.FONT_11.Height + Theme.S(2);
             if (subtitle.Length > 0)
             {
-                TextRenderer.DrawText(g, subtitle, Theme.FONT_9, new Rectangle(pad, y, Width - 2 * pad - TitleRightMargin, Theme.FONT_9.Height), Theme.MUTED, one);
+                CutText.Draw(g, this, subtitle, Theme.FONT_9, new Rectangle(pad, y, Width - 2 * pad - TitleRightMargin, Theme.FONT_9.Height), Theme.MUTED, one);
                 y += Theme.FONT_9.Height;
             }
             y += Theme.S(16);
@@ -395,9 +396,9 @@ namespace SpacePie
             int ty = hr.Y + (hr.Height - h1 - h2 - h3) / 2;
             const TextFormatFlags c1 = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.HorizontalCenter;
             bool up = hoverCenter && hover < 0 && hoverArc < 0;
-            TextRenderer.DrawText(g, l1, Theme.FONT_9, new Rectangle(inner.X, ty, inner.Width, h1), up ? Theme.ACCENT : Theme.MUTED, c1);
+            CutText.Draw(g, this, l1, Theme.FONT_9, new Rectangle(inner.X, ty, inner.Width, h1), up ? Theme.ACCENT : Theme.MUTED, c1);
             TextRenderer.DrawText(g, l2, Theme.FONT_11, new Rectangle(inner.X, ty + h1, inner.Width, h2), up ? Theme.ACCENT : Theme.FG, c1);
-            if (h3 > 0) TextRenderer.DrawText(g, l3, Theme.FONT_9, new Rectangle(inner.X, ty + h1 + h2, inner.Width, h3), Theme.MUTED, c1);
+            if (h3 > 0) CutText.Draw(g, this, l3, Theme.FONT_9, new Rectangle(inner.X, ty + h1 + h2, inner.Width, h3), Theme.MUTED, c1);
         }
 
         /// <summary>Empty slices (free space) are not drawn; while hovered they get a faint fill so the target is visible.</summary>

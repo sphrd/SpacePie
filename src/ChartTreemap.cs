@@ -256,8 +256,8 @@ namespace SpacePie
             }
             const TextFormatFlags one = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
             int h = Theme.FONT_9.Height;
-            TextRenderer.DrawText(g, l1 ?? "", Theme.FONT_9, new Rectangle(r.X, r.Y + Theme.S(2), right - r.X, h), Theme.FG, one);
-            TextRenderer.DrawText(g, l2 ?? "", Theme.FONT_9, new Rectangle(r.X, r.Y + Theme.S(2) + h, right - r.X, h), Theme.MUTED, one);
+            CutText.Draw(g, this, l1 ?? "", Theme.FONT_9, new Rectangle(r.X, r.Y + Theme.S(2), right - r.X, h), Theme.FG, one);
+            CutText.Draw(g, this, l2 ?? "", Theme.FONT_9, new Rectangle(r.X, r.Y + Theme.S(2) + h, right - r.X, h), Theme.MUTED, one);
         }
 
         // ---- mouse

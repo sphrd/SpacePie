@@ -68,15 +68,15 @@ namespace SpacePie
 
         readonly PathInput pathBox;
         readonly Label pathLabel;
-        readonly RoundButton btnBrowse, btnScan, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnAdmin, btnExport;
+        readonly RoundButton btnBrowse, btnScan, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnAdmin, btnExport, btnBasket;
         readonly TitleBar titleBar;
         readonly Segmented measure;
         readonly Panel toolbar;
-        readonly SplitContainer split, split2;
+        readonly Panel mainArea;
+        readonly SplitContainer split2;
         readonly PieChart chart;
         readonly Segmented chartMode;
         static string TreemapMarker { get { return AppData.Path("treemap"); } }
-        readonly DarkTreeView tree;
         readonly SizeListView contents;
         readonly Label statusLabel, driveLabel;
         readonly BusyOverlay overlay;
@@ -89,6 +89,8 @@ namespace SpacePie
         {
             // One dark tooltip for buttons, list rows and tree nodes.
             Splash.Status("Building the main window");
+            // Text drawn cut off ("...") anywhere in this window is shown in full on hover.
+            CutText.Hover += (c, text) => { if (!IsDisposed && c.FindForm() == this) Hover(c, text); };
             tips.OwnerDraw = true;
             tips.Popup += (s, e) =>
             {
@@ -142,6 +144,9 @@ namespace SpacePie
             btnExplorer = Btn("Show in Explorer", ButtonKind.Secondary, "Open the selected item in Windows Explorer", ShowInExplorer);
             btnAddList = Btn("Add to delete list", ButtonKind.Secondary, "Collect the selected items in the delete list; review them there, then delete them together (Ctrl+D)", AddSelectionToBasket);
             btnDelete = Btn("Delete permanently", ButtonKind.Warn, "Permanently delete the selected items, bypassing the Recycle Bin (Ctrl+Shift+D)", DeleteSelected);
+            // The delete list is always one click away, next to Delete permanently (it is not in the views bar).
+            btnBasket = Btn("Delete list", ButtonKind.Secondary, "Review everything collected for deletion, then move it to the Recycle Bin or delete it permanently",
+                () => { if (pBasket != null) viewTabs.SelectedIndex = pages.IndexOf(pBasket); });
             btnExport = Btn("Export...", ButtonKind.Secondary, "Save the scan as an HTML report, a CSV file, or a scan file to open again later", ExportScan);
             btnOpenScan = Btn("Open scan...", ButtonKind.Secondary, "Open a scan saved with Export (" + Snapshot.ScanFileExtension + "): browse it read-only, next to the drives", OpenScanDialog);
 
@@ -152,7 +157,7 @@ namespace SpacePie
             tips.SetToolTip(measure, "Size: file lengths, as Explorer shows them. Size on disk: the space really used (compression, clusters, online-only cloud files)");
 
             toolbar = new Panel { Dock = DockStyle.Top, BackColor = Theme.BG };
-            toolbar.Controls.AddRange(new Control[] { pathLabel, pathBox, btnBrowse, btnScan, btnAdmin, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnExport, btnOpenScan, measure });
+            toolbar.Controls.AddRange(new Control[] { pathLabel, pathBox, btnBrowse, btnScan, btnAdmin, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnBasket, btnExport, btnOpenScan, measure });
             toolbar.Layout += (s, e) => LayoutToolbar();
 
             // Context menu
@@ -194,63 +199,17 @@ namespace SpacePie
                 miCloseScan.Visible = SelectedSavedScan() != null;
             };
 
-            // Folder tree. The image list only reserves the icon slot; glyphs are drawn by the tree.
-            Splash.Status("Creating the folder tree and lists");
-            tree = new DarkTreeView
-            {
-                Dock = DockStyle.None, ItemHeight = S(26), Indent = S(20), ContextMenuStrip = menu,
-                ImageList = new ImageList { ImageSize = new Size(S(16), S(16)) }
-            };
-            tree.BeforeExpand += (s, e) => Populate(e.Node);
-            tree.AfterSelect += (s, e) =>
-            {
-                var d = e.Node.Tag as DirNode;
-                if (d != null) ShowContents(d);
-                else if (e.Node.Tag is ScanRoot) ShowUnscanned((ScanRoot)e.Node.Tag);
-            };
-            tree.NodeMouseClick += (s, e) =>
-            {
-                if (e.Button == MouseButtons.Right) tree.SelectedNode = e.Node;
-                // Clicking a folder while Suggestions is open means "show me this folder".
-                else if (e.Button == MouseButtons.Left && ActivePage == pSuggest && e.Node.Tag is DirNode) viewTabs.SelectedIndex = pages.IndexOf(pContents);
-            };
-            TreeNode tipNode = null;
-            tree.MouseMove += (s, e) =>
-            {
-                var n = tree.GetNodeAt(e.Location);
-                if (n == tipNode) return;
-                tipNode = n;
-                var d = n != null ? n.Tag as DirNode : null;
-                var r = n != null ? n.Tag as ScanRoot : null;
-                Hover(tree, d != null ? d.Name.TrimEnd('\\') + "\n" + d.FullPath : r != null ? r.DisplayName + "\n" + r.Path : null);
-            };
-            tree.MouseLeave += (s, e) => { tipNode = null; Hover(tree, null); };
-            tree.MouseDown += (s, e) => Hover(tree, null);
-            tree.NodeMouseDoubleClick += (s, e) => { var r = e.Node.Tag as ScanRoot; if (r != null) ScanPath(r.Path); };
-            tree.Enter += (s, e) => lastView = tree;
-            // Samples are the widest expected value or the header title, whichever is wider.
-            tree.ColumnSamples = new[] { "999.9 MB", "100.0 %" };
-            tree.ColumnMuted = new[] { false, true };
-            tree.ColumnText = TreeColumns;
-            tree.BarColumn = 1;
-            tree.BarValue = TreeBar;
-            var treePanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill, TrackFocus = true };
-            treePanel.Controls.Add(new ScrollHost(tree) { Dock = DockStyle.Fill });
-            treePanel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = S(4), BackColor = Theme.SURFACE });
-            treePanel.Controls.Add(new TreeHeader(tree, "Name", "Size", "% of parent") { Dock = DockStyle.Top });
-
+            Splash.Status("Creating the lists");
             // Folder contents (the first view); the other views are built in Views.cs.
             contents = new SizeListView { ContextMenuStrip = menu };
-            contents.SetColumns(new[] { "Name", "Size", "% of folder", "Change", "Files", "Folders", "Modified", "What it is" },
+            contents.SetColumns(new[] { "Name", "Size", "% of parent", "Change", "Files", "Folders", "Modified", "What it is" },
                 new[] { "name", "size", "size", "change", "files", "dirs", "mod", "cat" }, new[] { 300, 90, 170, 90, 80, 70, 140, 300 });
             contents.BarColumn = 2;
+            // Folders expand in place (tree-list): the arrow, or Right / Left on the keyboard.
+            contents.GlyphClicked += ContentsGlyph;
             var listPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill, TrackFocus = true };
             BuildViews(listPanel);
             BuildNavigation();
-            split = new SplitContainer { Dock = DockStyle.Fill, SplitterWidth = S(10), BackColor = Theme.BG };
-            split.Panel1.BackColor = Theme.BG;
-            split.Panel2.BackColor = Theme.BG;
-            split.Panel1.Controls.Add(treePanel);
 
             // Pie chart pane (right). It is drawn from sizes already in memory, never from the disk.
             Splash.Status("Preparing the chart");
@@ -282,20 +241,22 @@ namespace SpacePie
                 chartMode.Bounds = new Rectangle(chart.Width - cs.Width - S(10), S(10), cs.Width, cs.Height);
                 chart.TitleRightMargin = cs.Width + S(10);
             };
-            split2 = new SplitContainer { Dock = DockStyle.Fill, SplitterWidth = S(10), BackColor = Theme.BG, FixedPanel = FixedPanel.Panel2 };
+            split2 = new SplitContainer { Dock = DockStyle.Fill, SplitterWidth = S(10), BackColor = Theme.BG, FixedPanel = FixedPanel.Panel2, TabStop = false };
             split2.Panel1.BackColor = Theme.BG;
             split2.Panel2.BackColor = Theme.BG;
             split2.Panel1.Controls.Add(listPanel);
             split2.Panel2.Controls.Add(chartPanel);
-            split.Panel2.Controls.Add(split2);
-            split.Panel2.Controls.Add(new Panel { Dock = DockStyle.Top, Height = S(6), BackColor = Theme.BG });
-            split.Panel2.Controls.Add(viewTabs);
+            // Views bar on the left, then the list and the chart.
+            mainArea = new Panel { Dock = DockStyle.Fill, BackColor = Theme.BG };
+            mainArea.Controls.Add(split2);
+            mainArea.Controls.Add(new Panel { Dock = DockStyle.Left, Width = S(10), BackColor = Theme.BG });
+            mainArea.Controls.Add(viewTabs);
 
             // Status line
             var status = new Panel { Dock = DockStyle.Bottom, Height = Theme.FONT_9.Height + S(16), BackColor = Theme.BG };
-            statusLabel = new Label
+            statusLabel = new EllipsisLabel
             {
-                Text = "Choose a drive or folder and press Scan.", Dock = DockStyle.Fill, AutoEllipsis = true, UseMnemonic = false,
+                Text = "Choose a drive or folder and press Scan.", Dock = DockStyle.Fill,
                 Font = Theme.FONT_9, ForeColor = Theme.MUTED, BackColor = Theme.BG, TextAlign = ContentAlignment.MiddleLeft
             };
             driveLabel = new Label
@@ -361,7 +322,7 @@ namespace SpacePie
             Resize += (s, e) => titleBar.Invalidate();
             TextChanged += (s, e) => titleBar.Invalidate();
 
-            Controls.Add(split);
+            Controls.Add(mainArea);
             Controls.Add(deleteBar);
             Controls.Add(scanBar);
             Controls.Add(toolbar);
@@ -394,8 +355,6 @@ namespace SpacePie
             Shown += (s, e) =>
             {
                 Splash.End(this);
-                // Tree and chart keep their preferred widths but give way on narrow windows, so the list stays usable.
-                split.SplitterDistance = Math.Min(S(380), split.Width * 26 / 100);
                 // The chart pane is 4/5 as wide as it is tall (a large chart, the list keeps more room; at least 380 px).
                 int chartW = Math.Max(S(220), Math.Min(split2.Height * 4 / 5, split2.Width - S(380) - split2.SplitterWidth));
                 split2.SplitterDistance = Math.Max(S(200), split2.Width - chartW - split2.SplitterWidth);
@@ -499,7 +458,7 @@ namespace SpacePie
             pathBox.Bounds = new Rectangle(px, 0, Math.Max(S(120), btnBrowse.Left - gap - px), h);
 
             int x = 0, y = h + S(8);
-            foreach (var b in btnBack != null ? new[] { btnBack, btnForward, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete } : new[] { btnUp, btnRescan, btnExplorer, btnAddList, btnDelete })
+            foreach (var b in btnBack != null ? new[] { btnBack, btnForward, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnBasket } : new[] { btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnBasket })
             {
                 if (b == btnDelete) x += groupGap - gap;
                 var p = b.GetPreferredSize(Size.Empty);
@@ -530,18 +489,19 @@ namespace SpacePie
             else if (e.KeyCode == Keys.D && e.Control) { AddSelectionToBasket(); e.Handled = true; }
             else if (e.KeyCode == Keys.F5) { RescanSelected(); e.Handled = true; }
             else if (e.KeyCode == Keys.Back) { GoUp(); e.Handled = true; }
-            else if (e.KeyCode == Keys.Enter && lastView == tree && tree.SelectedNode != null && tree.SelectedNode.Tag is ScanRoot)
-            { ScanPath(((ScanRoot)tree.SelectedNode.Tag).Path); e.Handled = true; }
-            else if (e.KeyCode == Keys.Enter && lastView != tree) { OpenSelected(); e.Handled = true; }
+            else if (e.KeyCode == Keys.Enter) { OpenSelected(); e.Handled = true; }
+            else if ((e.KeyCode == Keys.Right || e.KeyCode == Keys.Left) && e.Modifiers == Keys.None && lastView == contents && contents.Focused && ExpandSelected(e.KeyCode == Keys.Right))
+                e.Handled = true;
             else if (e.KeyCode == Keys.C && e.Control) { CopyPath(); e.Handled = true; }
             else if (e.KeyCode == Keys.Insert) { AddSelectionToBasket(); e.Handled = true; }
             else if (e.KeyCode == Keys.F && e.Control) { ShowFilesSearch(); e.Handled = true; }
         }
 
-        /// <summary>The saved scan whose top folder is selected in the tree (null otherwise).</summary>
+        /// <summary>The saved scan whose top folder is selected in the list (null otherwise).</summary>
         ScanRoot SelectedSavedScan()
         {
-            var d = lastView == tree && tree.SelectedNode != null ? tree.SelectedNode.Tag as DirNode : null;
+            var sel = lastView == contents ? GetSelection() : new List<ItemInfo>();
+            var d = sel.Count == 1 && sel[0].IsDir ? sel[0].Dir : null;
             var r = d != null && d.Parent == null ? RootOf(d) : null;
             return r != null && r.ReadOnly ? r : null;
         }
@@ -774,13 +734,14 @@ namespace SpacePie
 
         void ShowUnscanned(ScanRoot r)
         {
+            thisPc = false;
             current = null;
             active = r;
             RefreshCapacity(r);
             if (!busy) pathBox.Text = r.Path;
             contents.ResetHover();
             contents.Items.Clear();
-            UpdateCrumbs(null);
+            UpdateCrumbs(null, r);
             if (unreadBanner != null) unreadBanner.Message = null;
             contents.EmptyText = r.Scanning
                 ? "Scanning " + r.DisplayName + "...\nThe results appear here when the scan finishes. You can browse other drives meanwhile."
@@ -808,7 +769,8 @@ namespace SpacePie
         List<ChartSlice> BuildSlices(SizeListView lv, long total, string scope)
         {
             rowSlice.Clear();
-            var rows = lv.Items.Cast<ListViewItem>().Where(it => it.Tag is ItemInfo).ToList();
+            // Only the top level of a tree-list (Contents): expanded rows are inside their folder's slice.
+            var rows = lv.Items.Cast<ListViewItem>().Where(it => it.Tag is ItemInfo && ((ItemInfo)it.Tag).Depth == 0).ToList();
             total = Math.Max(1, total);
             var own = new HashSet<ListViewItem>(rows
                 .Where(it => ((ItemInfo)it.Tag).GroupOf == null && ((ItemInfo)it.Tag).ChartSize > 0 && ((ItemInfo)it.Tag).ChartSize >= MinOwnShare * total)
@@ -933,7 +895,7 @@ namespace SpacePie
                 if (!scanning) uiTimer.Stop();
                 overlay.HideBusy();
             }
-            split.Enabled = !value;
+            mainArea.Enabled = !value;
             UpdateButtons();
             if (!value && drivesChanged) BeginInvoke(new Action(RefreshDrives));
         }
@@ -963,7 +925,7 @@ namespace SpacePie
             btnScan.Enabled = idle;
             btnBrowse.Enabled = idle;
             pathBox.Enabled = !busy;
-            btnUp.Enabled = !busy && current != null && current.Parent != null;
+            btnUp.Enabled = !busy && !thisPc && (current != null || active != null);
             btnRescan.Enabled = idle && root != null;
             btnExplorer.Enabled = !busy && root != null;
             btnDelete.Enabled = idle && root != null;
@@ -1054,144 +1016,224 @@ namespace SpacePie
 
         // ---------------------------------------------------------------- tree and lists
 
-        static string TreeText(DirNode d)
-        {
-            return d.Denied ? d.Name + "  [access denied]" : d.Name;
-        }
-
-        string[] TreeColumns(TreeNode tn)
-        {
-            var r = tn.Tag as ScanRoot;
-            if (r != null)
-                return r.Total > 0 ? new[] { Fmt.Size(r.Total - r.Free), string.Format("{0:0.0} %", 100.0 * (r.Total - r.Free) / r.Total) } : null;
-            var d = tn.Tag as DirNode;
-            if (d == null) return null;
-            double pct = TreeBar(tn);
-            return new[] { Fmt.Size(d.Size), pct >= 0 ? string.Format("{0:0.0} %", pct) : "" };
-        }
-
-        /// <summary>Percentage shown as a bar: share of the parent folder; for a scanned drive, share of the drive capacity.</summary>
-        double TreeBar(TreeNode tn)
-        {
-            var r = tn.Tag as ScanRoot;
-            if (r != null) return r.Total > 0 ? 100.0 * (r.Total - r.Free) / r.Total : -1;
-            var d = tn.Tag as DirNode;
-            if (d == null) return -1;
-            if (d.Parent != null) return d.Parent.Size > 0 ? 100.0 * d.Size / d.Parent.Size : 0;
-            var top = RootOf(d);
-            return top != null && top.IsDrive && top.Total > 0 ? 100.0 * d.Size / top.Total : -1;
-        }
-
-        static TreeNode MakeTreeNode(DirNode d)
-        {
-            var tn = new TreeNode(TreeText(d)) { Tag = d, Name = d.Name };
-            if (d.Denied) tn.ForeColor = Theme.MUTED;
-            if (d.Children != null && d.Children.Count > 0) tn.Nodes.Add(new TreeNode("..."));
-            return tn;
-        }
-
-        static TreeNode MakeRootNode(ScanRoot r)
-        {
-            if (r.Node != null)
-            {
-                var tn = MakeTreeNode(r.Node);
-                tn.Text = r.DisplayName + (r.Scanning ? "  (rescanning...)" : "");
-                return tn;
-            }
-            return new TreeNode(r.DisplayName + (r.Scanning ? "  (scanning...)" : "  (not scanned)")) { Tag = r, ForeColor = Theme.MUTED };
-        }
-
-        static void Populate(TreeNode tn)
-        {
-            if (tn.Nodes.Count != 1 || tn.Nodes[0].Tag != null) return;
-            var d = (DirNode)tn.Tag;
-            tn.Nodes.Clear();
-            if (d.Children != null) tn.Nodes.AddRange(d.Children.Select(MakeTreeNode).ToArray());
-        }
-
         bool IsAttached(DirNode d)
         {
             return d != null && RootOf(d.Top) != null;
         }
 
-        /// <summary>Rebuilds the tree (one top-level node per drive or scanned folder), keeping expanded folders, then selects target.</summary>
+        /// <summary>Shows target again after the scanned trees changed (or the drive it was on, or This PC).</summary>
         void RefreshTree(DirNode target)
         {
-            var expanded = new HashSet<DirNode>();
-            CollectExpanded(tree.Nodes, expanded);
-            tree.BeginUpdate();
-            tree.Nodes.Clear();
-            foreach (var r in roots)
-            {
-                var rn = MakeRootNode(r);
-                tree.Nodes.Add(rn);
-                if (r.Node == null) continue;
-                bool targetHere = target != null && target.Top == r.Node;
-                if (targetHere || expanded.Contains(r.Node))
-                {
-                    rn.Expand();
-                    foreach (TreeNode c in rn.Nodes) ReExpand(c, expanded);
-                }
-            }
-            tree.EndUpdate();
+            expandedDirs.RemoveWhere(d => !IsAttached(d));
             if (target != null && IsAttached(target)) SelectDir(target);
+            else if (thisPc) ShowThisPc();
             else if (active != null && roots.Contains(active)) SelectRoot(active);
             else if (roots.Count > 0) SelectRoot(roots[0]);
+            else ShowThisPc();
         }
 
         void SelectRoot(ScanRoot r)
         {
-            if (r.Node != null) { SelectDir(r.Node); return; }
-            foreach (TreeNode tn in tree.Nodes)
-                if (tn.Tag == r)
-                {
-                    if (tree.SelectedNode == tn) ShowUnscanned(r); else tree.SelectedNode = tn;
-                    return;
-                }
-        }
-
-        static void CollectExpanded(TreeNodeCollection nodes, HashSet<DirNode> set)
-        {
-            foreach (TreeNode n in nodes)
-            {
-                if (!n.IsExpanded) continue;
-                var d = n.Tag as DirNode;
-                if (d != null) set.Add(d);
-                CollectExpanded(n.Nodes, set);
-            }
-        }
-
-        static void ReExpand(TreeNode tn, HashSet<DirNode> set)
-        {
-            if (!set.Contains(tn.Tag as DirNode)) return;
-            tn.Expand();
-            foreach (TreeNode c in tn.Nodes) ReExpand(c, set);
+            if (r.Node != null) SelectDir(r.Node);
+            else ShowUnscanned(r);
         }
 
         void SelectDir(DirNode target)
         {
-            if (tree.Nodes.Count == 0 || target == null) return;
-            var chain = new List<DirNode>();
-            for (var n = target; n != null; n = n.Parent) chain.Insert(0, n);
-            TreeNode cur = null;
-            foreach (TreeNode tn in tree.Nodes) if (tn.Tag == chain[0]) { cur = tn; break; }
-            if (cur == null) return;
-            for (int i = 1; i < chain.Count; i++)
+            if (target == null || !IsAttached(target)) return;
+            ShowContents(target);
+        }
+
+        // ---------------------------------------------------------------- Contents: tree-list and This PC
+
+        /// <summary>Folders expanded in place in Contents.</summary>
+        readonly HashSet<DirNode> expandedDirs = new HashSet<DirNode>();
+        /// <summary>Contents lists the drives and scanned folders (the level above every drive).</summary>
+        bool thisPc;
+        static readonly object ThisPcPart = new object();
+
+        static bool HasContent(DirNode d)
+        {
+            return d != null && !d.Denied && ((d.Children != null && d.Children.Count > 0) || d.Files > 0);
+        }
+
+        /// <summary>Rows of folder d at depth, sorted like the list, each expanded folder followed by its own rows.</summary>
+        void AddContentRows(DirNode d, int depth, List<ItemInfo> into)
+        {
+            var level = new List<ItemInfo>();
+            if (d.Children != null) foreach (var c in d.Children) level.Add(ItemInfo.ForDir(c, d.Size));
+            var files = Scanner.ListFiles(d);
+            files.Sort(FileEntry.BySizeDesc);
+            for (int i = 0; i < files.Count && i < MaxFilesShown; i++) level.Add(ItemInfo.ForFile(files[i], d.Size));
+            if (files.Count > MaxFilesShown)
             {
-                cur.Expand();
-                TreeNode next = null;
-                foreach (TreeNode c in cur.Nodes) if (c.Tag == chain[i]) { next = c; break; }
-                if (next == null) break;
-                cur = next;
+                long rest = 0;
+                for (int i = MaxFilesShown; i < files.Count; i++) rest += files[i].Size;
+                level.Add(new ItemInfo
+                {
+                    IsSummary = true, Name = string.Format("[{0:N0} smaller files not listed]", files.Count - MaxFilesShown),
+                    Size = rest, Files = files.Count - MaxFilesShown, Percent = d.Size > 0 ? 100.0 * rest / d.Size : 0
+                });
             }
-            if (tree.SelectedNode == cur) ShowContents((DirNode)cur.Tag);
-            else tree.SelectedNode = cur;
-            cur.EnsureVisible();
+            SetChanges(d, level);
+            level.Sort(contents.Sorter.Compare);
+            foreach (var it in level)
+            {
+                it.TreeRow = true;
+                it.Depth = depth;
+                if (it.IsDir)
+                {
+                    it.Expandable = HasContent(it.Dir);
+                    it.Expanded = it.Expandable && expandedDirs.Contains(it.Dir);
+                }
+                into.Add(it);
+                if (it.Expanded) AddContentRows(it.Dir, depth + 1, into);
+            }
+        }
+
+        /// <summary>Replaces the Contents rows; keeps the scroll position and the selected rows (by folder or file).</summary>
+        void FillContentsRows(List<ItemInfo> items, bool keepView)
+        {
+            int top = keepView && contents.TopItem != null ? contents.TopItem.Index : 0;
+            var keep = new HashSet<object>();
+            if (keepView) foreach (ListViewItem lvi in contents.SelectedItems) { var i = lvi.Tag as ItemInfo; if (i != null) keep.Add(RowKey(i)); }
+            contents.BeginUpdate();
+            contents.ResetHover();
+            contents.Items.Clear();
+            string pct = thisPc ? "% used" : "% of parent";
+            if (contents.Columns.Count > 2 && contents.Columns[2].Text != pct) contents.Columns[2].Text = pct;
+            contents.Items.AddRange(items.Select(it =>
+            {
+                var known = it.Data is ScanRoot ? null : KnownFor(it);
+                if (!(it.Data is ScanRoot)) it.Category = known != null ? known.Short : null;
+                var lvi = new ListViewItem(new[]
+                {
+                    it.Name, Fmt.Size(it.Size), it.Percent.ToString("0.0") + " %", ChangeText(it),
+                    it.Data is ScanRoot && it.Dir == null ? "" : it.Files.ToString("N0"), it.IsDir ? it.Dirs.ToString("N0") : "",
+                    it.Modified > 0 ? Fmt.Date(it.Modified) : "", it.Category ?? ""
+                }) { Tag = it };
+                if (it.IsSummary || (it.IsDir && it.Dir.Denied) || (it.Data is ScanRoot && it.Dir == null)) lvi.ForeColor = Theme.MUTED;
+                if (keep.Count > 0 && keep.Contains(RowKey(it))) lvi.Selected = true;
+                return lvi;
+            }).ToArray());
+            if (keepView && contents.Items.Count > 0) contents.TopItem = contents.Items[Math.Min(top, contents.Items.Count - 1)];
+            contents.EndUpdate();
+        }
+
+        static object RowKey(ItemInfo i)
+        {
+            return i.IsDir ? (object)i.Dir : i.File != null ? (object)i.File.FullPath : i.Data ?? i.Name;
+        }
+
+        /// <summary>Rebuilds the Contents rows after a folder was expanded or collapsed, or the sort order changed.</summary>
+        void RefillContents()
+        {
+            if (thisPc) { FillContentsRows(ThisPcRows(), true); }
+            else if (current != null && IsAttached(current))
+            {
+                var items = new List<ItemInfo>();
+                AddContentRows(current, 0, items);
+                FillContentsRows(items, true);
+            }
+            else return;
+            if (ActivePage == pContents) RefreshChart();
+        }
+
+        void ContentsGlyph(ListViewItem lvi, bool check)
+        {
+            var it = lvi.Tag as ItemInfo;
+            if (check || it == null || !it.IsDir || !it.Expandable) return;
+            if (!expandedDirs.Remove(it.Dir)) expandedDirs.Add(it.Dir);
+            RefillContents();
+        }
+
+        /// <summary>Right expands the selected folder (or moves into it), Left collapses it (or selects its parent row).</summary>
+        bool ExpandSelected(bool expand)
+        {
+            if (contents.SelectedItems.Count != 1) return false;
+            var lvi = contents.SelectedItems[0];
+            var it = lvi.Tag as ItemInfo;
+            if (it == null) return false;
+            if (expand)
+            {
+                if (!it.IsDir || !it.Expandable) return true;
+                if (!it.Expanded) { expandedDirs.Add(it.Dir); RefillContents(); return true; }
+                int next = lvi.Index + 1;
+                if (next < contents.Items.Count) SelectRow(contents.Items[next]);
+                return true;
+            }
+            if (it.IsDir && it.Expanded) { expandedDirs.Remove(it.Dir); RefillContents(); return true; }
+            for (int i = lvi.Index - 1; i >= 0; i--)
+            {
+                var up = contents.Items[i].Tag as ItemInfo;
+                if (up != null && up.Depth < it.Depth) { SelectRow(contents.Items[i]); break; }
+            }
+            return true;
+        }
+
+        void SelectRow(ListViewItem lvi)
+        {
+            contents.SelectedItems.Clear();
+            lvi.Selected = true;
+            lvi.Focused = true;
+            lvi.EnsureVisible();
+        }
+
+        /// <summary>One row per drive, saved scan and scanned folder; scanned ones expand into their folders.</summary>
+        List<ItemInfo> ThisPcRows()
+        {
+            var items = new List<ItemInfo>();
+            foreach (var r in roots)
+            {
+                var n = r.Node;
+                long used = r.Total > 0 ? r.Total - r.Free : n != null ? n.Size : 0;
+                var it = new ItemInfo
+                {
+                    TreeRow = true, Data = r, FolderIcon = true, IsDir = n != null, Dir = n, Path = r.Path,
+                    Name = r.DisplayName + (n == null ? (r.Scanning ? "  (scanning...)" : "  (not scanned)") : r.Scanning ? "  (rescanning...)" : ""),
+                    Size = used, Files = n != null ? n.Files : 0, Dirs = n != null ? n.Dirs : 0,
+                    Percent = r.Total > 0 ? 100.0 * used / r.Total : 0,
+                    Category = r.Total > 0 ? string.Format("{0} free of {1}", Fmt.Size(r.Free), Fmt.Size(r.Total)) : r.ReadOnly ? "Saved scan" : ""
+                };
+                it.Expandable = HasContent(n);
+                it.Expanded = it.Expandable && expandedDirs.Contains(n);
+                items.Add(it);
+                if (it.Expanded) AddContentRows(n, 1, items);
+            }
+            return items;
+        }
+
+        /// <summary>Contents shows This PC: every drive with its used space; Up from a drive leads here.</summary>
+        void ShowThisPc()
+        {
+            thisPc = true;
+            current = null;
+            if (unreadBanner != null) unreadBanner.Message = null;
+            contents.EmptyText = roots.Count == 0 ? "No drives found." : null;
+            UpdateCrumbs(null);
+            FillContentsRows(ThisPcRows(), false);
+            long used = roots.Where(r => r.Total > 0).Sum(r => r.Total - r.Free), total = roots.Where(r => r.Total > 0).Sum(r => r.Total);
+            pContents.Caption.Text = string.Format("{0:N0} drive{1}{2}", roots.Count(r => r.IsDrive), roots.Count(r => r.IsDrive) == 1 ? "" : "s",
+                total > 0 ? string.Format(": {0} used of {1}", Fmt.Size(used), Fmt.Size(total)) : "");
+            foreach (var pg in pages) if (pg.FollowsFolder && pg != pContents) pg.Stale = true;
+            if (ActivePage == pContents) RefreshChart();
+            UpdateButtons();
+        }
+
+        /// <summary>This PC chart: the used space of every drive.</summary>
+        void UpdateChartThisPc()
+        {
+            if (scanning) { ShowScanLogo(); return; }
+            long total = roots.Where(r => r.Total > 0).Sum(r => r.Total);
+            var slices = BuildSlices(contents, Math.Max(1, roots.Sum(r => r.Total > 0 ? r.Total - r.Free : 0)), "of the used space");
+            chart.SetData("This PC", total > 0 ? Fmt.Size(total) + " in " + roots.Count(r => r.IsDrive) + " drives" : "", slices);
         }
 
         void ShowContents(DirNode d)
         {
             RecordNavigation(current, d);
+            bool same = d == current && !thisPc;
+            thisPc = false;
             current = d;
             var r = RootOf(d.Top);
             if (r != null && r != active)
@@ -1201,43 +1243,11 @@ namespace SpacePie
                 if (!busy) pathBox.Text = r.Path;
             }
             contents.EmptyText = null;
-            var items = new List<ItemInfo>();
-            if (d.Children != null) foreach (var c in d.Children) items.Add(ItemInfo.ForDir(c, d.Size));
             UpdateCrumbs(d);
             UpdateUnreadBanner(d);
-            var files = Scanner.ListFiles(d);
-            files.Sort(FileEntry.BySizeDesc);
-            for (int i = 0; i < files.Count && i < MaxFilesShown; i++) items.Add(ItemInfo.ForFile(files[i], d.Size));
-            if (files.Count > MaxFilesShown)
-            {
-                long rest = 0;
-                for (int i = MaxFilesShown; i < files.Count; i++) rest += files[i].Size;
-                items.Add(new ItemInfo
-                {
-                    IsSummary = true, Name = string.Format("[{0:N0} smaller files not listed]", files.Count - MaxFilesShown),
-                    Size = rest, Files = files.Count - MaxFilesShown, Percent = d.Size > 0 ? 100.0 * rest / d.Size : 0
-                });
-            }
-            SetChanges(d, items);
-            items.Sort(contents.Sorter.Compare);
-
-            contents.BeginUpdate();
-            contents.ResetHover();
-            contents.Items.Clear();
-            contents.Items.AddRange(items.Select(it =>
-            {
-                var known = KnownFor(it);
-                it.Category = known != null ? known.Short : null;
-                var lvi = new ListViewItem(new[]
-                {
-                    it.Name, Fmt.Size(it.Size), it.Percent.ToString("0.0") + " %", ChangeText(it),
-                    it.Files.ToString("N0"), it.IsDir ? it.Dirs.ToString("N0") : "", Fmt.Date(it.Modified), known != null ? known.Short : ""
-                }) { Tag = it };
-                if (it.IsSummary) lvi.ForeColor = Theme.MUTED;
-                else if (it.IsDir && it.Dir.Denied) lvi.ForeColor = Theme.MUTED;
-                return lvi;
-            }).ToArray());
-            contents.EndUpdate();
+            var items = new List<ItemInfo>();
+            AddContentRows(d, 0, items);
+            FillContentsRows(items, same);
             // The path is in the path bar above; the caption gives the totals.
             pContents.Caption.Text = string.Format("{0} in {1:N0} files and {2:N0} folders{3}", Fmt.Size(d.Size), d.Files, d.Dirs, ChangeCaption(d));
             ContentsChanged();
@@ -1247,15 +1257,8 @@ namespace SpacePie
         List<ItemInfo> GetSelection()
         {
             var list = new List<ItemInfo>();
-            if (lastView == tree || lastView == null)
             {
-                if (root == null) return list;
-                var d = tree.SelectedNode != null ? tree.SelectedNode.Tag as DirNode : null;
-                if (d != null) list.Add(ItemInfo.ForDir(d, d.Parent != null ? d.Parent.Size : d.Size));
-            }
-            else
-            {
-                var lv = (ListView)lastView;
+                var lv = lastView as ListView ?? contents;
                 foreach (ListViewItem lvi in lv.SelectedItems)
                 {
                     var it = lvi.Tag as ItemInfo;
@@ -1270,6 +1273,8 @@ namespace SpacePie
             var sel = GetSelection();
             if (sel.Count != 1 || busy) return;
             var it = sel[0];
+            var sr = it.Data as ScanRoot;
+            if (sr != null && sr.Node == null) { ScanPath(sr.Path); return; }
             if (it.IsDir) { SelectDir(it.Dir); return; }
             if (it.File == null) { ShowInExplorer(); return; }
             if (lastView != contents && IsAttached(it.File.Dir))
@@ -1295,8 +1300,13 @@ namespace SpacePie
 
         void GoUp()
         {
-            if (busy || current == null || current.Parent == null) return;
-            SelectDir(current.Parent);
+            if (busy || thisPc) return;
+            if (current != null && current.Parent != null) { SelectDir(current.Parent); return; }
+            // From a drive (or a drive not scanned yet) up to This PC, with that drive selected.
+            var from = current != null ? RootOf(current) : active;
+            ShowThisPc();
+            foreach (ListViewItem lvi in contents.Items)
+                if (from != null && ((ItemInfo)lvi.Tag).Data == from) { SelectRow(lvi); break; }
         }
 
         void ShowInExplorer()

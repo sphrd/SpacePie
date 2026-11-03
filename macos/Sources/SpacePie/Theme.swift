@@ -245,6 +245,11 @@ enum Theme {
     static func textWidth(_ s: String, _ font: NSFont) -> CGFloat {
         ceil((s as NSString).size(withAttributes: [.font: font]).width)
     }
+
+    /// True when s does not fit in width on one line (drawText then cuts it off with "...").
+    static func isCut(_ s: String, _ font: NSFont, _ width: CGFloat) -> Bool {
+        !s.isEmpty && (s as NSString).size(withAttributes: [.font: font]).width > width + 0.01
+    }
 }
 
 enum Fmt {
