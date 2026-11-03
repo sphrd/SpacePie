@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Generates Sources/DiskSpaceAnalyzer/Tokens.swift from ../src/Theme.cs, so the macOS app uses exactly the same
+"""Generates Sources/SpacePie/Tokens.swift from ../src/Theme.cs, so the macOS app uses exactly the same
 colour tokens (including the LOGO_* colours) as the Windows app. src/Theme.cs is the single place to edit them."""
 import pathlib
 import re
 
 here = pathlib.Path(__file__).resolve().parent
 theme = (here.parent / "src" / "Theme.cs").read_text(encoding="utf-8")
-out = here / "Sources" / "DiskSpaceAnalyzer" / "Tokens.swift"
+out = here / "Sources" / "SpacePie" / "Tokens.swift"
 # Tokens the macOS app defines itself (extension T in Theme.swift) are not generated again.
-own_src = (here / "Sources" / "DiskSpaceAnalyzer" / "Theme.swift").read_text(encoding="utf-8")
+own_src = (here / "Sources" / "SpacePie" / "Theme.swift").read_text(encoding="utf-8")
 own_ext = re.search(r"extension T \{(.*?)\n\}", own_src, re.S)
 own = set(re.findall(r"static let (\w+) = rgb\(", own_ext.group(1))) if own_ext else set()
 

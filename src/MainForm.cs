@@ -10,7 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>A top-level entry of the tree: a drive (scanned or not) or a folder the user scanned.</summary>
     internal sealed class ScanRoot
@@ -43,7 +43,7 @@ namespace DiskSpaceAnalyzer
 
     internal sealed partial class MainForm : Form
     {
-        const string AppName = "Disk Space Analyzer";
+        const string AppName = "SpacePie";
         const int TopCount = 1000;
         const int MaxFilesShown = 2000;
 
@@ -75,7 +75,7 @@ namespace DiskSpaceAnalyzer
         readonly SplitContainer split, split2;
         readonly PieChart chart;
         readonly Segmented chartMode;
-        static string TreemapMarker { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"DiskSpaceAnalyzer\treemap"); } }
+        static string TreemapMarker { get { return AppData.Path("treemap"); } }
         readonly DarkTreeView tree;
         readonly SizeListView contents;
         readonly Label statusLabel, driveLabel;

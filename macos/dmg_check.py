@@ -1,4 +1,4 @@
-# Checks the Finder layout of a mounted DiskSpaceAnalyzer-macOS.dmg (CI) and renders how Finder shows it.
+# Checks the Finder layout of a mounted SpacePie-macOS.dmg (CI) and renders how Finder shows it.
 #   python dmg_check.py <mount point> <dmg_art binary> <out.png>
 # Needs the ds_store package (installed with dmgbuild by build.sh). Exit code 0 = layout as intended.
 import glob
@@ -9,7 +9,7 @@ import sys
 from ds_store import DSStore
 
 mnt, art, out = sys.argv[1], sys.argv[2], sys.argv[3]
-app = 'Disk Space Analyzer.app'
+app = 'SpacePie.app'
 failed = False
 
 

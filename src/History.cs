@@ -9,7 +9,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>Folder sizes of an earlier scan (folders only, no file names), kept to show what changed since.</summary>
     internal sealed class PrevNode
@@ -28,7 +28,7 @@ namespace DiskSpaceAnalyzer
     }
 
     /// <summary>
-    /// Saves a compact copy of every full scan (folder names and sizes, gzip) in %LOCALAPPDATA%\DiskSpaceAnalyzer\history,
+    /// Saves a compact copy of every full scan (folder names and sizes, gzip) in %LOCALAPPDATA%\SpacePie\history,
     /// one file per scanned drive or folder, and loads the previous one for comparison. Nothing leaves the computer.
     /// </summary>
     internal static class History
@@ -38,7 +38,7 @@ namespace DiskSpaceAnalyzer
 
         public static string Folder
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DiskSpaceAnalyzer", "history"); }
+            get { return AppData.Path("history"); }
         }
 
         static string FileFor(string rootPath)

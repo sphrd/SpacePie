@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// Delete list: items collected from any view, reviewed together, then moved to the Recycle Bin or deleted

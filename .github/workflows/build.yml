@@ -23,7 +23,7 @@ jobs:
         shell: pwsh
         run: |
           $log = New-TemporaryFile
-          Start-Process .\DiskSpaceAnalyzer.exe -ArgumentList '--cli','scan',"`"$env:WINDIR\System32\drivers`"" -Wait -NoNewWindow -RedirectStandardOutput $log.FullName
+          Start-Process .\SpacePie.exe -ArgumentList '--cli','scan',"`"$env:WINDIR\System32\drivers`"" -Wait -NoNewWindow -RedirectStandardOutput $log.FullName
           $out = Get-Content $log.FullName
           $out
           if (-not ($out -match 'bytes')) { throw 'self-check produced no result' }
@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 5
         run: |
-          $p = Start-Process .\DiskSpaceAnalyzer.exe -ArgumentList '--cli', 'selftest', "$env:RUNNER_TEMP\dsa-selftest" -PassThru
+          $p = Start-Process .\SpacePie.exe -ArgumentList '--cli', 'selftest', "$env:RUNNER_TEMP\dsa-selftest" -PassThru
           if (-not $p.WaitForExit(180000)) { Stop-Process -Id $p.Id -Force; throw 'self-test timed out' }
           Get-Content "$env:RUNNER_TEMP\dsa-selftest.log"
           if ($p.ExitCode -ne 0) { throw 'self-test failed' }
@@ -43,7 +43,7 @@ jobs:
         run: |
           function Scan([string[]] $a, [int] $seconds) {
             $out = New-TemporaryFile
-            $p = Start-Process .\DiskSpaceAnalyzer.exe -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput $out.FullName
+            $p = Start-Process .\SpacePie.exe -ArgumentList $a -NoNewWindow -PassThru -RedirectStandardOutput $out.FullName
             if (-not $p.WaitForExit($seconds * 1000)) { Stop-Process -Id $p.Id -Force; Get-Content $out.FullName; throw "timed out after $seconds s: $a" }
             Get-Content $out.FullName -Raw
           }
@@ -75,7 +75,7 @@ jobs:
           foreach ($path in @("$env:ProgramFiles", "${env:ProgramFiles(x86)}")) {
             $out = New-TemporaryFile
             $sw = [Diagnostics.Stopwatch]::StartNew()
-            Start-Process .\DiskSpaceAnalyzer.exe -ArgumentList '--cli','scan',"`"$path`"" -Wait -NoNewWindow -RedirectStandardOutput $out.FullName
+            Start-Process .\SpacePie.exe -ArgumentList '--cli','scan',"`"$path`"" -Wait -NoNewWindow -RedirectStandardOutput $out.FullName
             $l = ((Get-Content $out.FullName | Where-Object { $_ -match 'bytes' } | Select-Object -First 1).Split("`t"))
             $db = [long]($l[1] -replace '\D'); $df = [long]($l[3] -replace '\D'); $ds = $l[5]
             $r = robocopy "$path" "$env:RUNNER_TEMP\none" /L /S /XJ /NFL /NDL /NJH /BYTES /R:0 /W:0
@@ -92,26 +92,33 @@ jobs:
         id: hash
         shell: pwsh
         run: |
-          $h = (Get-FileHash .\DiskSpaceAnalyzer.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          $h = (Get-FileHash .\SpacePie.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "sha=$h" >> $env:GITHUB_OUTPUT
-          "DiskSpaceAnalyzer.exe SHA-256: $h"
+          "SpacePie.exe SHA-256: $h"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DiskSpaceAnalyzer
-          path: DiskSpaceAnalyzer.exe
+          name: SpacePie
+          path: SpacePie.exe
+
+      - name: Copy under the 1.x name (updates of Disk Space Analyzer 1.x look for this asset name)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: Copy-Item .\SpacePie.exe .\DiskSpaceAnalyzer.exe
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: DiskSpaceAnalyzer.exe
+          files: |
+            SpacePie.exe
+            DiskSpaceAnalyzer.exe
           append_body: true
           body: |
 
-            **SHA-256** (check with `Get-FileHash .\DiskSpaceAnalyzer.exe`):
-            `DiskSpaceAnalyzer.exe`: `${{ steps.hash.outputs.sha }}`
+            **SHA-256** (check with `Get-FileHash .\SpacePie.exe`):
+            `SpacePie.exe`: `${{ steps.hash.outputs.sha }}`
 
   macos:
     # Runs after the Windows job, so on a tag both attach their files to the same release.
@@ -129,7 +136,7 @@ jobs:
         run: |
           MNT="$RUNNER_TEMP/dmg-mount"
           mkdir -p "$RUNNER_TEMP/shots"
-          hdiutil attach -readonly -noautoopen -mountpoint "$MNT" DiskSpaceAnalyzer-macOS.dmg
+          hdiutil attach -readonly -noautoopen -mountpoint "$MNT" SpacePie-macOS.dmg
           ls -la "$MNT"
           macos/build/venv/bin/python macos/dmg_check.py "$MNT" macos/build/dmg_art "$RUNNER_TEMP/shots/dmg-layout.png"
           # A real Finder window too, when the runner allows screen captures.
@@ -140,17 +147,17 @@ jobs:
 
       - name: Headless self-check
         run: |
-          BIN="macos/build/Disk Space Analyzer.app/Contents/MacOS/DiskSpaceAnalyzer"
+          BIN="macos/build/SpacePie.app/Contents/MacOS/SpacePie"
           lipo -archs "$BIN"
           out=$("$BIN" --cli scan /usr/share)
           echo "$out"
           echo "$out" | grep -q 'bytes'
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "macos/build/Disk Space Analyzer.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "macos/build/SpacePie.app/Contents/Info.plist"
 
       - name: End-to-end self-test (live updates, delete list, Trash, duplicates, export)
         timeout-minutes: 5
         run: |
-          BIN="macos/build/Disk Space Analyzer.app/Contents/MacOS/DiskSpaceAnalyzer"
+          BIN="macos/build/SpacePie.app/Contents/MacOS/SpacePie"
           "$BIN" --cli selftest "$RUNNER_TEMP/dsa-selftest" &
           pid=$!
           for i in $(seq 1 180); do kill -0 $pid 2>/dev/null || break; sleep 1; done
@@ -167,7 +174,7 @@ jobs:
       - name: Window screenshots
         continue-on-error: true
         run: |
-          BIN="macos/build/Disk Space Analyzer.app/Contents/MacOS/DiskSpaceAnalyzer"
+          BIN="macos/build/SpacePie.app/Contents/MacOS/SpacePie"
           "$BIN" --cli screenshot "$RUNNER_TEMP/shots" /Applications &
           pid=$!
           for i in $(seq 1 300); do kill -0 $pid 2>/dev/null || break; sleep 1; done
@@ -176,7 +183,7 @@ jobs:
 
       - name: Accuracy against du and find (sizes on disk, files)
         run: |
-          BIN="macos/build/Disk Space Analyzer.app/Contents/MacOS/DiskSpaceAnalyzer"
+          BIN="macos/build/SpacePie.app/Contents/MacOS/SpacePie"
           for p in /usr/share /Applications; do
             line=$("$BIN" --cli scan "$p" | grep bytes | head -1)
             alloc=$(echo "$line" | cut -f3 | tr -dc 0-9)
@@ -192,23 +199,31 @@ jobs:
       - name: SHA-256 for the release notes
         id: hash
         run: |
-          h=$(shasum -a 256 DiskSpaceAnalyzer-macOS.dmg | cut -d" " -f1)
+          h=$(shasum -a 256 SpacePie-macOS.dmg | cut -d" " -f1)
           echo "sha=$h" >> "$GITHUB_OUTPUT"
-          echo "DiskSpaceAnalyzer-macOS.dmg SHA-256: $h"
+          echo "SpacePie-macOS.dmg SHA-256: $h"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: DiskSpaceAnalyzer-macOS
+          name: SpacePie-macOS
           path: |
-            DiskSpaceAnalyzer-macOS.dmg
+            SpacePie-macOS.dmg
             ${{ runner.temp }}/shots/*.png
+
+      - name: Copy under the 1.x name (updates of Disk Space Analyzer 1.x look for this asset name)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: cp SpacePie-macOS.dmg DiskSpaceAnalyzer-macOS.dmg
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: DiskSpaceAnalyzer-macOS.dmg
+          files: |
+            SpacePie-macOS.dmg
+            DiskSpaceAnalyzer-macOS.dmg
           append_body: true
           body: |
-            `DiskSpaceAnalyzer-macOS.dmg`: `${{ steps.hash.outputs.sha }}` (check with `shasum -a 256 DiskSpaceAnalyzer-macOS.dmg`)
+            `SpacePie-macOS.dmg`: `${{ steps.hash.outputs.sha }}` (check with `shasum -a 256 SpacePie-macOS.dmg`)
+
+            `DiskSpaceAnalyzer.exe` and `DiskSpaceAnalyzer-macOS.dmg` are the same files under the app's former name, so copies of Disk Space Analyzer 1.x can update themselves.

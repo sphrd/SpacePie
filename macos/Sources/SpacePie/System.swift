@@ -259,7 +259,7 @@ enum SystemInfo {
             let n = SysItem(.note)
             n.name = "Backups not readable"
             n.level = 1
-            n.meaning = "macOS protects the backup folder. Give Disk Space Analyzer Full Disk Access (button in the toolbar), then refresh."
+            n.meaning = "macOS protects the backup folder. Give SpacePie Full Disk Access (button in the toolbar), then refresh."
             n.path = backupFolder
             backups.items.append(n)
         }

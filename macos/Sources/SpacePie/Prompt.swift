@@ -52,7 +52,7 @@ final class PromptDialog: AppDialog {
 
     convenience init(icon: PromptIcon, heading: String, text: String, warning: String = "", details: [String] = [],
                      buttons: [(String, ButtonKind)], defaultIndex: Int = 0, cancelIndex: Int? = nil) {
-        self.init(title: "Disk Space Analyzer")
+        self.init(title: "SpacePie")
         self.icon = icon; self.heading = heading; self.text = text; self.warning = warning; self.detailLines = details
         self.defaultIndex = defaultIndex
         self.cancelIndex = cancelIndex ?? buttons.count - 1

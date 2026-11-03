@@ -641,7 +641,7 @@ extension MainWindowController {
 
     func uninstallApp(_ a: InstalledApp, _ done: ((Bool) -> Void)? = nil) {
         if PathUtil.same(a.path, Bundle.main.bundlePath) {
-            alert("Disk Space Analyzer can't uninstall itself", "Quit it, then move it to the Trash in Finder.")
+            alert("SpacePie can't uninstall itself", "Quit it, then move it to the Trash in Finder.")
             done?(false); return
         }
         guard let items = a.leftovers else {

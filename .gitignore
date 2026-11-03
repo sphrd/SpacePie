@@ -19,5 +19,5 @@ plan.txt
 # macOS build (macos/build.sh)
 macos/.build/
 macos/build/
-macos/Sources/DiskSpaceAnalyzer/Tokens.swift
+macos/Sources/SpacePie/Tokens.swift
 *.dmg

@@ -1,16 +1,16 @@
 import AppKit
 
-// Disk Space Analyzer for macOS.
-//   DiskSpaceAnalyzer                      opens the window and scans the startup disk
-//   DiskSpaceAnalyzer <folder>             opens the window and scans <folder>
-//   DiskSpaceAnalyzer <scan.dsascan>       opens the window, scans the startup disk and opens the saved scan read-only
-//   DiskSpaceAnalyzer --cli scan <folder>  headless scan, prints totals (same format as the Windows exe)
-//   DiskSpaceAnalyzer --cli screenshot <out-folder> <folder>
+// SpacePie for macOS.
+//   SpacePie                      opens the window and scans the startup disk
+//   SpacePie <folder>             opens the window and scans <folder>
+//   SpacePie <scan.spacepie>      opens the window, scans the startup disk and opens the saved scan read-only
+//   SpacePie --cli scan <folder>  headless scan, prints totals (same format as the Windows exe)
+//   SpacePie --cli screenshot <out-folder> <folder>
 //                                          opens the window, scans, saves a PNG of every view, About, the update window
 //                                          and the Full Disk Access dialog
-//   DiskSpaceAnalyzer --cli selftest <scratch-folder>
+//   SpacePie --cli selftest <scratch-folder>
 //                                          end-to-end self-test of the real window; writes <scratch-folder>.log, exit code 0 = passed
-//   DiskSpaceAnalyzer --splash             shows the start-up screen until it is clicked or Esc is pressed
+//   SpacePie --splash             shows the start-up screen until it is clicked or Esc is pressed
 
 func headlessScan(_ path: String) -> Int32 {
     let full = (path as NSString).expandingTildeInPath
@@ -135,15 +135,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // App menu: About and Check for Updates are the app-level actions (design language: menu bar).
-        let app = sub("Disk Space Analyzer")
-        item(app, "About Disk Space Analyzer", #selector(showAbout(_:)), target: self)
+        let app = sub("SpacePie")
+        item(app, "About SpacePie", #selector(showAbout(_:)), target: self)
         item(app, "Check for Updates...", #selector(checkForUpdates(_:)), target: self)
         app.addItem(.separator())
-        item(app, "Hide Disk Space Analyzer", #selector(NSApplication.hide(_:)), "h")
+        item(app, "Hide SpacePie", #selector(NSApplication.hide(_:)), "h")
         item(app, "Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option])
         item(app, "Show All", #selector(NSApplication.unhideAllApplications(_:)))
         app.addItem(.separator())
-        item(app, "Quit Disk Space Analyzer", #selector(NSApplication.terminate(_:)), "q")
+        item(app, "Quit SpacePie", #selector(NSApplication.terminate(_:)), "q")
 
         let file = sub("File")
         item(file, "Choose Folder...", #selector(chooseFolder(_:)), "o", target: self)
@@ -179,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.windowsMenu = window
 
         let help = sub("Help")
-        item(help, "Disk Space Analyzer on GitHub", #selector(openRepo(_:)), target: self)
+        item(help, "SpacePie on GitHub", #selector(openRepo(_:)), target: self)
         NSApp.helpMenu = help
 
         NSApp.mainMenu = bar
@@ -208,7 +208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 Dataless.disableMaterialization()      // before anything reads the disk: never download iCloud items (see Access.swift)
 
-/// `DiskSpaceAnalyzer --splash`: shows the splash until it is clicked or Esc is pressed (to look at it for as long as you
+/// `SpacePie --splash`: shows the splash until it is clicked or Esc is pressed (to look at it for as long as you
 /// like); the main window is not opened.
 final class SplashPreviewDelegate: NSObject, NSApplicationDelegate {
     private var window: SplashWindow?
@@ -258,9 +258,9 @@ if args.count >= 2 && args[1] == "--cli" {
         app.run()
         exit(0)
     }
-    print("Usage: DiskSpaceAnalyzer --cli scan <folder>")
-    print("       DiskSpaceAnalyzer --cli screenshot <out-folder> <folder>")
-    print("       DiskSpaceAnalyzer --cli selftest <scratch-folder>")
+    print("Usage: SpacePie --cli scan <folder>")
+    print("       SpacePie --cli screenshot <out-folder> <folder>")
+    print("       SpacePie --cli selftest <scratch-folder>")
     exit(2)
 }
 

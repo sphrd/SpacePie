@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// The views shown in tabs above the list and the chart. Every view is a list; the chart always shows the list that

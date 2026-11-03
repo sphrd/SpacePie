@@ -11,11 +11,11 @@ struct ReleaseInfo {
 }
 
 /// Self-update from the GitHub releases of this repository (same contract as the Windows app): find the latest
-/// release, download DiskSpaceAnalyzer-macOS.dmg, verify size and the SHA-256 digest GitHub publishes, copy the app
+/// release, download SpacePie-macOS.dmg, verify size and the SHA-256 digest GitHub publishes, copy the app
 /// out of the image next to the running one and swap the bundles. The old bundle is removed at the next start.
 enum Updater {
-    static let repo = "sphrd/DiskSpaceAnalyzer"
-    static let assetName = "DiskSpaceAnalyzer-macOS.dmg"
+    static let repo = "sphrd/SpacePie"
+    static let assetName = "SpacePie-macOS.dmg"
     static let releasesPage = URL(string: "https://github.com/\(repo)/releases/latest")!
 
     static var currentString: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0" }
@@ -37,7 +37,7 @@ enum Updater {
 
     private static func request(_ url: URL) -> URLRequest {
         var r = URLRequest(url: url, timeoutInterval: 20)
-        r.setValue("DiskSpaceAnalyzer-macOS/\(currentString)", forHTTPHeaderField: "User-Agent")
+        r.setValue("SpacePie-macOS/\(currentString)", forHTTPHeaderField: "User-Agent")
         return r
     }
 
@@ -75,7 +75,7 @@ enum Updater {
     /// The folder holding the .app must be writable for the swap (not the case when run from the disk image or when
     /// macOS runs a downloaded app from a randomised read-only location).
     static func folderWritable() -> Bool {
-        let probe = (bundlePath as NSString).deletingLastPathComponent + "/.dsa-write-test-\(UUID().uuidString)"
+        let probe = (bundlePath as NSString).deletingLastPathComponent + "/.spacepie-write-test-\(UUID().uuidString)"
         guard FileManager.default.createFile(atPath: probe, contents: Data()) else { return false }
         try? FileManager.default.removeItem(atPath: probe)
         return true
@@ -84,7 +84,7 @@ enum Updater {
     /// Downloads and verifies the disk image; returns its local path.
     static func download(_ r: ReleaseInfo, progress: @escaping (Int64, Int64) -> Void, cancelled: @escaping () -> Bool) throws -> String {
         guard let url = r.assetURL else { throw NSError(domain: "update", code: 3, userInfo: [NSLocalizedDescriptionKey: "no macOS download in this release"]) }
-        let target = NSTemporaryDirectory() + "DiskSpaceAnalyzer-update.dmg"
+        let target = NSTemporaryDirectory() + "SpacePie-update.dmg"
         let delegate = DownloadDelegate(progress: progress, cancelled: cancelled)
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
         session.downloadTask(with: request(url)).resume()
@@ -107,7 +107,7 @@ enum Updater {
 
     /// Mounts the image, copies the app next to the running one, swaps the bundles, unmounts.
     static func install(_ dmg: String) throws {
-        let mount = NSTemporaryDirectory() + "dsa-update-mount-\(UUID().uuidString)"
+        let mount = NSTemporaryDirectory() + "spacepie-update-mount-\(UUID().uuidString)"
         try FileManager.default.createDirectory(atPath: mount, withIntermediateDirectories: true)
         try run("/usr/bin/hdiutil", ["attach", dmg, "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount])
         defer { _ = try? run("/usr/bin/hdiutil", ["detach", mount, "-force"]); try? FileManager.default.removeItem(atPath: mount) }
@@ -126,7 +126,7 @@ enum Updater {
     /// Removes leftovers of an earlier update.
     static func cleanUp() {
         DispatchQueue.global(qos: .utility).async {
-            for p in [bundlePath + ".old", bundlePath + ".new", NSTemporaryDirectory() + "DiskSpaceAnalyzer-update.dmg"] {
+            for p in [bundlePath + ".old", bundlePath + ".new", NSTemporaryDirectory() + "SpacePie-update.dmg"] {
                 try? FileManager.default.removeItem(atPath: p)
             }
         }

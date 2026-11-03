@@ -248,7 +248,7 @@ extension MainWindowController {
     func deleteErrorsDialog(_ errors: [String], trash: Bool) -> PromptDialog {
         let n = errors.count
         var text = n == 1 ? "It is in use or access was denied." : "They are in use or access was denied."
-        if !FullDiskAccess.granted { text += " Tip: give Disk Space Analyzer Full Disk Access (button in the toolbar), then try again." }
+        if !FullDiskAccess.granted { text += " Tip: give SpacePie Full Disk Access (button in the toolbar), then try again." }
         return PromptDialog(icon: .warn, heading: "\(Fmt.count(n)) item\(n == 1 ? "" : "s") could not be \(trash ? "moved to the Trash" : "deleted")",
                             text: text, details: errors, buttons: [("OK", .primary)], defaultIndex: 0, cancelIndex: 0)
     }

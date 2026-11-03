@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// Live updates: every scanned drive or folder is watched for changes, and the scan is updated in place every two

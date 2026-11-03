@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>A broken registry entry: a key (uninstall entry, file association, app path) or a value (startup entry).</summary>
     internal sealed class RegIssue

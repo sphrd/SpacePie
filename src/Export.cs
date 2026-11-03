@@ -9,7 +9,7 @@ using System.Net;
 using System.Text;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>Export: an HTML report (self-contained, opens in any browser) or CSV for spreadsheets.</summary>
     internal sealed partial class MainForm
@@ -173,7 +173,7 @@ namespace DiskSpaceAnalyzer
                     H(kv.Key), Fmt.Size(kv.Value[0]), Math.Min(100, pct).ToString("0.#", CultureInfo.InvariantCulture), kv.Value[1]);
             }
             sb.Append("</table></div>");
-            sb.Append("<p class=\"muted\" style=\"margin-top:32px\">Made with <a href=\"https://github.com/sphrd/DiskSpaceAnalyzer\">Disk Space Analyzer</a> ").Append(H(version)).Append(".</p>");
+            sb.Append("<p class=\"muted\" style=\"margin-top:32px\">Made with <a href=\"https://github.com/sphrd/SpacePie\">SpacePie</a> ").Append(H(version)).Append(".</p>");
             sb.Append("</body></html>");
             return sb.ToString();
         }

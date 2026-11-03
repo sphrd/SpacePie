@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>One file in the in-memory index (kept per folder, so searches never touch the disk).</summary>
     internal struct FileRec

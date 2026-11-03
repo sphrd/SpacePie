@@ -9,7 +9,7 @@ using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>An installed program (from the registry's uninstall entries) or a Microsoft Store app.</summary>
     internal sealed class InstalledApp
@@ -72,7 +72,7 @@ namespace DiskSpaceAnalyzer
 
         static string BackupFolder
         {
-            get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DiskSpaceAnalyzer", "registry-backups"); }
+            get { return AppData.Path("registry-backups"); }
         }
 
         Page BuildAppsPage()
@@ -686,7 +686,7 @@ namespace DiskSpaceAnalyzer
         {
             if (a == null || a.Uninstalled || busy || scanning) return;
             if (SelfTestDir == null && Alert(AlertIcon.Danger, "Uninstall " + a.Name + "?",
-                    (a.Size > 0 ? Fmt.Size(a.Size) + ". " : "") + "Its own uninstaller runs first: follow its steps. Then Disk Space Analyzer checks all the app's " +
+                    (a.Size > 0 ? Fmt.Size(a.Size) + ". " : "") + "Its own uninstaller runs first: follow its steps. Then SpacePie checks all the app's " +
                     "files and settings again and offers to delete whatever is left.", null,
                     a.Leftovers != null && a.Leftovers.Count > 0 ? a.Leftovers.Select(l => KindName(l.Kind) + ": " + l.Path + "\t" + (l.IsRegistry ? "registry" : Fmt.Size(l.Size))).ToList() : null,
                     "Uninstall", "Cancel") != "Uninstall") return;

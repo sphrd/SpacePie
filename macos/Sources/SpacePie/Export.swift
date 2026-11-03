@@ -189,7 +189,7 @@ extension MainWindowController {
             sb += "<tr><td>\(h(k))</td><td class=\"n\">\(Fmt.size(v.0))</td><td><div class=\"bar\"><i style=\"width:\(num1(min(100, pct)))%\"></i></div></td><td class=\"n muted\">\(Fmt.count(v.1))</td></tr>"
         }
         sb += "</table></div>"
-        sb += "<p class=\"muted\" style=\"margin-top:32px\">Made with <a href=\"https://github.com/sphrd/DiskSpaceAnalyzer\">Disk Space Analyzer</a> \(h(version)).</p>"
+        sb += "<p class=\"muted\" style=\"margin-top:32px\">Made with <a href=\"https://github.com/sphrd/SpacePie\">SpacePie</a> \(h(version)).</p>"
         sb += "</body></html>"
         return sb
     }

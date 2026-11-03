@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Disk Space Analyzer</string>
+    <string>SpacePie</string>
     <key>CFBundleDisplayName</key>
-    <string>Disk Space Analyzer</string>
+    <string>SpacePie</string>
     <key>CFBundleIdentifier</key>
-    <string>com.sphrd.DiskSpaceAnalyzer</string>
+    <string>com.sphrd.SpacePie</string>
     <key>CFBundleExecutable</key>
-    <string>DiskSpaceAnalyzer</string>
+    <string>SpacePie</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
@@ -31,6 +31,6 @@
     <key>NSHumanReadableCopyright</key>
     <string>Copyright (c) 2026 sphrd - MIT License</string>
     <key>NSAppleEventsUsageDescription</key>
-    <string>Disk Space Analyzer asks Finder to open the Get Info window of the file or folder you selected.</string>
+    <string>SpacePie asks Finder to open the Get Info window of the file or folder you selected.</string>
 </dict>
 </plist>

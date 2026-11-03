@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>Fast restart with saved scans and the NTFS change journal (see Snapshot).</summary>
     internal sealed partial class MainForm

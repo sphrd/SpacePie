@@ -10,14 +10,13 @@ final class PrevNode {
 }
 
 /// Saves a compact copy of every full scan (folder names and sizes, zlib-compressed binary) in
-/// ~/Library/Application Support/DiskSpaceAnalyzer/history, one file per scanned drive or folder, and loads the previous
+/// ~/Library/Application Support/SpacePie/history, one file per scanned drive or folder, and loads the previous
 /// one for comparison. Nothing leaves the computer.
 enum History {
     static let magic: UInt32 = 0x31415344   // "DSA1"
 
     static var folder: String {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path ?? NSHomeDirectory() + "/Library/Application Support"
-        return base + "/DiskSpaceAnalyzer/history"
+        return AppData.path("history")
     }
 
     static func file(for rootPath: String) -> String {

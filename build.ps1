@@ -1,7 +1,7 @@
-# Builds DiskSpaceAnalyzer.exe from src\ with the C# compiler that ships with Windows (.NET Framework 4.x),
+# Builds SpacePie.exe from src\ with the C# compiler that ships with Windows (.NET Framework 4.x),
 # moves it to the repository root and removes the intermediate build folder. No SDK, NuGet or Visual Studio needed.
 $ErrorActionPreference = 'Stop'
-$name = 'DiskSpaceAnalyzer.exe'
+$name = 'SpacePie.exe'
 $obj = Join-Path $PSScriptRoot 'bin'
 $built = Join-Path $obj $name
 $final = Join-Path $PSScriptRoot $name

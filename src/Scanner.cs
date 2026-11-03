@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// Parallel directory scanner. Worker threads pull directories from a shared LIFO queue and enumerate

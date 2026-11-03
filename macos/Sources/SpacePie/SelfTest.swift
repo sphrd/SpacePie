@@ -927,7 +927,7 @@ final class ShotRun {
         }
         steps.wait(6)
         steps.then {
-            if let win = NSApp.windows.first(where: { $0.title == "Disk Space Analyzer - updates" }), let v = win.contentView { self.save(v, "\(w.pages.count + 4)-update") }
+            if let win = NSApp.windows.first(where: { $0.title == "SpacePie - updates" }), let v = win.contentView { self.save(v, "\(w.pages.count + 4)-update") }
             let d = FullDiskAccessWindow(onDone: {})
             self.fda = d
             d.present(over: w.window)

@@ -358,7 +358,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         let wanted = 2 * 15 + 430 + 2 + 400 + (height - MainWindowController.chromeHeight - 36) * 0.8
         let size = NSSize(width: min(max(1280, wanted), vf.width * 0.92), height: height)
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        w.title = "Disk Space Analyzer"
+        w.title = "SpacePie"
         w.appearance = NSAppearance(named: .darkAqua)
         w.backgroundColor = T.BG
         w.minSize = NSSize(width: min(900, vf.width), height: min(520, vf.height))
@@ -557,7 +557,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(volumesChanged), name: NSWorkspace.didUnmountNotification, object: nil)
 
         buildNavigation()
-        // A scan file (.dsascan) dropped on the window opens read-only; a folder dropped on it is scanned.
+        // A scan file (.spacepie, 1.x: .dsascan) dropped on the window opens read-only; a folder dropped on it is scanned.
         root.canDrop = { [unowned self] u in
             !self.busy && (MainWindowController.isScanFile(u.path) || (!self.scanning && PathUtil.isDir(u.path)))
         }

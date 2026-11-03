@@ -6,7 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>A known place that usually holds space that can be freed, with what deleting it means.</summary>
     internal sealed class Suggestion

@@ -97,11 +97,11 @@ enum FullDiskAccess {
 /// dialog closes ("Not now", the close button or Esc). "Open System Settings" opens the pane and keeps the dialog.
 final class FullDiskAccessWindow: AppDialog {
     static let heading = "Allow Full Disk Access"
-    static let text = "Without it, macOS asks separately for every protected folder (Desktop, Documents, Downloads, iCloud Drive...) and hides some sizes. Turn on Disk Space Analyzer in System Settings > Privacy & Security > Full Disk Access, then reopen the app."
+    static let text = "Without it, macOS asks separately for every protected folder (Desktop, Documents, Downloads, iCloud Drive...) and hides some sizes. Turn on SpacePie in System Settings > Privacy & Security > Full Disk Access, then reopen the app."
     private var done: (() -> Void)?
 
     convenience init(onDone: @escaping () -> Void) {
-        self.init(title: "Disk Space Analyzer - Full Disk Access")
+        self.init(title: "SpacePie - Full Disk Access")
         done = onDone
         resize(width: 560, height: 300)
         var y: CGFloat = 26

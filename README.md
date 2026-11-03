@@ -1,15 +1,16 @@
 <p align="center">
-  <img src="assets/app.png" alt="Disk Space Analyzer logo" width="128" height="128">
+  <img src="assets/app.png" alt="SpacePie logo" width="128" height="128">
 </p>
 
-<h1 align="center">Disk Space Analyzer</h1>
+<h1 align="center">SpacePie</h1>
 
 <p align="center">The fastest free disk space analyzer and cleaner for <b>Windows</b> and <b>macOS</b>.<br>
-Open source, a single small app, nothing to install.</p>
+Open source, a single small app, nothing to install.<br>
+<sub>Formerly <i>Disk Space Analyzer</i>.</sub></p>
 
 <p align="center"><a href="../../releases/latest"><b>Download the latest release</b></a></p>
 
-![Disk Space Analyzer: drive tree, folder contents and ring chart (demo data)](assets/screenshot.png)
+![SpacePie: drive tree, folder contents and ring chart (demo data)](assets/screenshot.png)
 
 It starts analyzing your system drive the moment it opens. See where your space
 went, find big, old and duplicate files, follow cleanup suggestions, uninstall
@@ -155,8 +156,9 @@ open list, and hovering a slice highlights its row and the other way round)
 - **Preview and properties:** Space shows a preview (Quick Look on macOS);
   Alt+Enter opens the Windows Properties dialog (Get Info, ⌘I, on macOS).
 - **Save a scan:** **Export** a folder as an HTML report, as CSV, or as a scan
-  file (`.dsascan`) that **Open scan...** shows again later, read-only, next to the
-  drives: to keep a record, compare later, or send it to someone.
+  file (`.spacepie`) that **Open scan...** shows again later, read-only, next to the
+  drives: to keep a record, compare later, or send it to someone (scan files from
+  version 1.x, `.dsascan`, open too).
 - **Updates itself:** it checks for a new version at startup and installs it in
   a click.
 - **About** lists the keyboard shortcuts and how to get the fastest, most
@@ -170,8 +172,8 @@ Get the files from the [latest release](../../releases/latest).
 
 ### Windows
 
-Download `DiskSpaceAnalyzer.exe` and run it; there is nothing to install
-(Windows 10 or 11). To check the download, compare `Get-FileHash .\DiskSpaceAnalyzer.exe`
+Download `SpacePie.exe` and run it; there is nothing to install
+(Windows 10 or 11). To check the download, compare `Get-FileHash .\SpacePie.exe`
 with the SHA-256 in the release notes ([SECURITY.md](SECURITY.md)). For the fastest whole-drive scans, click **Run as
 administrator** in the toolbar. To start as administrator every time without
 the Windows prompt, turn on **Always start as administrator** in **About**
@@ -179,7 +181,7 @@ the Windows prompt, turn on **Always start as administrator** in **About**
 
 ### macOS
 
-Download `DiskSpaceAnalyzer-macOS.dmg`, open it and drag **Disk Space Analyzer**
+Download `SpacePie-macOS.dmg`, open it and drag **SpacePie**
 onto **Applications**. It runs natively on Apple silicon and Intel Macs, macOS 11
 or later.
 
@@ -190,6 +192,14 @@ or later.
   **System Settings > Privacy & Security > Full Disk Access**, then reopen the
   app. Without it, macOS asks separately for every protected folder (Desktop,
   Documents, Downloads, iCloud Drive...) and hides some sizes.
+
+### Updating from Disk Space Analyzer
+
+SpacePie is the new name of Disk Space Analyzer. Version 1.x offers the update at
+startup (or use **Check for updates**) and installs it in place; saved scans,
+history and settings move over on the first start. On macOS, turn on Full Disk
+Access for **SpacePie** afterwards (the old **Disk Space Analyzer** entry there
+can be removed).
 
 ## Using it
 
@@ -241,7 +251,7 @@ also the master file table against a folder-by-folder scan).
 
 Measured on a Windows 11 laptop (not as administrator, files already in the cache):
 
-| Folder | Disk Space Analyzer | `robocopy /L /XJ` | `dir /s` |
+| Folder | SpacePie | `robocopy /L /XJ` | `dir /s` |
 |---|---|---|---|
 | `C:\Windows\System32` | 23,188 files, 9,322,350,203 bytes, **0.18 s** | 23,188 files, 9,322,350,203 bytes | 23,188 files, 9,322,350,203 bytes, 0.86 s |
 | `C:\Program Files` | 57,349 files, 22,293,530,826 bytes, **0.40 s** | 57,349 files, 22,321,042,879 bytes | 58,681 files, 23,412,663,728 bytes, 2.02 s |
@@ -249,13 +259,13 @@ Measured on a Windows 11 laptop (not as administrator, files already in the cach
 - `System32` matches to the byte.
 - In `Program Files` the file count matches `robocopy` exactly. The 27.5 MB
   difference is 16 file symbolic links: `robocopy` counts the file each one points
-  to, Disk Space Analyzer counts the link itself, so nothing is counted twice.
+  to, SpacePie counts the link itself, so nothing is counted twice.
   `dir /s` also follows folder links and counts the files behind them a second
   time; PowerShell's `Get-ChildItem -Recurse` follows a junction to Common Files
   and lists 121,399 files.
 - On GitHub's build machines (checked at every build):
 
-  | Folder | Disk Space Analyzer | Reference |
+  | Folder | SpacePie | Reference |
   |---|---|---|
   | macOS `/Applications` | 726,361 files, 37,434,699,776 bytes on disk, 5.4 s | `du`: 37,434,699,776 bytes; `find`: 726,361 files |
   | macOS `/usr/share` | 15,380 files, 231,841,792 bytes on disk, 0.12 s | `du`: 231,841,792 bytes; `find`: 15,380 files |
@@ -274,12 +284,12 @@ Measured on a Windows 11 laptop (not as administrator, files already in the cach
 built into Windows.
 
 ```powershell
-git clone https://github.com/sphrd/DiskSpaceAnalyzer.git
-cd DiskSpaceAnalyzer
+git clone https://github.com/sphrd/SpacePie.git
+cd SpacePie
 .\build.ps1
 ```
 
-`DiskSpaceAnalyzer.exe` appears in the repository root (close a running copy first).
+`SpacePie.exe` appears in the repository root (close a running copy first).
 
 **macOS:** needs the Xcode Command Line Tools and python3.
 
@@ -287,7 +297,7 @@ cd DiskSpaceAnalyzer
 bash macos/build.sh
 ```
 
-This builds a universal `Disk Space Analyzer.app` and `DiskSpaceAnalyzer-macOS.dmg`.
+This builds a universal `SpacePie.app` and `SpacePie-macOS.dmg`.
 Both apps take their version from `src/Program.cs` and their colours from `src/Theme.cs`.
 
 **Command line** (both platforms, for scripts and checks):

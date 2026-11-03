@@ -3,7 +3,7 @@ import Foundation
 /// Remembered content hashes for the duplicate finder, so a repeat search reads only new or changed files. A file is
 /// known by its path, length, modification time (nanoseconds) and inode: any change makes it unknown. Each entry keeps
 /// the hash of the first 64 KB and, once computed, of the whole file. Entries not seen for 90 days are dropped, at most
-/// 2 million are kept (most recently seen first). Stored in ~/Library/Application Support/DiskSpaceAnalyzer/hashes.bin
+/// 2 million are kept (most recently seen first). Stored in ~/Library/Application Support/SpacePie/hashes.bin
 /// (magic and version, then LZFSE: path, size, time, inode, which hashes, the 16-byte hashes, day last seen).
 enum HashCache {
     struct Entry {
@@ -27,8 +27,7 @@ enum HashCache {
 
     static var path: String {
         if let f = fileOverride { return f }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path ?? NSHomeDirectory() + "/Library/Application Support"
-        return base + "/DiskSpaceAnalyzer/hashes.bin"
+        return AppData.path("hashes.bin")
     }
 
     static var today: UInt32 { UInt32(max(0, Date().timeIntervalSince1970 / 86400)) }

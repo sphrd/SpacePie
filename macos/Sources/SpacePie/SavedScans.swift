@@ -1,11 +1,13 @@
 import AppKit
 
-/// Scan files: a whole scan (every folder and file with sizes and dates, compressed) saved as a .dsascan file, to keep it,
+/// Scan files: a whole scan (every folder and file with sizes and dates, compressed) saved as a .spacepie file (1.x:
+/// .dsascan, still opened), to keep it,
 /// compare later or send it to someone. Opened again it shows as a read-only entry in the tree, below the drives: every
 /// view works on it, but nothing is rescanned, watched or deleted.
 extension MainWindowController {
     static func isScanFile(_ path: String) -> Bool {
-        (path as NSString).pathExtension.lowercased() == Snapshot.scanFileExtension && FileManager.default.fileExists(atPath: path)
+        let ext = (path as NSString).pathExtension.lowercased()
+        return (ext == Snapshot.scanFileExtension || ext == Snapshot.legacyScanFileExtension) && FileManager.default.fileExists(atPath: path)
             && !PathUtil.isDir(path)
     }
 
@@ -32,7 +34,7 @@ extension MainWindowController {
         if busy { return }
         let p = NSOpenPanel()
         p.canChooseDirectories = false; p.canChooseFiles = true; p.allowsMultipleSelection = false
-        p.allowedFileTypes = [Snapshot.scanFileExtension]
+        p.allowedFileTypes = [Snapshot.scanFileExtension, Snapshot.legacyScanFileExtension]
         p.message = "Open a saved scan (.\(Snapshot.scanFileExtension))"
         guard let w = window else { return }
         p.beginSheetModal(for: w) { [weak self] resp in
@@ -53,7 +55,7 @@ extension MainWindowController {
                 guard let self = self else { return }
                 guard let l = loaded else {
                     self.statusLabel.stringValue = ""
-                    self.alert("This is not a scan file", file + " could not be read as a Disk Space Analyzer scan (or it is damaged).")
+                    self.alert("This is not a scan file", file + " could not be read as a SpacePie scan (or it is damaged).")
                     return
                 }
                 let node = l.0, info = l.1

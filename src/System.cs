@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// System tab: space Windows itself uses (update leftovers in WinSxS, restore points, hibernation and page file, WSL and
@@ -436,7 +436,7 @@ namespace DiskSpaceAnalyzer
         void AskAdmin(string what)
         {
             if (Alert(AlertIcon.Warn, what + " needs administrator rights",
-                    "Windows only allows this for an administrator. Restart Disk Space Analyzer as administrator and choose it again.", null, null,
+                    "Windows only allows this for an administrator. Restart SpacePie as administrator and choose it again.", null, null,
                     "Run as administrator", "Cancel") == "Run as administrator")
                 RestartAsAdmin();
         }

@@ -1,6 +1,6 @@
-# dmgbuild settings for DiskSpaceAnalyzer-macOS.dmg (used by macos/build.sh). dmgbuild writes the Finder window
+# dmgbuild settings for SpacePie-macOS.dmg (used by macos/build.sh). dmgbuild writes the Finder window
 # layout (.DS_Store) itself, so no Finder automation (AppleScript) is needed. Defines (-D):
-#   app         path of "Disk Space Analyzer.app"
+#   app         path of "SpacePie.app"
 #   background  window background (600 x 380 points; a 1x + 2x TIFF), made by dmg_art.swift
 #   icon        volume icon (.icns)
 import os.path

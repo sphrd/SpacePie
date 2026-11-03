@@ -4,7 +4,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>Something to delete: a file, a folder, only the contents of a folder, or the Recycle Bin itself.</summary>
     internal sealed class DeleteTarget

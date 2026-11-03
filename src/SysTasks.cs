@@ -10,7 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>What a row of the System tab can do.</summary>
     internal enum SysAct { None, AnalyzeStore, CleanStore, DeleteOldestShadow, DeleteAllButNewest, HibernateOff, HibernateOn, ShrinkDisk, RemoveRegistry, ShowSuggestions }

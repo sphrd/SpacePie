@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32.SafeHandles;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// Finds files with identical content: same size (from the index), then the same hash of the first 64 KB, then the

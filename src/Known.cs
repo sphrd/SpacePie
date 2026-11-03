@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>What a well-known folder or file is, whether it can go, and what manages it.</summary>
     internal sealed class KnownItem

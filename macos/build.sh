@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "Disk Space Analyzer.app" (universal: Apple Silicon + Intel) and packs it into DiskSpaceAnalyzer-macOS.dmg
+# Builds "SpacePie.app" (universal: Apple Silicon + Intel) and packs it into SpacePie-macOS.dmg
 # in the repository root. Needs Xcode (or the Command Line Tools with Swift 5.7+) and python3.
 #   - the version comes from src/Program.cs (AssemblyVersion), so both platforms always share one version
 #   - the colour tokens, including the logo colours, are generated from src/Theme.cs (macos/gen_tokens.py)
@@ -15,12 +15,12 @@ echo "Version $VERSION"
 python3 gen_tokens.py
 
 swift build -c release --arch arm64 --arch x86_64
-BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/DiskSpaceAnalyzer"
+BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/SpacePie"
 
-APP="build/Disk Space Analyzer.app"
+APP="build/SpacePie.app"
 rm -rf build
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/DiskSpaceAnalyzer"
+cp "$BIN" "$APP/Contents/MacOS/SpacePie"
 sed "s/__VERSION__/$VERSION/g" Info.plist > "$APP/Contents/Info.plist"
 
 ICONSET=build/AppIcon.iconset
@@ -44,8 +44,8 @@ build/dmg_art background build/dmg-background@2x.png 2
 tiffutil -cathidpicheck build/dmg-background.png build/dmg-background@2x.png -out build/background.tiff
 python3 -m venv build/venv
 build/venv/bin/pip install -q --disable-pip-version-check dmgbuild
-rm -f ../DiskSpaceAnalyzer-macOS.dmg
+rm -f ../SpacePie-macOS.dmg
 build/venv/bin/dmgbuild -s dmg_settings.py -D app="$APP" -D background=build/background.tiff \
-    -D icon="$APP/Contents/Resources/AppIcon.icns" "Disk Space Analyzer" ../DiskSpaceAnalyzer-macOS.dmg
+    -D icon="$APP/Contents/Resources/AppIcon.icns" "SpacePie" ../SpacePie-macOS.dmg
 
-echo "Built $APP ($(lipo -archs "$APP/Contents/MacOS/DiskSpaceAnalyzer")) and DiskSpaceAnalyzer-macOS.dmg ($(du -h ../DiskSpaceAnalyzer-macOS.dmg | cut -f1))"
+echo "Built $APP ($(lipo -archs "$APP/Contents/MacOS/SpacePie")) and SpacePie-macOS.dmg ($(du -h ../SpacePie-macOS.dmg | cut -f1))"

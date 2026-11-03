@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal unsafe struct FindData

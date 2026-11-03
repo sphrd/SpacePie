@@ -44,7 +44,7 @@ func drawBackground() {
     BG.setFill()
     NSRect(x: 0, y: 0, width: W, height: H).fill()
     text("Drag to Applications", NSFont.systemFont(ofSize: 22, weight: .semibold), FG, centerX: W / 2, top: 44)
-    text("Drop Disk Space Analyzer on the Applications folder to install it", NSFont.systemFont(ofSize: 12), MUTED, centerX: W / 2, top: 78)
+    text("Drop SpacePie on the Applications folder to install it", NSFont.systemFont(ofSize: 12), MUTED, centerX: W / 2, top: 78)
     // Arrow between the two icons (128 px icons: their edges are 64 from the centres).
     let y = appCenter.y, x0 = appCenter.x + 64 + 26, x1 = linkCenter.x - 64 - 26
     ACCENT.setStroke()
@@ -68,7 +68,7 @@ if args.count == 4 && args[1] == "background", let scale = Double(args[3]) {
     let size = n[4]
     render(2, args[9]) {
         bg.draw(in: NSRect(x: 0, y: 0, width: W, height: H), from: .zero, operation: .copy, fraction: 1, respectFlipped: true, hints: nil)
-        for (path, cx, cy, label) in [(args[3], n[0], n[1], "Disk Space Analyzer"), ("/Applications", n[2], n[3], "Applications")] {
+        for (path, cx, cy, label) in [(args[3], n[0], n[1], "SpacePie"), ("/Applications", n[2], n[3], "Applications")] {
             let icon = NSWorkspace.shared.icon(forFile: path)
             icon.draw(in: NSRect(x: cx - size / 2, y: cy - size / 2, width: size, height: size), from: .zero, operation: .sourceOver,
                       fraction: 1, respectFlipped: true, hints: nil)

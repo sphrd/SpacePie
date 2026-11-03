@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>A fixed drive: free and total space, and the health of the physical disk under it when Windows reports it.</summary>
     internal sealed class DriveHealth

@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>Screenshot mode (--cli screenshot): after the first scan, every view is opened and saved as a PNG, then the app closes.</summary>
     internal sealed partial class MainForm
@@ -477,7 +477,7 @@ namespace DiskSpaceAnalyzer
                     string xml = Elevation.TaskXml(exe, System.Security.Principal.WindowsIdentity.GetCurrent().User.Value);
                     bool def = SamePath(Elevation.ParseCommand(xml), exe) && xml.Contains("<RunLevel>HighestAvailable</RunLevel>") &&
                                xml.Contains("<LogonType>InteractiveToken</LogonType>") && xml.Contains("--from-task") && !xml.Contains("<Triggers>");
-                    string af = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"DiskSpaceAnalyzer\task-args.txt");
+                    string af = AppData.Path("task-args.txt");
                     Directory.CreateDirectory(Path.GetDirectoryName(af));
                     File.WriteAllLines(af, new[] { @"D:\some folder" });
                     var got = Elevation.TakeTaskArgs();
@@ -486,7 +486,7 @@ namespace DiskSpaceAnalyzer
                     bool realOk = true;
                     if (Elevation.IsAdmin)
                     {
-                        Elevation.TaskName = "Disk Space Analyzer selftest";
+                        Elevation.TaskName = "SpacePie selftest";
                         try
                         {
                             string e1 = Elevation.Enable();
@@ -495,9 +495,37 @@ namespace DiskSpaceAnalyzer
                             realOk = e1 == null && SamePath(target, exe) && e2 == null && Elevation.TaskTarget() == null;
                             real = realOk ? "test task created, pointed at this exe, removed" : string.Format("create: {0}, target: {1}, remove: {2}", e1 ?? "ok", target ?? "none", e2 ?? "ok");
                         }
-                        finally { string o2; Elevation.Schtasks("/delete /tn \"Disk Space Analyzer selftest\" /f", out o2); Elevation.TaskName = Elevation.DefaultTaskName; }
+                        finally { string o2; Elevation.Schtasks("/delete /tn \"SpacePie selftest\" /f", out o2); Elevation.TaskName = Elevation.DefaultTaskName; }
                     }
                     check(def && handed && realOk, "always as administrator: task runs this exe elevated on demand only; arguments handed over; " + real);
+                    // Renamed from Disk Space Analyzer: a task still under the 1.x name keeps working and, once the app runs
+                    // elevated, is replaced by one under the new name. Only where the option is not set up for real (CI).
+                    if (Elevation.IsAdmin && !Elevation.MarkedOn && Elevation.TaskTarget() == null)
+                    {
+                        const string legacy = "Disk Space Analyzer (as administrator)";
+                        string lx = Path.Combine(Path.GetTempPath(), "spacepie-legacy-" + Guid.NewGuid().ToString("N") + ".xml");
+                        string marker = AppData.Path("always-admin"), o3;
+                        try
+                        {
+                            File.WriteAllText(lx, xml, System.Text.Encoding.Unicode);
+                            bool made = Elevation.Schtasks("/create /tn \"" + legacy + "\" /xml \"" + lx + "\" /f", out o3) == 0;
+                            File.WriteAllText(marker, exe);
+                            bool seen = Elevation.IsOnForThisCopy();
+                            Elevation.MigrateLegacyTask();
+                            bool legacyGone = Elevation.Schtasks("/query /tn \"" + legacy + "\"", out o3) != 0;
+                            bool renamed = Elevation.Schtasks("/query /tn \"" + Elevation.DefaultTaskName + "\"", out o3) == 0 && Elevation.IsOnForThisCopy();
+                            check(made && seen && legacyGone && renamed, string.Format(
+                                "always as administrator: a task under the 1.x name is used, then replaced by \"{0}\" (made {1}, used {2}, old removed {3}, new {4})",
+                                Elevation.DefaultTaskName, made, seen, legacyGone, renamed));
+                        }
+                        finally
+                        {
+                            Elevation.Schtasks("/delete /tn \"" + legacy + "\" /f", out o3);
+                            Elevation.Schtasks("/delete /tn \"" + Elevation.DefaultTaskName + "\" /f", out o3);
+                            try { File.Delete(marker); } catch (Exception) { }
+                            try { File.Delete(lx); } catch (Exception) { }
+                        }
+                    }
                 }
                 // Prompts are the themed dialog: warning sign, the full list in a scrollable box, a red primary button.
                 using (var dlg = new AlertForm(AlertIcon.Danger, "Delete 30 items permanently?", "Test", null,

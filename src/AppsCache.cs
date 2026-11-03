@@ -4,11 +4,11 @@ using System.IO;
 using System.Linq;
 using Microsoft.Win32;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// The installed-apps list as last read (names, versions, folders, uninstall keys, sizes, logos), so the Apps tab shows
-    /// it at once on the next start while it is read again in the background. %LOCALAPPDATA%\DiskSpaceAnalyzer\apps.bin.
+    /// it at once on the next start while it is read again in the background. %LOCALAPPDATA%\SpacePie\apps.bin.
     /// </summary>
     internal static class AppsCache
     {
@@ -17,7 +17,7 @@ namespace DiskSpaceAnalyzer
 
         static string FilePath
         {
-            get { return FileOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"DiskSpaceAnalyzer\apps.bin"); }
+            get { return FileOverride ?? AppData.Path("apps.bin"); }
         }
 
         public static void Save(List<InstalledApp> apps)

@@ -3,10 +3,11 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
-    /// Scan files: a whole scan (every folder and file with sizes and dates, compressed) saved as a .dsascan file, to keep
+    /// Scan files: a whole scan (every folder and file with sizes and dates, compressed) saved as a .spacepie file (1.x:
+    /// .dsascan, still opened), to keep
     /// it, compare later or send it to someone. Opened again it shows as a read-only entry in the tree, below the drives:
     /// every view works on it, but nothing is rescanned, watched or deleted.
     /// </summary>
@@ -30,7 +31,8 @@ namespace DiskSpaceAnalyzer
             using (var dlg = new OpenFileDialog
             {
                 Title = "Open a saved scan",
-                Filter = "Disk Space Analyzer scan (*" + Snapshot.ScanFileExtension + ")|*" + Snapshot.ScanFileExtension,
+                Filter = "SpacePie scan (*" + Snapshot.ScanFileExtension + ";*" + Snapshot.LegacyScanFileExtension + ")|*" +
+                         Snapshot.ScanFileExtension + ";*" + Snapshot.LegacyScanFileExtension,
                 CheckFileExists = true
             })
             {
@@ -41,7 +43,8 @@ namespace DiskSpaceAnalyzer
 
         static bool IsScanFile(string path)
         {
-            return path != null && path.EndsWith(Snapshot.ScanFileExtension, StringComparison.OrdinalIgnoreCase) && File.Exists(path);
+            return path != null && File.Exists(path) && (path.EndsWith(Snapshot.ScanFileExtension, StringComparison.OrdinalIgnoreCase) ||
+                                                         path.EndsWith(Snapshot.LegacyScanFileExtension, StringComparison.OrdinalIgnoreCase));
         }
 
         async void OpenScanFile(string file)
@@ -56,7 +59,7 @@ namespace DiskSpaceAnalyzer
             if (info == null || info.Node == null)
             {
                 statusLabel.Text = "";
-                Alert(AlertIcon.Warn, "This is not a scan file", file + " could not be read as a Disk Space Analyzer scan (or it is damaged).", null, null, "OK");
+                Alert(AlertIcon.Warn, "This is not a scan file", file + " could not be read as a SpacePie scan (or it is damaged).", null, null, "OK");
                 return;
             }
             var r = new ScanRoot

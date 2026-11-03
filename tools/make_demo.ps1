@@ -1,7 +1,7 @@
 # Builds a demo folder tree of SPARSE files (they report large sizes but take almost no disk space), for README
 # screenshots that never show a real computer:
 #   .\tools\make_demo.ps1 C:\Demo
-#   DiskSpaceAnalyzer.exe --cli screenshot <out folder> C:\Demo --demo
+#   SpacePie.exe --cli screenshot <out folder> C:\Demo --demo
 #   .\tools\make_demo.ps1 C:\Demo -Remove
 param([Parameter(Mandatory)] [string] $Root, [switch] $Remove)
 $ErrorActionPreference = 'Stop'

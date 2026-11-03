@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>Windows' own Properties dialog, and pictures of files from the shell (thumbnails or icons).</summary>
     internal static class Shell

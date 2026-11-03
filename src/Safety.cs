@@ -7,7 +7,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// What Windows really does with "Move to Recycle Bin": an item larger than the drive's Recycle Bin, any item on a drive

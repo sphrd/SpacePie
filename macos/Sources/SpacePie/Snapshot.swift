@@ -16,24 +16,25 @@ struct SnapshotInfo {
 
 /// Compact binary copy of a full scan (every folder with its own files, i.e. the tree and the file index the Files and
 /// Duplicates views search) plus the FSEvents event id from when the scan started, in
-/// ~/Library/Application Support/DiskSpaceAnalyzer/snapshots/<hash of the root>.bin. The next start shows it at once and
+/// ~/Library/Application Support/SpacePie/snapshots/<hash of the root>.bin. The next start shows it at once and
 /// lets FSEvents replay what changed since (Replay). Only the 10 most recently written roots are kept; a file of another
 /// version is deleted. Layout: magic, version (both u32, uncompressed), then LZFSE: header, then the folders in pre-order
 /// (name, modified, flags, files, number of children); numbers are varints. Version 2 adds the drive's capacity (total,
 /// free) to the header and each file's last-access time; version 1 files are still read. A scan file the user saves
-/// (Export > Scan file, *.dsascan) is "DSASCAN1" followed by exactly such a snapshot.
+/// (Export > Scan file, *.spacepie; 1.x: *.dsascan) is "DSASCAN1" followed by exactly such a snapshot.
 enum Snapshot {
     static let magic: UInt32 = 0x53415344      // "DSAS"
     static let version: UInt32 = 2             // 2: last-access times and the drive's capacity
     static let keep = 10
     static var folderOverride: String?         // self-test
     static let scanFileMagic: [UInt8] = Array("DSASCAN1".utf8)
-    static let scanFileExtension = "dsascan"
+    static let scanFileExtension = "spacepie"
+    /// Scan files saved by versions 1.x (Disk Space Analyzer): the same format, still opened.
+    static let legacyScanFileExtension = "dsascan"
 
     static var folder: String {
         if let f = folderOverride { return f }
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.path ?? NSHomeDirectory() + "/Library/Application Support"
-        return base + "/DiskSpaceAnalyzer/snapshots"
+        return AppData.path("snapshots")
     }
 
     static func file(for rootPath: String) -> String {

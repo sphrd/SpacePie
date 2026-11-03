@@ -3,37 +3,41 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("Disk Space Analyzer")]
+[assembly: AssemblyTitle("SpacePie")]
 [assembly: AssemblyDescription("Fast disk space analyzer and cleaner for Windows")]
-[assembly: AssemblyProduct("Disk Space Analyzer")]
+[assembly: AssemblyProduct("SpacePie")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 sphrd - MIT License")]
 [assembly: AssemblyVersion("2.0.0.0")]
 [assembly: AssemblyFileVersion("2.0.0.0")]
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     internal static class Program
     {
         [STAThread]
         static int Main(string[] args)
         {
-            // Headless mode: DiskSpaceAnalyzer.exe --cli scan <folder>  (--scan <folder> is kept as an alias)
+            // Headless mode: SpacePie.exe --cli scan <folder>  (--scan <folder> is kept as an alias)
             if (args.Length >= 1 && args[0] == "--cli" && !(args.Length >= 4 && args[1] == "screenshot") && !(args.Length == 3 && args[1] == "selftest")) return Headless(args);
             if (args.Length == 2 && args[0] == "--scan") return Headless(new[] { "--cli", "scan", args[1] });
+            // First start after the rename from Disk Space Analyzer: move its data folder before anything reads it.
+            var dataDir = AppData.Dir;
             // Elevated helper started by the About window (one UAC prompt): turn "Always start as administrator" on or off.
             if (args.Length == 2 && args[0] == "--admin-task") return (args[1] == "on" ? Elevation.Enable() : Elevation.Disable()) == null ? 0 : 1;
-            // Splash preview (look at it for as long as you like): DiskSpaceAnalyzer.exe --splash
+            // Splash preview (look at it for as long as you like): SpacePie.exe --splash
             if (args.Length == 1 && args[0] == "--splash") { Application.EnableVisualStyles(); Splash.Preview(); return 0; }
             // Started by the task (elevated): the arguments of the normal start come through a file.
             if (args.Length == 1 && args[0] == "--from-task") args = Elevation.TakeTaskArgs();
             // Normal start with "Always start as administrator" on: run the task (no prompt) and let it open the window.
             else if ((args.Length == 0 || !args[0].StartsWith("--")) && Elevation.TryStartElevated(args)) return 0;
 
-            try { SetCurrentProcessExplicitAppUserModelID("sphrd.DiskSpaceAnalyzer"); } catch (Exception) { }
+            try { SetCurrentProcessExplicitAppUserModelID("sphrd.SpacePie"); } catch (Exception) { }
+            // Elevated with the option on: replace a task still named after Disk Space Analyzer (background, no prompt).
+            if (Elevation.MarkedOn && Elevation.IsAdmin) System.Threading.ThreadPool.QueueUserWorkItem(_ => Elevation.MigrateLegacyTask());
             Updater.CleanUp();   // the exe replaced by the last update, if any
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            // Screenshots of every view (for checks and documentation): DiskSpaceAnalyzer.exe --cli screenshot <out folder> <path to scan> [--demo]
+            // Screenshots of every view (for checks and documentation): SpacePie.exe --cli screenshot <out folder> <path to scan> [--demo]
             // --demo shows the scanned folder as a made-up drive and hides this computer's drives (for README pictures).
             if (args.Length >= 4 && args[0] == "--cli" && args[1] == "screenshot")
             {
@@ -41,7 +45,7 @@ namespace DiskSpaceAnalyzer
                 return 0;
             }
             // End-to-end self-test of live updates, the delete list, Recycle Bin, contents-only delete, duplicates and export:
-            // DiskSpaceAnalyzer.exe --cli selftest <empty scratch folder>   (exit code 0 = passed; details in selftest.log there)
+            // SpacePie.exe --cli selftest <empty scratch folder>   (exit code 0 = passed; details in selftest.log there)
             if (args.Length == 3 && args[0] == "--cli" && args[1] == "selftest")
             {
                 var form = new MainForm(SelfTest.Prepare(args[2])) { SelfTestDir = System.IO.Path.GetFullPath(args[2]) };
@@ -56,7 +60,7 @@ namespace DiskSpaceAnalyzer
             catch (Exception ex)
             {
                 Splash.End(null);
-                MessageBox.Show(ex.ToString(), "Disk Space Analyzer - startup error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(ex.ToString(), "SpacePie - startup error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return 1;
             }
             return 0;
@@ -72,14 +76,14 @@ namespace DiskSpaceAnalyzer
             {
                 if (args.Length >= 3 && args[1] == "scan") return ConsoleScan(args[2], Array.IndexOf(args, "--mft") > 0, Array.IndexOf(args, "--files") > 0);
                 Console.WriteLine();
-                Console.WriteLine("Usage: DiskSpaceAnalyzer.exe --cli scan <folder> [--mft] [--files]");
+                Console.WriteLine("Usage: SpacePie.exe --cli scan <folder> [--mft] [--files]");
                 Console.WriteLine("  --mft    read a whole NTFS drive from its master file table (needs administrator rights)");
                 Console.WriteLine("  --files  also list the 10 largest files");
                 return 2;
             }
             catch (Exception ex)
             {
-                try { System.IO.File.WriteAllText("DiskSpaceAnalyzer_error.txt", ex.ToString()); } catch (Exception) { }
+                try { System.IO.File.WriteAllText("SpacePie_error.txt", ex.ToString()); } catch (Exception) { }
                 Console.Error.WriteLine("Failed: " + ex.Message.Split('\n')[0]);
                 return 1;
             }

@@ -27,7 +27,7 @@ final class SplashView: NSView {
         Theme.fillRound(bounds, SplashView.radius, fill: T.SURFACE)
         Theme.fillRound(bounds.insetBy(dx: 2, dy: 2), SplashView.radius - 2, fill: T.BG)
         Theme.drawLogoGlow(in: NSRect(x: 36, y: 44, width: 96, height: 96))
-        let name = "Disk Space Analyzer"
+        let name = "SpacePie"
         let nameWidth = bounds.width - 192
         var size: CGFloat = 30
         var font = NSFont.boldSystemFont(ofSize: size)
@@ -105,7 +105,7 @@ final class SplashWindow: NSWindow {
         hasShadow = true
         isReleasedWhenClosed = false
         level = .floating
-        title = "Disk Space Analyzer"
+        title = "SpacePie"
         contentView = view
     }
 

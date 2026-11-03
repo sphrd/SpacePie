@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32.SafeHandles;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// Duplicates: replace extra copies with hard links to the copy that is kept. Every path stays and opens the same

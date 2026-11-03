@@ -6,7 +6,7 @@ using System.Drawing.Drawing2D;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// Splash shown from the first moment of a normal start until the main window is on screen. It runs on its own thread
@@ -18,7 +18,7 @@ namespace DiskSpaceAnalyzer
     /// </summary>
     internal sealed class Splash : Form
     {
-        const string AppName = "Disk Space Analyzer";
+        const string AppName = "SpacePie";
         const string Description = "Fast, free and open-source disk space analyzer and cleaner";
         const int LogLines = 4;
 
@@ -36,7 +36,7 @@ namespace DiskSpaceAnalyzer
         bool preview;
 
         /// <summary>
-        /// DiskSpaceAnalyzer.exe --splash: shows the splash (animated) until it is clicked or Esc is pressed, to look at it
+        /// SpacePie.exe --splash: shows the splash (animated) until it is clicked or Esc is pressed, to look at it
         /// for as long as you like; the main window is not opened.
         /// </summary>
         public static void Preview()
@@ -149,8 +149,8 @@ namespace DiskSpaceAnalyzer
             pillFont = Px(12f, FontStyle.Bold);
             descFont = Px(14f, FontStyle.Regular);
             logFont = Px(12f, FontStyle.Regular);
-            var v = typeof(Splash).Assembly.GetName().Version;
-            version = v.Build > 0 ? string.Format("v{0}.{1}.{2}", v.Major, v.Minor, v.Build) : string.Format("v{0}.{1}", v.Major, v.Minor);
+            // Same form as the status line and the releases (v2.0.0, never v2.0).
+            version = "v" + Updater.Short(Updater.Current);
             anim = new System.Windows.Forms.Timer { Interval = 30 };
             anim.Tick += (o, e) => Invalidate();
         }

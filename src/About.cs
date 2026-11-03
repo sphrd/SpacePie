@@ -4,7 +4,7 @@ using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// The app's small dialog frame, shared by About and the update window so they always look the same:
@@ -106,7 +106,7 @@ namespace DiskSpaceAnalyzer
         internal readonly List<RoundButton> Buttons = new List<RoundButton>();
 
         public AlertForm(AlertIcon icon, string heading, string body, string note, IList<string> details, params string[] buttons)
-            : base("Disk Space Analyzer")
+            : base("SpacePie")
         {
             this.icon = icon;
             bool hasDetails = details != null && details.Count > 0;
@@ -298,7 +298,7 @@ namespace DiskSpaceAnalyzer
     /// <summary>About window: logo, name, version, author, description and licence, repository link, speed tip, shortcuts.</summary>
     internal sealed class AboutForm : AppDialog
     {
-        const string RepoUrl = "https://github.com/sphrd/DiskSpaceAnalyzer";
+        const string RepoUrl = "https://github.com/sphrd/SpacePie";
 
         static readonly string[,] Shortcuts =
         {
@@ -318,19 +318,19 @@ namespace DiskSpaceAnalyzer
         static string AlwaysAdminText(bool on)
         {
             return on
-                ? "On: Disk Space Analyzer starts as administrator every time, without a prompt."
+                ? "On: SpacePie starts as administrator every time, without a prompt."
                 : "Start as administrator every time without a prompt: Windows asks once to set this up (a scheduled task); turn it off here.";
         }
 
-        public AboutForm(Action checkForUpdates) : base("About Disk Space Analyzer")
+        public AboutForm(Action checkForUpdates) : base("About SpacePie")
         {
             ClientSize = new Size(Theme.S(560), ClientSize.Height);
             int y = ContentTop;
-            AddLabel("Disk Space Analyzer", HeadingFont, Theme.FG, ref y, Theme.S(4));
+            AddLabel("SpacePie", HeadingFont, Theme.FG, ref y, Theme.S(4));
             AddLabel("Version " + Updater.Short(Updater.Current), Theme.FONT, Theme.FG, ref y, Theme.S(2));
             AddLabel("Author: sphrd", Theme.FONT, Theme.FG, ref y, Theme.S(12));
             AddLabel("Fast disk space analyzer and cleaner for Windows.\nFree and open source (MIT licence).", Theme.FONT_9, Theme.MUTED, ref y, Theme.S(8));
-            var link = AddLabel("github.com/sphrd/DiskSpaceAnalyzer", Theme.FONT_9, Theme.ACCENT, ref y, 0);
+            var link = AddLabel("github.com/sphrd/SpacePie", Theme.FONT_9, Theme.ACCENT, ref y, 0);
             link.Cursor = Cursors.Hand;
             link.MouseEnter += (s, e) => link.ForeColor = Theme.ACCENT_ACTIVE;
             link.MouseLeave += (s, e) => link.ForeColor = Theme.ACCENT;
@@ -387,7 +387,7 @@ namespace DiskSpaceAnalyzer
         readonly Label heading, body;
         double fraction = -1;
 
-        public UpdateForm() : base("Disk Space Analyzer - updates")
+        public UpdateForm() : base("SpacePie - updates")
         {
             int y = ContentTop;
             heading = AddLabel(" ", HeadingFont, Theme.FG, ref y, Theme.S(8));

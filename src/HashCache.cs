@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// Remembered content hashes for the duplicate finder, so a repeat search reads only new or changed files. A file is
     /// known by its path, length and modification time (any change makes it unknown); the entry also keeps the file's
     /// identity (volume and file index) to recognise hard links without opening it. Entries not seen for 90 days are dropped,
-    /// at most 2 million are kept (most recently seen first). Stored in %LOCALAPPDATA%\DiskSpaceAnalyzer\hashes.bin.
+    /// at most 2 million are kept (most recently seen first). Stored in %LOCALAPPDATA%\SpacePie\hashes.bin.
     /// </summary>
     internal static class HashCache
     {
@@ -29,7 +29,7 @@ namespace DiskSpaceAnalyzer
 
         static string FilePath
         {
-            get { return FileOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"DiskSpaceAnalyzer\hashes.bin"); }
+            get { return FileOverride ?? AppData.Path("hashes.bin"); }
         }
 
         static int Today { get { return (int)(DateTime.UtcNow - new DateTime(2000, 1, 1)).TotalDays; } }

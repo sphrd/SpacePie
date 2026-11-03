@@ -79,7 +79,7 @@ extension MainWindowController {
         }
         if let e = error {
             let msg = (e[NSAppleScript.errorMessage] as? String) ?? "Finder did not answer."
-            statusLabel.stringValue = "Get Info failed: " + msg + " (allow Disk Space Analyzer to control Finder in System Settings > Privacy & Security > Automation)"
+            statusLabel.stringValue = "Get Info failed: " + msg + " (allow SpacePie to control Finder in System Settings > Privacy & Security > Automation)"
         }
     }
 }

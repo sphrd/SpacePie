@@ -6,7 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>
     /// Fast restart: the scan of a drive is saved when the app closes (the whole tree with every file, compressed) together
@@ -14,7 +14,7 @@ namespace DiskSpaceAnalyzer
     /// the saved scan shows at once; then, as administrator and when the journal still holds everything since that position,
     /// only the files and folders changed since are read again (through the live-update code). Otherwise a normal scan runs
     /// in the background while the saved one is browsed. Kept for the 4 most recent drives in
-    /// %LOCALAPPDATA%\DiskSpaceAnalyzer\snapshots.
+    /// %LOCALAPPDATA%\SpacePie\snapshots.
     /// </summary>
     internal static unsafe class Snapshot
     {
@@ -24,7 +24,7 @@ namespace DiskSpaceAnalyzer
 
         static string Dir
         {
-            get { return DirOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"DiskSpaceAnalyzer\snapshots"); }
+            get { return DirOverride ?? AppData.Path("snapshots"); }
         }
 
         static string FileFor(string root)
@@ -57,7 +57,9 @@ namespace DiskSpaceAnalyzer
 
         /// <summary>A scan file saved by the user (Save scan) starts with this, then the snapshot.</summary>
         static readonly byte[] ScanFileMagic = Encoding.ASCII.GetBytes("DSASCAN1");
-        public const string ScanFileExtension = ".dsascan";
+        public const string ScanFileExtension = ".spacepie";
+        /// <summary>Scan files saved by versions 1.x (Disk Space Analyzer): the same format, still opened.</summary>
+        public const string LegacyScanFileExtension = ".dsascan";
 
         /// <summary>Saves a scan as a file the user can keep, send and open later (read-only).</summary>
         public static void SaveTo(string file, string root, DirNode node, DateTime scanned, long total, long free)

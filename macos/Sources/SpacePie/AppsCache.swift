@@ -2,13 +2,13 @@ import AppKit
 
 /// The installed-apps list as last read (names, versions, bundles, ids, sizes, icons), so the Apps tab shows it at once
 /// on the next start while it is read again in the background.
-/// ~/Library/Application Support/DiskSpaceAnalyzer/apps.plist (binary plist).
+/// ~/Library/Application Support/SpacePie/apps.plist (binary plist).
 enum AppsCache {
     static let version = 1
     static var fileOverride: String?      // self-test
 
     static var filePath: String {
-        fileOverride ?? PathUtil.home + "/Library/Application Support/DiskSpaceAnalyzer/apps.plist"
+        fileOverride ?? AppData.path("apps.plist")
     }
 
     struct Entry: Codable {

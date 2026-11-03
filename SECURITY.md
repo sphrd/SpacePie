@@ -16,11 +16,11 @@ reporting.
 Every release lists the SHA-256 hash of each file in its notes. Compare it before running the file:
 
 ```powershell
-Get-FileHash .\DiskSpaceAnalyzer.exe
+Get-FileHash .\SpacePie.exe
 ```
 
 ```bash
-shasum -a 256 DiskSpaceAnalyzer-macOS.dmg
+shasum -a 256 SpacePie-macOS.dmg
 ```
 
 The built-in updater checks the same hash (published by GitHub for the release file) before it replaces the app.

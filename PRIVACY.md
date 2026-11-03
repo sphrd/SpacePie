@@ -1,6 +1,6 @@
 # Privacy
 
-Disk Space Analyzer runs on your computer and keeps what it learns there. It has no account, no telemetry, no
+SpacePie runs on your computer and keeps what it learns there. It has no account, no telemetry, no
 analytics and no advertising.
 
 ## What it reads
@@ -22,7 +22,8 @@ downloaded.
 
 ## What it keeps on your computer
 
-Windows: `%LOCALAPPDATA%\DiskSpaceAnalyzer`. macOS: `~/Library/Application Support/DiskSpaceAnalyzer`.
+Windows: `%LOCALAPPDATA%\SpacePie`. macOS: `~/Library/Application Support/SpacePie`. (Version 1.x, then called Disk
+Space Analyzer, used `DiskSpaceAnalyzer` folders; SpacePie moves them on its first start.)
 
 | What | Why | How much |
 |---|---|---|
@@ -33,20 +34,20 @@ Windows: `%LOCALAPPDATA%\DiskSpaceAnalyzer`. macOS: `~/Library/Application Suppo
 | `registry-backups\` (Windows) | a `.reg` backup of every registry key the app removes | until you delete them |
 | `treemap`, `always-admin`, `task-args.txt` (Windows) | your chart choice and the "Always start as administrator" setting | a few bytes |
 
-Delete the folder to remove all of it. Scan files you save yourself (`.dsascan`) are wherever you saved them.
+Delete the folder to remove all of it. Scan files you save yourself (`.spacepie`) are wherever you saved them.
 
 ## What it changes
 
 Nothing, unless you ask: deleting (to the Recycle Bin / Trash or permanently, always after a confirmation that lists
 every item), uninstalling an app, the System tab's clean-up actions, replacing duplicates with links, and turning
-"Always start as administrator" on or off (a scheduled task named "Disk Space Analyzer (as administrator)").
+"Always start as administrator" on or off (a scheduled task named "SpacePie (as administrator)").
 
 ## Network
 
 The only network requests go to GitHub, for updates:
 
 - at start (after 3 seconds) and when you press **Check for updates**:
-  `https://api.github.com/repos/sphrd/DiskSpaceAnalyzer/releases/latest`
+  `https://api.github.com/repos/sphrd/SpacePie/releases/latest`
 - when you press **Update now**: the release file from `github.com`.
 
 GitHub sees your IP address and the app's version in the request header, like for any download. Nothing about your
@@ -57,8 +58,8 @@ files or your computer is sent.
 The source is in this repository. Every web address in it:
 
 ```powershell
-Select-String -Path src\*.cs, macos\Sources\DiskSpaceAnalyzer\*.swift -Pattern 'https?://'
+Select-String -Path src\*.cs, macos\Sources\SpacePie\*.swift -Pattern 'https?://'
 ```
 
 and every place that opens a network connection (`HttpWebRequest` / `WebClient` on Windows, `URLSession` on macOS)
-is in `src/Updater.cs` and `macos/Sources/DiskSpaceAnalyzer/Updater.swift`.
+is in `src/Updater.cs` and `macos/Sources/SpacePie/Updater.swift`.

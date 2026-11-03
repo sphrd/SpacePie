@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     internal sealed class ReleaseInfo
     {
@@ -27,8 +27,8 @@ namespace DiskSpaceAnalyzer
     /// </summary>
     internal static class Updater
     {
-        const string Repo = "sphrd/DiskSpaceAnalyzer";
-        const string AssetName = "DiskSpaceAnalyzer.exe";
+        const string Repo = "sphrd/SpacePie";
+        const string AssetName = "SpacePie.exe";
         public const string ReleasesPage = "https://github.com/" + Repo + "/releases/latest";
 
         static Updater()
@@ -54,7 +54,7 @@ namespace DiskSpaceAnalyzer
         static HttpWebRequest Request(string url)
         {
             var req = (HttpWebRequest)WebRequest.Create(url);
-            req.UserAgent = "DiskSpaceAnalyzer/" + Short(Current);   // GitHub rejects requests without a User-Agent
+            req.UserAgent = "SpacePie/" + Short(Current);   // GitHub rejects requests without a User-Agent
             req.Timeout = 15000;
             req.ReadWriteTimeout = 30000;
             return req;
@@ -89,7 +89,7 @@ namespace DiskSpaceAnalyzer
         {
             try
             {
-                string probe = Path.Combine(Path.GetDirectoryName(ExePath), ".dsa-write-test-" + Guid.NewGuid().ToString("N"));
+                string probe = Path.Combine(Path.GetDirectoryName(ExePath), ".spacepie-write-test-" + Guid.NewGuid().ToString("N"));
                 File.WriteAllText(probe, "");
                 File.Delete(probe);
                 return true;

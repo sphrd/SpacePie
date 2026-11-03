@@ -78,17 +78,17 @@ class AppDialog: NSWindowController, NSWindowDelegate {
 
 /// About window: logo, name, version, author, description and licence, repository link.
 final class AboutWindow: AppDialog {
-    static let repoURL = URL(string: "https://github.com/sphrd/DiskSpaceAnalyzer")!
+    static let repoURL = URL(string: "https://github.com/sphrd/SpacePie")!
 
     convenience init(checkForUpdates: @escaping () -> Void) {
-        self.init(title: "About Disk Space Analyzer")
+        self.init(title: "About SpacePie")
         resize(width: 540, height: 600)
         var y: CGFloat = 26
-        addLabel("Disk Space Analyzer", NSFont.boldSystemFont(ofSize: 20), T.FG, y: &y, height: 28, gapAfter: 4)
+        addLabel("SpacePie", NSFont.boldSystemFont(ofSize: 20), T.FG, y: &y, height: 28, gapAfter: 4)
         addLabel("Version \(Updater.currentString)", Theme.font, T.FG, y: &y, height: 19)
         addLabel("Author: sphrd", Theme.font, T.FG, y: &y, height: 19, gapAfter: 10)
         addLabel("Fast disk space analyzer and cleaner for macOS.\nFree and open source (MIT licence).", Theme.font9, T.MUTED, y: &y, height: 34, gapAfter: 6)
-        let link = LinkLabel("github.com/sphrd/DiskSpaceAnalyzer") { NSWorkspace.shared.open(AboutWindow.repoURL) }
+        let link = LinkLabel("github.com/sphrd/SpacePie") { NSWorkspace.shared.open(AboutWindow.repoURL) }
         link.frame = NSRect(x: AppDialog.contentX, y: y, width: 300, height: 17)
         root.addSubview(link)
         y += 17 + 18
@@ -119,7 +119,7 @@ final class UpdateWindow: AppDialog {
     private let bar = ProgressPill()
 
     convenience init() {
-        self.init(title: "Disk Space Analyzer - updates")
+        self.init(title: "SpacePie - updates")
         var y: CGFloat = 26
         heading = addLabel(" ", NSFont.boldSystemFont(ofSize: 20), T.FG, y: &y, height: 28, gapAfter: 8)
         body = addLabel(" ", Theme.font, T.FG, y: &y, height: 60)

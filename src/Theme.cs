@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 
-namespace DiskSpaceAnalyzer
+namespace SpacePie
 {
     /// <summary>Design language: palette, fonts and shared drawing helpers. New UI code uses only these names.</summary>
     internal static class Theme

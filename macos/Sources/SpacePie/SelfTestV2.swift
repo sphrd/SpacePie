@@ -174,10 +174,16 @@ extension SelfTestRun {
             let label = ro?.displayName ?? ""
             w.closeSavedScan(ro)
             let closed = !w.roots.contains { $0.readOnly }
+            // A scan file saved by Disk Space Analyzer 1.x (.dsascan, same format) is still recognized and read.
+            let legacyFile = self.dir + "." + Snapshot.legacyScanFileExtension
+            try? fm.removeItem(atPath: legacyFile)
+            try? fm.copyItem(atPath: savedFile, toPath: legacyFile)
+            let legacy = MainWindowController.isScanFile(legacyFile) && Snapshot.loadScanFile(legacyFile) != nil
             try? fm.removeItem(atPath: savedFile)
+            try? fm.removeItem(atPath: legacyFile)
             if let t = self.root { w.selectDir(t) }
-            self.check(same && separate && guarded && closed && label.contains("(saved scan, "),
-                       "scan file: saved and read back identical (\(same)), opened read-only beside the live scan (\(separate)), its items can't be deleted (\(guarded)), closed (\(closed))")
+            self.check(same && separate && guarded && closed && legacy && label.contains("(saved scan, "),
+                       "scan file: saved and read back identical (\(same)), opened read-only beside the live scan (\(separate)), its items can't be deleted (\(guarded)), closed (\(closed)), 1.x .dsascan still opens (\(legacy))")
         }
 
         // History: every scan adds a timeline point; one small copy is kept per day for comparisons.
