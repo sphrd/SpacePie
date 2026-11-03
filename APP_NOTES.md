@@ -724,3 +724,4 @@ patterns (Part 3) are applied through the WinForms mapping below.
 - v2.1.0 (2026-11-03): views bar on the left (icon + name, scrolls) instead of tabs and the folder tree; Contents as a tree-list
   with This PC / This Mac above the drives (only drives count their used space); Delete list button next to Delete
   permanently; slim closable unreadable-folders line; full text on hover for everything cut off; website refresh.
+- v2.1.1 (2026-11-03): Delete list (amber) left of Delete permanently (red); every list sorts by every column, groups stay together and the order survives refills.
