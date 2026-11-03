@@ -390,6 +390,13 @@ patterns (Part 3) are applied through the WinForms mapping below.
   deleting files." -> rail rows 36 px (icon left, name right, 150 px wide), mouse-wheel scrolling with a thin pill;
   Delete list left the rail: a toolbar button "Delete list (n)" right of Delete permanently, accent while open; the site
   logo has no orbit.
+- 2026-11-03: "Delete list on the left of delete permanently, delete list with the yellow box color of delte permanently
+  and dlete permanently with a red color." ... "dont release. just build. also add the sort by name or other columns
+  instead of locking them on size." -> toolbar order Add to delete list | Delete list (n) (warn) | Delete permanently
+  (danger; also in the Suggestions and Delete list bars). Every list sorts by every column: `SizeListView.Grouped` lists
+  (Suggestions, Apps, System, Duplicates) move whole groups and sort members inside (`KeepMemberOrder` for Duplicates:
+  the kept newest copy stays first); `UserSorted` makes `SetRows` keep the chosen order on every refill. "Can free"
+  sorts by the chart value (key `free`), System "Action" by `Category`. No release.
 
 ## WinForms mapping of the design language
 

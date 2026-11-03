@@ -154,10 +154,12 @@ extension MainWindowController {
         btnFindDupes.tip = "Compare the files in the selected folder by content"
         btnSelectExtra.tip = "Select every copy except the newest one of each group; then add them to the delete list or delete them"
         btnClone.tip = "Select duplicate groups (or press Select extra copies) to replace their extra copies with APFS clones"
-        let p = Page("Duplicates", [Column("name", "Name", 260), Column("size", "Size", 84, true), Column("files", "Can free", 90, true),
+        let p = Page("Duplicates", [Column("name", "Name", 260), Column("size", "Size", 84, true), Column("free", "Can free", 90, true),
                                     Column("folder", "Folder", 330), Column("mod", "Modified", 128)],
                      barColumn: -1, bar: ActionBar([btnFindDupes, dupeMin, btnSelectExtra, btnClone], right: [btnSelectExtra, btnClone]))
-        p.sortable = false
+        // Sorting moves whole groups; the copies inside a group keep their order (the newest, kept by Select extra
+        // copies, first).
+        p.keepMemberOrder = true
         p.chartTitle = "Duplicates"
         p.chartScope = "of the duplicates"
         p.empty = "Press Find duplicates to compare the files in the selected folder."
@@ -259,7 +261,7 @@ extension MainWindowController {
                 rows.append(it)
             }
         }
-        p.setRows(rows, "No duplicates found in \(dupeScope).")
+        p.setRows(rows, "No duplicates found in \(dupeScope).", keepOrder: true)
         p.setCaption(groups.isEmpty ? "No duplicates found in \(Fmt.shorten(dupeScope, 80))." + dupeCacheNote
             : "\(Fmt.count(groups.count)) groups of identical files in \(Fmt.shorten(dupeScope, 60))  -  \(Fmt.size(free)) can be freed by keeping one copy of each. Newest copy first." + dupeCacheNote)
         p.chartSub = groups.isEmpty ? "" : Fmt.size(free) + " in extra copies"

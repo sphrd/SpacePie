@@ -88,6 +88,7 @@ namespace SpacePie
             var list = NewList(new[] { "Name", "Size", "% of apps", "Publisher", "Version", "Installed", "Location" },
                 new[] { "name", "size", "size", "cat", "note", "mod", "folder" }, new[] { 260, 90, 130, 170, 100, 100, 360 }, 2);
             list.GlyphClicked += AppGlyph;
+            list.Grouped = true;
             list.KeyDown += (s, e) => { if (e.KeyCode == Keys.Space) { ToggleSelectedLeftovers(); e.Handled = true; } };
             list.SelectedIndexChanged += (s, e) => UpdateAppButtons();
             var p = AddPage("Apps", list, MakeBar(refresh, appSearch, btnAppUninstall, btnAppLeftovers));

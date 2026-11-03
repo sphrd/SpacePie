@@ -111,9 +111,9 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     lazy var btnRescan = RoundButton(refresh: { [unowned self] in self.rescanSelected() })
     lazy var btnFinder = RoundButton("Show in Finder", .secondary) { [unowned self] in self.showInFinder() }
     lazy var btnAddList = RoundButton("Add to delete list", .secondary) { [unowned self] in self.addSelectionToBasket() }
-    lazy var btnDelete = RoundButton("Delete permanently", .warn) { [unowned self] in self.deleteSelected() }
+    lazy var btnDelete = RoundButton("Delete permanently", .danger) { [unowned self] in self.deleteSelected() }
     /// Opens the delete list (not in the rail); its title counts the items: "Delete list (4)".
-    lazy var btnBasket = RoundButton("Delete list", .secondary) { [unowned self] in self.showView(self.pBasket) }
+    lazy var btnBasket = RoundButton("Delete list", .warn) { [unowned self] in self.showView(self.pBasket) }
     lazy var btnExport = RoundButton("Export...", .secondary) { [unowned self] in self.exportScan() }
     lazy var btnOpenScan = RoundButton("Open scan...", .secondary) { [unowned self] in self.openScanDialog() }
     let measure = Segmented(["Size", "Size on disk"])
@@ -175,7 +175,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     lazy var btnLookAgain = RoundButton(refresh: { [unowned self] in self.suggestDirty = true; self.fillSuggestions(clear: true) })
     lazy var btnSugAll = RoundButton("Select all", .secondary) { [unowned self] in self.checkAllSuggestions(true) }
     lazy var btnSugNone = RoundButton("Deselect all", .secondary) { [unowned self] in self.checkAllSuggestions(false) }
-    lazy var btnSugDelete = RoundButton("Delete permanently", .warn) { [unowned self] in self.deleteCheckedSuggestions(trash: false) }
+    lazy var btnSugDelete = RoundButton("Delete permanently", .danger) { [unowned self] in self.deleteCheckedSuggestions(trash: false) }
     var suggestGen = 0
     var suggestions: [Suggestion]?
     var suggestDirty = false          // the scanned data changed since the suggestions were found: find them again
@@ -213,7 +213,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     lazy var btnBasketRemove = RoundButton("Remove from list", .secondary) { [unowned self] in self.removeFromBasket() }
     lazy var btnBasketClear = RoundButton("Clear list", .secondary) { [unowned self] in self.basket.removeAll(); self.basketChanged() }
     lazy var btnBasketTrash = RoundButton("Move to Trash", .secondary) { [unowned self] in self.deleteBasket(trash: true) }
-    lazy var btnBasketDelete = RoundButton("Delete permanently", .warn) { [unowned self] in self.deleteBasket(trash: false) }
+    lazy var btnBasketDelete = RoundButton("Delete permanently", .danger) { [unowned self] in self.deleteBasket(trash: false) }
     // Live updates
     var streams: [LiveStream] = []
     var fsPending: [String] = []
@@ -456,8 +456,8 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         pathPanel.needsLayout = true
         y += h + 8
         var x = m
-        for btn in [btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnDelete, btnBasket] {
-            if btn === btnDelete { x += 10 }
+        for btn in [btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnBasket, btnDelete] {
+            if btn === btnBasket { x += 10 }
             let p = btn.preferredSize
             let bw = btn.isIcon ? h : p.width
             btn.frame = NSRect(x: x, y: y, width: bw, height: h)

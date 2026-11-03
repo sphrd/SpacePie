@@ -92,6 +92,34 @@ namespace SpacePie
                 check(pc && !thisPc, "this pc: Up from the scanned folder lists the " + roots.Count + " drives and folders; Up is then disabled");
             }
 
+            // Sorting by any column: grouped lists move whole groups and sort members inside them; the order survives refills.
+            {
+                var lv = new SizeListView();
+                lv.SetColumns(new[] { "Name", "Size" }, new[] { "name", "size" }, new[] { 100, 60 });
+                lv.Grouped = true;
+                Func<List<ListViewItem>> build = () =>
+                {
+                    var rows = new List<ListViewItem>();
+                    foreach (var g in new[] { "Beta", "Alpha", "Gamma" })
+                    {
+                        var head = new ItemInfo { Name = g, Size = g.Length * 100 };
+                        rows.Add(new ListViewItem(new[] { g, "" }) { Tag = head });
+                        foreach (var m in new[] { "z", "a", "m" })
+                            rows.Add(new ListViewItem(new[] { g + m, "" }) { Tag = new ItemInfo { Name = g + "-" + m, Size = m[0], GroupOf = head } });
+                    }
+                    return rows;
+                };
+                lv.Items.AddRange(build().ToArray());
+                lv.SortBy(0);
+                Func<string> order = () => string.Join(",", lv.Items.Cast<ListViewItem>().Select(x => ((ItemInfo)x.Tag).Name));
+                string want = "Alpha,Alpha-a,Alpha-m,Alpha-z,Beta,Beta-a,Beta-m,Beta-z,Gamma,Gamma-a,Gamma-m,Gamma-z";
+                bool sorted = order() == want;
+                SetRows(lv, build(), "");
+                bool kept = order() == want;
+                lv.Dispose();
+                check(sorted && kept, "sorting: by name moves whole groups and sorts inside them (" + sorted + "), and a refill keeps the order (" + kept + ")");
+            }
+
             // Well-known folders are named, with what to do about them.
             {
                 string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);

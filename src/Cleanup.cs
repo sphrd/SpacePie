@@ -48,12 +48,13 @@ namespace SpacePie
             refresh.Glyph = Theme.DrawRefresh;
             var all = Btn("Select all", ButtonKind.Secondary, "Check every suggestion and every location in it", () => CheckAllSuggestions(true));
             var none = Btn("Deselect all", ButtonKind.Secondary, "Uncheck everything", () => CheckAllSuggestions(false));
-            btnSugDelete = Btn("Delete permanently", ButtonKind.Warn, "Delete the checked items now, bypassing the Recycle Bin (Ctrl+Shift+D)", () => DeleteCheckedSuggestions(false));
+            btnSugDelete = Btn("Delete permanently", ButtonKind.Danger, "Delete the checked items now, bypassing the Recycle Bin (Ctrl+Shift+D)", () => DeleteCheckedSuggestions(false));
             btnSugDelete.Tag = "right";
             foreach (var b in new[] { refresh, all, none, btnSugDelete }) b.Compact = true;
             var list = NewList(new[] { "Name", "Size", "% of suggestions", "Location", "What deleting means" },
                 new[] { "name", "size", "size", "folder", "note" }, new[] { 260, 90, 150, 300, 420 }, 2);
             list.GlyphClicked += SuggestionGlyph;
+            list.Grouped = true;
             list.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Space) { ToggleSelectedSuggestions(); e.Handled = true; }

@@ -74,7 +74,8 @@ namespace SpacePie
             };
             foreach (var b in sysButtons.Values) { b.Compact = true; b.Tag = "right"; b.Visible = false; }
             var list = NewList(new[] { "Name", "Size", "Can free", "What it means", "Action", "Location" },
-                new[] { "name", "size", "size", "note", "note", "folder" }, new[] { 280, 140, 90, 520, 170, 320 }, -1);
+                new[] { "name", "size", "free", "note", "cat", "folder" }, new[] { 280, 140, 90, 520, 170, 320 }, -1);
+            list.Grouped = true;
             list.ContextMenuStrip = null;
             list.GlyphClicked += SystemGlyph;
             list.SelectedIndexChanged += (s, e) => UpdateSystemButtons();
@@ -256,6 +257,7 @@ namespace SpacePie
                 };
                 string act = adminBlocked ? "needs administrator" : string.Join(" / ", g.Actions.Select(ActName));
                 if (g.Key == "drives" && g.Items.Any(i => i.Actions.Contains(SysAct.ShowSuggestions))) act = ActName(SysAct.ShowSuggestions);
+                head.Category = act;
                 var hr = Row(head, head.Name, g.Loading ? "reading..." : size > 0 ? Fmt.Size(size) : "", reclaim > 0 ? Fmt.Size(reclaim) : "",
                     g.Note, act, "");
                 int level = g.Items.Count > 0 ? g.Items.Max(i => i.Level) : 0;
@@ -280,6 +282,7 @@ namespace SpacePie
                     string sizeText = it.SizeText ?? (it.Size >= 0 ? Fmt.Size(it.Size) : "");
                     string action = blocked ? "needs administrator" : it.ActionText ?? string.Join(" / ", it.Actions.Select(ActName));
                     if (reg != null && !blocked) action = reg.Checked ? "remove (checked)" : "keep";
+                    info.Category = action;
                     var r = Row(info, it.Name, sizeText, it.Reclaim > 0 ? Fmt.Size(it.Reclaim) : "", it.Meaning, action, it.Location);
                     r.ForeColor = it.Level == 2 ? Theme.DANGER_FG : it.Level == 1 ? Theme.WARN_FG : it.Muted || blocked ? Theme.MUTED : Theme.FG;
                     rows.Add(r);

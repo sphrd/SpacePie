@@ -143,9 +143,9 @@ namespace SpacePie
             btnRescan.Glyph = Theme.DrawRefresh;
             btnExplorer = Btn("Show in Explorer", ButtonKind.Secondary, "Open the selected item in Windows Explorer", ShowInExplorer);
             btnAddList = Btn("Add to delete list", ButtonKind.Secondary, "Collect the selected items in the delete list; review them there, then delete them together (Ctrl+D)", AddSelectionToBasket);
-            btnDelete = Btn("Delete permanently", ButtonKind.Warn, "Permanently delete the selected items, bypassing the Recycle Bin (Ctrl+Shift+D)", DeleteSelected);
-            // The delete list is always one click away, next to Delete permanently (it is not in the views bar).
-            btnBasket = Btn("Delete list", ButtonKind.Secondary, "Review everything collected for deletion, then move it to the Recycle Bin or delete it permanently",
+            btnDelete = Btn("Delete permanently", ButtonKind.Danger, "Permanently delete the selected items, bypassing the Recycle Bin (Ctrl+Shift+D)", DeleteSelected);
+            // The delete list is always one click away, just left of Delete permanently (it is not in the views bar).
+            btnBasket = Btn("Delete list", ButtonKind.Warn, "Review everything collected for deletion, then move it to the Recycle Bin or delete it permanently",
                 () => { if (pBasket != null) viewTabs.SelectedIndex = pages.IndexOf(pBasket); });
             btnExport = Btn("Export...", ButtonKind.Secondary, "Save the scan as an HTML report, a CSV file, or a scan file to open again later", ExportScan);
             btnOpenScan = Btn("Open scan...", ButtonKind.Secondary, "Open a scan saved with Export (" + Snapshot.ScanFileExtension + "): browse it read-only, next to the drives", OpenScanDialog);
@@ -157,7 +157,7 @@ namespace SpacePie
             tips.SetToolTip(measure, "Size: file lengths, as Explorer shows them. Size on disk: the space really used (compression, clusters, online-only cloud files)");
 
             toolbar = new Panel { Dock = DockStyle.Top, BackColor = Theme.BG };
-            toolbar.Controls.AddRange(new Control[] { pathLabel, pathBox, btnBrowse, btnScan, btnAdmin, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnBasket, btnExport, btnOpenScan, measure });
+            toolbar.Controls.AddRange(new Control[] { pathLabel, pathBox, btnBrowse, btnScan, btnAdmin, btnUp, btnRescan, btnExplorer, btnAddList, btnBasket, btnDelete, btnExport, btnOpenScan, measure });
             toolbar.Layout += (s, e) => LayoutToolbar();
 
             // Context menu
@@ -458,9 +458,9 @@ namespace SpacePie
             pathBox.Bounds = new Rectangle(px, 0, Math.Max(S(120), btnBrowse.Left - gap - px), h);
 
             int x = 0, y = h + S(8);
-            foreach (var b in btnBack != null ? new[] { btnBack, btnForward, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnBasket } : new[] { btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnBasket })
+            foreach (var b in btnBack != null ? new[] { btnBack, btnForward, btnUp, btnRescan, btnExplorer, btnAddList, btnBasket, btnDelete } : new[] { btnUp, btnRescan, btnExplorer, btnAddList, btnBasket, btnDelete })
             {
-                if (b == btnDelete) x += groupGap - gap;
+                if (b == btnBasket) x += groupGap - gap;
                 var p = b.GetPreferredSize(Size.Empty);
                 b.Bounds = new Rectangle(x, y, p.Width, h);
                 x += p.Width + gap;

@@ -140,7 +140,7 @@ namespace SpacePie
 
             list.ColumnClick += (s, e) =>
             {
-                if (list == (pDupes != null ? pDupes.List : null) || list == (pSuggest != null ? pSuggest.List : null) || list == (pApps != null ? pApps.List : null) || list == (pSystem != null ? pSystem.List : null)) return;   // groups and trees keep their order
+                // Grouped lists (Suggestions, Apps, System, Duplicates) move whole groups; members sort inside their group.
                 list.SortBy(e.Column);
                 // Contents is a tree-list: sorted level by level, each folder keeping its expanded rows under it.
                 if (list == contents) { RefillContents(); return; }
@@ -229,7 +229,6 @@ namespace SpacePie
         {
             var p = ActivePage;
             foreach (var q in pages) q.Root.Visible = q == p;
-            if (btnBasket != null) { btnBasket.Kind = p == pBasket ? ButtonKind.Primary : ButtonKind.Secondary; btnBasket.Invalidate(); }
             if (p.Stale) { p.Stale = false; p.Fill(); }
             else RefreshChart();
             lastView = p.List;
@@ -421,6 +420,8 @@ namespace SpacePie
             lv.BeginUpdate();
             lv.ResetHover();
             lv.Items.Clear();
+            // A sort the user picked survives refills (filters, rescans, expanding a group).
+            if (lv.UserSorted && rows.Count > 1) rows = lv.Arrange(rows);
             lv.Items.AddRange(rows.ToArray());
             lv.EmptyText = rows.Count == 0 ? empty : null;
             lv.EndUpdate();

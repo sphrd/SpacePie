@@ -94,6 +94,8 @@ final class ItemInfo {
         case "change": r = cmp(a.change, b.change)
         case "cat": r = a.category.localizedStandardCompare(b.category)
         case "note": r = a.note.localizedStandardCompare(b.note)
+        case "free": r = cmp(a.chartSize, b.chartSize)
+        case "pct": r = cmp(a.percent, b.percent)
         default: r = cmp(a.size, b.size)
         }
         if r == .orderedSame && key != "size" { r = cmp(b.size, a.size) }
@@ -406,6 +408,10 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     let barColumn: Int
     var items: [ItemInfo] = []
     var sortKey = "size", ascending = false, sortable = true
+    /// Members of a group keep the order they were added in (duplicates: the newest copy, the one kept, first).
+    var keepMemberOrder = false
+    /// The user picked a sort column: refills keep that order instead of the fill's own (largest first).
+    var userSorted = false
     var stale = true, followsFolder = false
     var fill: () -> Void = {}
     var chartTitle = "", chartSub = "", chartScope = "of the list"
@@ -526,11 +532,13 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         root.needsLayout = true
     }
 
-    /// Replaces the rows (sorted by the current column unless the page keeps its own order).
+    /// Replaces the rows (sorted by the current column unless the page keeps its own order and the user has not picked
+    /// a sort column; a tree-list sorts its rows level by level itself).
     func setRows(_ rows: [ItemInfo], _ emptyText: String, keepOrder: Bool = false) {
         var rows = rows
         if let f = rowFilter { rows = Page.without(rows, f) }
-        items = sortable && !keepOrder ? sorted(rows) : rows
+        let arrange = sortable && onResort == nil && (!keepOrder || userSorted)
+        items = arrange ? sorted(rows) : rows
         table.resetHover()
         table.emptyText = rows.isEmpty ? emptyText : nil
         table.reloadData()
@@ -568,22 +576,96 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         return n
     }
 
-    /// Rows in the current sort order; members of a group (rows with groupOf) stay right under their head, sorted
-    /// among themselves.
+    /// Rows in the current sort order (stable: ties keep the fill order). Members of a group (rows with groupOf) stay
+    /// right under their head, sorted among themselves by the same column (or in their own order with
+    /// keepMemberOrder); a member whose head is not in the list is sorted with the heads.
     func sorted(_ rows: [ItemInfo]) -> [ItemInfo] {
         let key = sortKey, asc = ascending
         let pin = pinFirst
-        let less: (ItemInfo, ItemInfo) -> Bool = { a, b in
-            if let p = pin { let pa = p(a), pb = p(b); if pa != pb { return pa } }
-            return ItemInfo.compare(a, b, key, asc)
+        func ordered(_ list: [ItemInfo]) -> [ItemInfo] {
+            let indexed = Array(list.enumerated())
+            let out = indexed.sorted { x, y in
+                let a = x.element, b = y.element
+                if let p = pin { let pa = p(a), pb = p(b); if pa != pb { return pa } }
+                if ItemInfo.compare(a, b, key, asc) { return true }
+                if ItemInfo.compare(b, a, key, asc) { return false }
+                return x.offset < y.offset
+            }
+            return out.map { $0.element }
         }
-        if !rows.contains(where: { $0.groupOf != nil }) { return rows.sorted(by: less) }
+        if !rows.contains(where: { $0.groupOf != nil }) { return ordered(rows) }
         var heads: [ItemInfo] = []
         var members: [ObjectIdentifier: [ItemInfo]] = [:]
+        for r in rows where r.groupOf == nil { members[ObjectIdentifier(r)] = [] }
         for r in rows {
-            if let g = r.groupOf { members[ObjectIdentifier(g), default: []].append(r) } else { heads.append(r) }
+            if let g = r.groupOf, members[ObjectIdentifier(g)] != nil { members[ObjectIdentifier(g)]?.append(r) } else { heads.append(r) }
         }
-        return heads.sorted(by: less).flatMap { [$0] + (members[ObjectIdentifier($0)] ?? []).sorted(by: less) }
+        let keepMembers = keepMemberOrder
+        var result: [ItemInfo] = []
+        result.reserveCapacity(rows.count)
+        for h in ordered(heads) {
+            result.append(h)
+            let m = members[ObjectIdentifier(h)] ?? []
+            result.append(contentsOf: keepMembers ? m : ordered(m))
+        }
+        return result
+    }
+
+    /// Text columns start A to Z, numbers largest first.
+    static func startsAscending(_ key: String) -> Bool { key == "name" || key == "folder" || key == "cat" || key == "note" }
+
+    /// The same row after a refill made new rows (the same folder, file, drive or object).
+    static func sameRow(_ a: ItemInfo, _ b: ItemInfo) -> Bool {
+        if a === b { return true }
+        if let ra = a.scanRoot, let rb = b.scanRoot { return ra === rb }
+        if let fa = a.file, let fb = b.file { return fa === fb }
+        if a.file == nil && b.file == nil, a.isDir && b.isDir, let da = a.dir, let db = b.dir { return da === db }
+        return false
+    }
+
+    /// The row shown at the top of the list.
+    var topItem: ItemInfo? {
+        let r = table.rows(in: table.visibleRect)
+        return r.location >= 0 && r.location < items.count && r.length > 0 ? items[r.location] : nil
+    }
+
+    /// Scrolls so that row i is the top row (as far as the list can scroll).
+    func scrollToTop(_ i: Int) {
+        guard i >= 0, i < items.count else { return }
+        let shown = max(1, table.rows(in: table.visibleRect).length)
+        table.scrollRowToVisible(min(items.count - 1, i + shown - 1))
+        table.scrollRowToVisible(i)
+    }
+
+    /// Sorts the list by column i, as a click on its header does: the same column again reverses the order. The
+    /// order then stays for every refill; the top row and the selected rows stay.
+    func sortBy(_ i: Int) {
+        guard sortable, i >= 0, i < columns.count else { return }
+        let key = columns[i].key
+        if sortKey == key { ascending.toggle() } else { sortKey = key; ascending = Page.startsAscending(key) }
+        userSorted = true
+        let top = topItem
+        if let refill = onResort {
+            refill()
+        } else {
+            let sel = Set(selectedItems.map { ObjectIdentifier($0) })
+            items = sorted(items)
+            table.resetHover()
+            table.reloadData()
+            var keep = IndexSet()
+            for (n, it) in items.enumerated() where sel.contains(ObjectIdentifier(it)) { keep.insert(n) }
+            if keep != table.selectedRowIndexes { table.selectRowIndexes(keep, byExtendingSelection: false) }
+        }
+        if let t = top, let n = items.firstIndex(where: { Page.sameRow($0, t) }) { scrollToTop(n) }
+        let id = "c\(i)"
+        for c in table.tableColumns {
+            let on = c.identifier.rawValue == id
+            (c.headerCell as? DarkHeaderCell)?.active = on
+            let base = c.headerCell.stringValue.replacingOccurrences(of: "  ▲", with: "").replacingOccurrences(of: "  ▼", with: "")
+            c.headerCell.stringValue = on ? base + (ascending ? "  ▲" : "  ▼") : base
+        }
+        table.headerView?.needsDisplay = true
+        onSorted?(self)
     }
 
     var selectedItems: [ItemInfo] { table.selectedRowIndexes.compactMap { $0 < items.count ? items[$0] : nil } }
@@ -660,21 +742,8 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
-        guard sortable, let i = Int(tableColumn.identifier.rawValue.dropFirst()), i < columns.count else { return }
-        let key = columns[i].key
-        if sortKey == key { ascending.toggle() } else { sortKey = key; ascending = key == "name" || key == "folder" || key == "cat" || key == "note" }
-        if let refill = onResort { refill() } else {
-            items = sorted(items)
-            table.resetHover()
-            table.reloadData()
-        }
-        for c in tableView.tableColumns {
-            (c.headerCell as? DarkHeaderCell)?.active = c === tableColumn
-            let base = c.headerCell.stringValue.replacingOccurrences(of: "  ▲", with: "").replacingOccurrences(of: "  ▼", with: "")
-            c.headerCell.stringValue = c === tableColumn ? base + (ascending ? "  ▲" : "  ▼") : base
-        }
-        tableView.headerView?.needsDisplay = true
-        onSorted?(self)
+        guard let i = Int(tableColumn.identifier.rawValue.dropFirst()), i < columns.count else { return }
+        sortBy(i)
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) { onSelection?(self) }

@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -114,6 +115,7 @@ namespace SpacePie
                 case "change": r = a.Change.CompareTo(b.Change); break;
                 case "cat": r = string.Compare(a.Category, b.Category, StringComparison.OrdinalIgnoreCase); break;
                 case "note": r = string.Compare(a.Note, b.Note, StringComparison.OrdinalIgnoreCase); break;
+                case "free": r = a.ChartSize.CompareTo(b.ChartSize); break;
                 default: r = a.Size.CompareTo(b.Size); break;
             }
             if (r == 0 && Key != "size") r = b.Size.CompareTo(a.Size);
@@ -128,6 +130,12 @@ namespace SpacePie
         public string[] Keys;
         public string[] Titles;
         public readonly ItemComparer Sorter = new ItemComparer();
+        /// <summary>Rows are groups (heads with GroupOf == null, their members right below): sorting moves whole groups.</summary>
+        public bool Grouped;
+        /// <summary>Members keep the order they were added in (e.g. duplicates: the newest copy, the one kept, first).</summary>
+        public bool KeepMemberOrder;
+        /// <summary>The user picked a sort column: refills keep that order instead of the fill's own (largest first).</summary>
+        public bool UserSorted;
         public event EventHandler ScrollChanged;
         int sortColumn = 1;
         HeaderPainter header;
@@ -170,12 +178,54 @@ namespace SpacePie
             string key = Keys[column];
             sortColumn = column;
             if (Sorter.Key == key) Sorter.Ascending = !Sorter.Ascending;
-            else { Sorter.Key = key; Sorter.Ascending = key == "name" || key == "folder"; }
+            else { Sorter.Key = key; Sorter.Ascending = key == "name" || key == "folder" || key == "cat" || key == "note"; }
+            UserSorted = true;
             BeginUpdate();
-            ListViewItemSorter = Sorter;
-            ListViewItemSorter = null;
+            var top = TopItem != null ? TopItem.Tag : null;
+            var rows = Arrange(Items.Cast<ListViewItem>().ToList());
+            Items.Clear();
+            Items.AddRange(rows.ToArray());
+            if (top != null) foreach (ListViewItem lvi in Items) if (lvi.Tag == top) { try { TopItem = lvi; } catch (Exception) { } break; }
             EndUpdate();
             UpdateHeaders();
+        }
+
+        /// <summary>Rows in the chosen order (stable). Grouped lists sort the groups, then the members inside each group.</summary>
+        public List<ListViewItem> Arrange(List<ListViewItem> rows)
+        {
+            Func<ListViewItem, ItemInfo> info = r => r.Tag as ItemInfo;
+            var cmp = new RowComparer(Sorter);
+            if (!Grouped) return rows.OrderBy(r => r, cmp).ToList();
+            var heads = new List<ListViewItem>();
+            var members = new Dictionary<ItemInfo, List<ListViewItem>>();
+            foreach (var r in rows)
+            {
+                var i = info(r);
+                if (i == null || i.GroupOf == null) { heads.Add(r); if (i != null) members[i] = new List<ListViewItem>(); continue; }
+                List<ListViewItem> m;
+                if (members.TryGetValue(i.GroupOf, out m)) m.Add(r); else heads.Add(r);
+            }
+            var result = new List<ListViewItem>(rows.Count);
+            foreach (var h in heads.OrderBy(r => r, cmp))
+            {
+                result.Add(h);
+                List<ListViewItem> m;
+                if (info(h) == null || !members.TryGetValue(info(h), out m)) continue;
+                result.AddRange(KeepMemberOrder ? m : m.OrderBy(r => r, cmp).ToList());
+            }
+            return result;
+        }
+
+        sealed class RowComparer : IComparer<ListViewItem>
+        {
+            readonly ItemComparer sorter;
+            public RowComparer(ItemComparer sorter) { this.sorter = sorter; }
+            public int Compare(ListViewItem x, ListViewItem y)
+            {
+                var a = x.Tag as ItemInfo; var b = y.Tag as ItemInfo;
+                if (a == null || b == null) return a == null ? (b == null ? 0 : 1) : -1;
+                return sorter.Compare(a, b);
+            }
         }
 
         void UpdateHeaders()

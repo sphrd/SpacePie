@@ -111,6 +111,35 @@ extension SelfTestRun {
                        "this pc: Up from the scanned folder lists the \(w.roots.count) drives and folders with it selected; Up is then disabled")
         }
 
+        // Sorting by any column: grouped lists move whole groups and sort members inside them; the order survives refills.
+        steps.then {
+            let p = Page("Sort", [Column("name", "Name", 100), Column("size", "Size", 60, true)], barColumn: -1, bar: nil)
+            func build() -> [ItemInfo] {
+                var rows: [ItemInfo] = []
+                for g in ["Beta", "Alpha", "Gamma"] {
+                    let head = ItemInfo()
+                    head.name = g; head.size = Int64(g.count * 100)
+                    head.cells = [g, ""]
+                    rows.append(head)
+                    for m in ["z", "a", "m"] {
+                        let it = ItemInfo()
+                        it.name = g + "-" + m; it.size = Int64(m.unicodeScalars.first?.value ?? 0); it.groupOf = head
+                        it.cells = [it.name, ""]
+                        rows.append(it)
+                    }
+                }
+                return rows
+            }
+            p.setRows(build(), "", keepOrder: true)
+            p.sortBy(0)
+            func order() -> String { p.items.map { $0.name }.joined(separator: ",") }
+            let want = "Alpha,Alpha-a,Alpha-m,Alpha-z,Beta,Beta-a,Beta-m,Beta-z,Gamma,Gamma-a,Gamma-m,Gamma-z"
+            let sorted = order() == want
+            p.setRows(build(), "", keepOrder: true)
+            let kept = order() == want
+            self.check(sorted && kept, "sorting: by name moves whole groups and sorts inside them (\(sorted)), and a refill keeps the order (\(kept))")
+        }
+
         // Well-known folders are named, with what to do about them.
         steps.then {
             let k1 = Known.lookup("/System", "System")

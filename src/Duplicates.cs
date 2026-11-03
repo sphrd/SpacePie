@@ -175,7 +175,9 @@ namespace SpacePie
             btnLinkDupes.Tag = "right";
             btnLinkDupes.Enabled = false;
             var list = NewList(new[] { "Name", "Size", "Can free", "Folder", "Modified" },
-                new[] { "name", "size", "files", "folder", "mod" }, new[] { 280, 90, 100, 380, 140 }, -1);
+                new[] { "name", "size", "free", "folder", "mod" }, new[] { 280, 90, 100, 380, 140 }, -1);
+            list.Grouped = true;
+            list.KeepMemberOrder = true;   // the newest copy (kept by Select extra copies) stays first
             list.SelectedIndexChanged += (s, e) => UpdateLinkButton();
             var p = AddPage("Duplicates", list, MakeBar(btnFindDupes, dupeMin, btnSelectExtra, btnLinkDupes));
             p.ChartTitle = "Duplicates";

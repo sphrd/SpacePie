@@ -22,7 +22,7 @@ namespace SpacePie
             btnBasketClear = Btn("Clear list", ButtonKind.Secondary, "Empty the delete list (nothing is deleted)", () => { basket.Clear(); BasketChanged(); });
             btnBasketRecycle = Btn("Move to Recycle Bin", ButtonKind.Secondary,
                 "Move everything on the list to the Recycle Bin: restorable; the space is freed when the bin is emptied", () => DeleteBasket(true));
-            btnBasketDelete = Btn("Delete permanently", ButtonKind.Warn, "Delete everything on the list now, bypassing the Recycle Bin", () => DeleteBasket(false));
+            btnBasketDelete = Btn("Delete permanently", ButtonKind.Danger, "Delete everything on the list now, bypassing the Recycle Bin", () => DeleteBasket(false));
             btnBasketRecycle.Tag = "right";
             btnBasketDelete.Tag = "right";
             var list = NewList(new[] { "Name", "Size", "% of list", "Location", "Note" },
@@ -90,7 +90,7 @@ namespace SpacePie
                     if (AddTarget(t)) added++;
             BasketChanged();
             statusLabel.Text = added == 0 ? "Already on the delete list."
-                : string.Format("Added {0:N0} item{1} to the delete list: now {2:N0} item{3}, {4}. Press Delete list (next to Delete permanently) to review and delete them.",
+                : string.Format("Added {0:N0} item{1} to the delete list: now {2:N0} item{3}, {4}. Press Delete list (left of Delete permanently) to review and delete them.",
                     added, added == 1 ? "" : "s", basket.Count, basket.Count == 1 ? "" : "s", Fmt.Size(basket.Sum(t => t.Size)));
         }
 

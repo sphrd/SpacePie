@@ -59,6 +59,9 @@ highlights its row and the other way round)
   that is not scanned yet to scan it.
 - **Nothing cut off:** wherever a name or a text is too long and ends in "...",
   hovering it shows it in full.
+- **Sort by any column:** click a column header in any view (name, size, date,
+  location...); click again to reverse. Grouped views (Suggestions, Apps, System,
+  Duplicates) keep each group together, and the order stays when the list refreshes.
 - **What it is:** well-known folders and files (the Windows component store,
   `hiberfil.sys`, browser and developer caches, iPhone backups, Xcode data,
   `node_modules`...) are named in their own column, with whether they can go and
@@ -134,7 +137,7 @@ highlights its row and the other way round)
 
 **Cleaning up**
 
-- **Delete list:** always one click away, next to **Delete permanently** (with the
+- **Delete list:** always one click away, the amber button left of **Delete permanently** (with the
   number of items on the button). Collect items from any view, review them together, then
   **Move to Recycle Bin / Trash** (can be undone) or **Delete permanently**
   (frees the space now). If some files are in use, the list keeps what is left,
@@ -161,7 +164,7 @@ highlights its row and the other way round)
 
 ![Deleting: the red progress strip while the list empties (demo data)](assets/screenshot-deleting.png)
 
-![The delete list, opened from its button next to Delete permanently (demo data)](assets/screenshot-delete-list.png)
+![The delete list, opened from its button left of Delete permanently (demo data)](assets/screenshot-delete-list.png)
 
 ![The confirmation before a permanent delete, listing every item (demo data)](assets/screenshot-delete-confirm.png)
 

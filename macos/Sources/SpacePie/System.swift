@@ -309,9 +309,8 @@ extension MainWindowController {
         bar.minRowHeight = 0
         // "What it means" right after Size, so it shows without scrolling in a narrow list.
         let p = Page("System", [Column("name", "Name", 230), Column("size", "Size", 84, true), Column("note", "What it means", 440),
-                                Column("size", "% of drive", 110, true), Column("mod", "Date", 128)],
+                                Column("pct", "% of drive", 110, true), Column("mod", "Date", 128)],
                      barColumn: 3, bar: bar)
-        p.sortable = false
         p.chartTitle = "System"
         p.chartScope = "of what can be freed"
         p.empty = "Nothing found."
@@ -386,6 +385,7 @@ extension MainWindowController {
             let count = g.items.filter { $0.kind != .note }.count
             let title = g.key == "purgeable" || count == 0 ? g.title : "\(g.title)  (\(Fmt.count(count)))"
             h.cells = [title, g.size >= 0 ? Fmt.size(g.size) : "", g.meaning, "", ""]
+            h.note = g.meaning
             h.tip = g.title + "\n" + g.meaning
             if g.items.contains(where: { $0.level == 2 }) { h.color = T.DANGER } else if g.items.contains(where: { $0.level == 1 }) { h.color = T.WARN_FG }
             reclaim += max(0, g.reclaim)
@@ -397,6 +397,7 @@ extension MainWindowController {
                 it.sysGroup = g
                 it.groupOf = h
                 it.name = s.name
+                it.note = s.meaning
                 it.size = max(0, s.size)
                 it.percent = max(0, s.percent)
                 it.hideBar = s.percent < 0
