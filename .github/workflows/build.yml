@@ -70,7 +70,9 @@ jobs:
         shell: pwsh
         timeout-minutes: 10
         run: |
-          foreach ($path in @("$env:WINDIR\System32", "$env:ProgramFiles")) {
+          # Folders without SYSTEM-only subfolders: robocopy on the elevated runner lists some that stay closed to the app
+          # (the app shows those as "access denied" and leaves them out), which would make System32 differ.
+          foreach ($path in @("$env:ProgramFiles", "${env:ProgramFiles(x86)}")) {
             $out = New-TemporaryFile
             $sw = [Diagnostics.Stopwatch]::StartNew()
             Start-Process .\DiskSpaceAnalyzer.exe -ArgumentList '--cli','scan',"`"$path`"" -Wait -NoNewWindow -RedirectStandardOutput $out.FullName
