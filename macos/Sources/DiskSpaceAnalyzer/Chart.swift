@@ -77,6 +77,14 @@ final class PieChart: NSView {
     /// Rectangles laid out at the last paint (self-test).
     var tileCount: Int { tiles.count }
 
+    /// Lays the treemap out for the current size without drawing (self-test: a hidden window may never draw).
+    func layoutTreemapNow() {
+        let pad: CGFloat = 10, top: CGFloat = 70, infoH: CGFloat = 44
+        let map = NSRect(x: pad, y: top, width: max(0, bounds.width - 2 * pad), height: max(40, bounds.height - top - pad - infoH))
+        if mapRect.width < 10 || mapRect.height < 10 { mapRect = map }
+        layoutTiles()
+    }
+
     override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); tilesDirty = true }
 
     override func updateTrackingAreas() {

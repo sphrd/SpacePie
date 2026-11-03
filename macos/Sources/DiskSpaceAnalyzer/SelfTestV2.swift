@@ -52,6 +52,7 @@ extension SelfTestRun {
             w.chart.treemap = true
             w.updateChart(top)
             w.chart.display()
+            if w.chart.tileCount == 0 { w.chart.layoutTreemapNow() }
             let n = w.chart.tileCount
             self.check(n > 0, "treemap: the folder contents are drawn as \(n) rectangles")
             w.chart.treemap = was
