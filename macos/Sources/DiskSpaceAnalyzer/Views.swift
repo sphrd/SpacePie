@@ -12,6 +12,7 @@ final class ItemInfo {
     var path: String?
     var ext: String?
     var size: Int64 = 0, files: Int64 = 0, dirs: Int64 = 0, modified: Int64 = 0
+    var used: Int64 = 0                // last opened (never earlier than modified); 0 = not shown
     var change: Int64 = Int64.min      // compared with the previous scan; min = unknown
     var chartValue: Int64 = -1         // size used by the chart when it differs from size
     var percent: Double = 0
@@ -67,6 +68,7 @@ final class ItemInfo {
     static func forFile(_ f: FileEntry, _ parentSize: Int64) -> ItemInfo {
         let it = ItemInfo()
         it.file = f; it.name = f.dataless ? f.name + "  (not downloaded)" : f.name; it.size = f.size; it.files = 1; it.modified = f.modified
+        it.used = f.lastUse
         it.percent = parentSize > 0 ? 100 * Double(f.size) / Double(parentSize) : 0
         return it
     }
@@ -82,6 +84,7 @@ final class ItemInfo {
         case "files": r = cmp(a.files, b.files)
         case "dirs": r = cmp(a.dirs, b.dirs)
         case "mod": r = cmp(a.modified, b.modified)
+        case "used": r = cmp(a.used, b.used)
         case "change": r = cmp(a.change, b.change)
         case "cat": r = a.category.localizedStandardCompare(b.category)
         case "note": r = a.note.localizedStandardCompare(b.note)
@@ -95,6 +98,11 @@ final class ItemInfo {
 struct Column {
     let key: String, title: String, width: CGFloat, right: Bool
     init(_ key: String, _ title: String, _ width: CGFloat, _ right: Bool = false) { self.key = key; self.title = title; self.width = width; self.right = right }
+}
+
+/// A full-width strip a page shows above its caption (banner, path bar) or between its bar and its list (timeline).
+protocol PageStrip: NSView {
+    var stripHeight: CGFloat { get }
 }
 
 /// Muted caption text above a list: one line, or two when it needs them (then the last line ends in an ellipsis).
@@ -373,6 +381,11 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     var onSorted: ((Page) -> Void)?
     var onSelection: ((Page) -> Void)?
     var pinFirst: ((ItemInfo) -> Bool)?    // heads listed before the others whatever the sort order
+    /// Strips above the caption (top to bottom) and one between the bar and the list.
+    private(set) var above: [PageStrip] = []
+    private(set) var strip: PageStrip?
+    /// A well-known folder or file: its explanation is added to the row's hover tip.
+    var knownFor: ((ItemInfo) -> KnownItem?)?
     init(_ title: String, _ columns: [Column], barColumn: Int, bar: ActionBar?) {
         self.title = title; self.columns = columns; self.barColumn = barColumn; self.bar = bar
         super.init()
@@ -419,14 +432,34 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         root.isHidden = true
     }
 
+    /// Adds a strip above the caption (below the ones added before).
+    func addAbove(_ v: PageStrip) {
+        above.append(v)
+        root.addSubview(v)
+        root.needsLayout = true
+    }
+
+    /// Sets the strip between the bar and the list.
+    func setStrip(_ v: PageStrip) {
+        strip?.removeFromSuperview()
+        strip = v
+        root.addSubview(v)
+        root.needsLayout = true
+    }
+
     private func layoutPage(_ r: NSRect) {
         let w = r.width
         let lineH = CaptionView.lineH
         var top: CGFloat = 0
+        for v in above where !v.isHidden {
+            let h = v.stripHeight
+            v.frame = NSRect(x: 0, y: top, width: w, height: h)
+            top += h
+        }
         headline.isHidden = headline.text.isEmpty
         if !headline.isHidden {
-            headline.frame = NSRect(x: 4, y: 4, width: max(10, w - 8), height: HeadlineView.height)
-            top = 4 + HeadlineView.height - 3
+            headline.frame = NSRect(x: 4, y: top + 4, width: max(10, w - 8), height: HeadlineView.height)
+            top += 4 + HeadlineView.height - 3
         }
         let lines = caption.lines(width: max(10, w - 8))
         let capH = lineH * lines + 10
@@ -436,6 +469,11 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             let h = b.arrange(width: w)
             b.frame = NSRect(x: 0, y: y, width: w, height: h)
             y += h
+        }
+        if let s = strip, !s.isHidden {
+            let h = s.stripHeight
+            s.frame = NSRect(x: 0, y: y + 2, width: w, height: h)
+            y += h + 2
         }
         y += 4
         scroll.frame = NSRect(x: 0, y: y, width: w, height: max(0, r.height - y))
@@ -534,14 +572,22 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     func hoverText(_ r: Int) -> String? {
         guard r >= 0, r < items.count else { return nil }
         let head = items[r].toolTip
-        let lines = head.isEmpty ? [] : head.components(separatedBy: "\n")
+        var lines = head.isEmpty ? [] : head.components(separatedBy: "\n")
+        // A well-known folder or file: what it is, whether it can go, and what manages it.
+        var knownShort: String?
+        if let k = knownFor?(items[r]) {
+            lines.append("")
+            lines.append(contentsOf: k.long.components(separatedBy: "\n"))
+            knownShort = k.short
+        }
         var extra: [String] = []
-        for c in cutCells(r) where !lines.contains(where: { $0.contains(c.text) }) {
+        for c in cutCells(r) where c.text != knownShort && !lines.contains(where: { $0.contains(c.text) }) {
             let line = c.title.isEmpty ? c.text : c.title + ": " + c.text
             if !extra.contains(line) { extra.append(line) }
         }
-        if extra.isEmpty { return lines.isEmpty ? nil : head }
-        return lines.isEmpty ? extra.joined(separator: "\n") : head + "\n\n" + extra.joined(separator: "\n")
+        let text = lines.joined(separator: "\n")
+        if extra.isEmpty { return lines.isEmpty ? nil : text }
+        return lines.isEmpty ? extra.joined(separator: "\n") : text + "\n\n" + extra.joined(separator: "\n")
     }
 
     func select(_ rows: IndexSet) { table.selectRowIndexes(rows, byExtendingSelection: false) }

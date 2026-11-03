@@ -36,13 +36,18 @@ namespace DiskSpaceAnalyzer
     /// <summary>Something an app left behind: a file or folder, or a registry key.</summary>
     internal sealed class Leftover
     {
+        public const string Exact = "Exact match", SameDeveloper = "Same developer", NameOnly = "Name only - check before removing";
         public string Label = "", Kind = "", Path = "";
         public bool IsDir, IsRegistry, Checked = true;
+        /// <summary>How sure it belongs to the app (Exact, SameDeveloper, NameOnly). Name-only matches are never pre-checked.</summary>
+        public string Match = Exact;
         public RegistryHive Hive;
         public RegistryView View;
         public string SubKey;                   // registry: path under the hive
         public long Size;
         public string Note = "";
+
+        public bool Sure { get { return Match != NameOnly; } }
     }
 
     /// <summary>
@@ -270,7 +275,7 @@ namespace DiskSpaceAnalyzer
                         Note = l.Kind, Check = a.Uninstalled ? (l.Checked ? 1 : 0) : -1,
                         Targets = l.IsRegistry ? null : new List<DeleteTarget> { new DeleteTarget { Path = l.Path, Label = l.Label, IsDir = l.IsDir, Size = l.Size } }
                     };
-                    rows.Add(Row(it, it.Name, l.IsRegistry ? "--" : Fmt.Size(l.Size), "", l.Kind, l.Note, "", l.Path));
+                    rows.Add(Row(it, it.Name, l.IsRegistry ? "--" : Fmt.Size(l.Size), "", l.Kind, l.Match + (string.IsNullOrEmpty(l.Note) ? "" : "; " + l.Note), "", l.Path));
                 }
             }
             SetRows(lv, rows, apps.Count == 0 ? "No installed apps were found." : "No app matches \"" + q + "\".");
@@ -707,10 +712,22 @@ namespace DiskSpaceAnalyzer
             ShowApps();
             RevealApp(a);
             var rest = a.Leftovers;
+            var sure = rest.Where(l => l.Sure).ToList();
+            var review = rest.Where(l => !l.Sure).ToList();
+            string reviewNote = review.Count == 0 ? null : string.Format("{0:N0} item{1} ({2}) match only by name: listed, but not deleted. Check {3} in the list if {4} to {5}.",
+                review.Count, review.Count == 1 ? "" : "s", Fmt.Size(review.Sum(l => l.Size)), review.Count == 1 ? "it" : "them", review.Count == 1 ? "it belongs" : "they belong", a.Name);
+            if (sure.Count == 0)
+            {
+                if (SelfTestDir == null)
+                    Alert(AlertIcon.Logo, a.Name + " was uninstalled", "Nothing is left that certainly belongs to it.", reviewNote, LeftoverLines(review), "OK");
+                statusLabel.Text = string.Format("Uninstalled {0}. {1:N0} item{2} matching only by name {3} listed unchecked: check them to remove them.",
+                    a.Name, review.Count, review.Count == 1 ? "" : "s", review.Count == 1 ? "is" : "are");
+                return;
+            }
             bool yes = SelfTestDir != null || Alert(AlertIcon.Danger,
-                string.Format("{0} was uninstalled, but {1:N0} item{2} remain", a.Name, rest.Count, rest.Count == 1 ? "" : "s"),
-                string.Format("Delete them too? {0} will be deleted. This bypasses the Recycle Bin and cannot be undone.", Fmt.Size(rest.Sum(l => l.Size))),
-                rest.Any(l => l.IsRegistry) ? "Registry keys are saved to a .reg backup first." : null, LeftoverLines(rest),
+                string.Format("{0} was uninstalled, but {1:N0} item{2} remain", a.Name, sure.Count, sure.Count == 1 ? "" : "s"),
+                string.Format("Delete them too? {0} will be deleted. This bypasses the Recycle Bin and cannot be undone.", Fmt.Size(sure.Sum(l => l.Size))),
+                JoinNotes(sure.Any(l => l.IsRegistry) ? "Registry keys are saved to a .reg backup first." : null, reviewNote), LeftoverLines(sure),
                 "Delete them", "Keep them") == "Delete them";
             if (!yes)
             {
@@ -719,7 +736,7 @@ namespace DiskSpaceAnalyzer
                 return;
             }
             foreach (var x in apps.Where(x => x != a && x.Leftovers != null)) foreach (var l in x.Leftovers) l.Checked = false;
-            foreach (var l in rest) l.Checked = true;
+            foreach (var l in rest) l.Checked = l.Sure;
             await RemoveLeftovers(false);
         }
 
@@ -1015,10 +1032,39 @@ namespace DiskSpaceAnalyzer
                 }
                 catch (Exception) { }
             }
+            // How sure each item belongs to the app. Name-only matches start unchecked: an uninstaller that ticks them is how
+            // the wrong folder gets deleted.
+            var strong = StrongNames(a);
+            foreach (var l in result)
+            {
+                string leaf = Norm(l.IsRegistry ? Native.FileName(l.SubKey) : Native.FileName(l.Path));
+                if (l.Kind == "Uninstall entry (registry)" || (!string.IsNullOrEmpty(a.Location) && SamePath(l.Path, a.Location))) l.Match = Leftover.Exact;
+                else if (l.Kind == "Documents folder") l.Match = Leftover.NameOnly;   // the user's own files may live there
+                else if (strong.Contains(leaf)) l.Match = Leftover.Exact;
+                else if (names.Contains(leaf))
+                {
+                    string parent = Norm(Native.FileName(Native.ParentDir(l.IsRegistry ? l.SubKey : l.Path) ?? ""));
+                    l.Match = pubOk && parent == pub ? Leftover.SameDeveloper : Leftover.NameOnly;
+                }
+                else l.Match = Leftover.SameDeveloper;                                // a publisher folder holding only this app
+                if (!l.Sure) l.Checked = false;
+            }
             // Leftovers that need administrator rights start unchecked when the app is not elevated.
             foreach (var l in result)
                 if (!isAdmin && NeedsAdmin(l)) { l.Checked = false; l.Note = "needs Run as administrator"; }
             return result;
+        }
+
+        /// <summary>Names that identify the app itself: its full display name, program folder, uninstall key and package names.</summary>
+        static HashSet<string> StrongNames(InstalledApp a)
+        {
+            var s = new HashSet<string>();
+            Action<string> add = x => { string n = Norm(x); if (n.Length >= 4) s.Add(n); };
+            add(a.Name);
+            if (!string.IsNullOrEmpty(a.Location)) add(Native.FileName(a.Location));
+            if (!string.IsNullOrEmpty(a.KeyName) && !a.KeyName.StartsWith("{")) add(a.KeyName.EndsWith("_is1") ? a.KeyName.Substring(0, a.KeyName.Length - 4) : a.KeyName);
+            if (a.IsStore) { add(a.PackageFamilyName); add(StoreNameFromFull(a.PackageFullName)); }
+            return s;
         }
 
         bool StillInstalledKey(InstalledApp a)
@@ -1109,7 +1155,7 @@ namespace DiskSpaceAnalyzer
         /// <summary>Details-box lines for leftovers: kind and path, then (after a tab) size or "registry" and any note.</summary>
         static List<string> LeftoverLines(IEnumerable<Leftover> items)
         {
-            return items.Select(l => KindName(l.Kind) + ": " + l.Path + "\t" + (l.IsRegistry ? "registry" : Fmt.Size(l.Size)) +
+            return items.Select(l => KindName(l.Kind) + ": " + l.Path + "\t" + (l.IsRegistry ? "registry" : Fmt.Size(l.Size)) + "  --  " + l.Match +
                 (string.IsNullOrEmpty(l.Note) ? "" : "  --  " + l.Note)).ToList();
         }
 

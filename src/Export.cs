@@ -24,7 +24,7 @@ namespace DiskSpaceAnalyzer
             using (var dlg = new SaveFileDialog
             {
                 Title = "Export " + scope.FullPath,
-                Filter = "HTML report (*.html)|*.html|CSV - every folder (*.csv)|*.csv|CSV - the list shown now (*.csv)|*.csv",
+                Filter = "HTML report (*.html)|*.html|CSV - every folder (*.csv)|*.csv|CSV - the list shown now (*.csv)|*.csv|Scan file - open it again later in this app (*" + Snapshot.ScanFileExtension + ")|*" + Snapshot.ScanFileExtension,
                 FileName = "Disk usage " + (name.Length > 0 ? name : "scan") + " " + DateTime.Now.ToString("yyyy-MM-dd"),
                 OverwritePrompt = true
             })
@@ -47,6 +47,7 @@ namespace DiskSpaceAnalyzer
                 {
                     if (format == 1) File.WriteAllText(file, HtmlReport(scope, ver, driveLine), new UTF8Encoding(false));
                     else if (format == 2) FoldersCsv(scope, file);
+                    else if (format == 4) SaveScanFile(scope, file);
                     else File.WriteAllText(file, listCsv, new UTF8Encoding(true));
                 });
             }
@@ -57,7 +58,7 @@ namespace DiskSpaceAnalyzer
                 Alert(AlertIcon.Warn, "Could not save the export", error.Message, null, null, "OK");
                 return;
             }
-            statusLabel.Text = "Exported to " + file;
+            statusLabel.Text = format == 4 ? "Saved the whole scan of " + (r != null ? r.Path : scope.Top.FullPath) + " to " + file + ". Open it again with Open scan..." : "Exported to " + file;
             if (format == 1) try { Process.Start(file); } catch (Exception) { }
         }
 

@@ -28,7 +28,16 @@ final class RoundButton: NSView {
         self.title = ""; self.kind = .secondary; self.onClick = action; self.isIcon = true
         super.init(frame: .zero)
     }
+
+    /// Icon-only button that draws its own glyph (e.g. the back / forward arrows), secondary colours.
+    init(icon draw: @escaping (NSRect, NSColor) -> Void, _ action: (() -> Void)?) {
+        self.title = ""; self.kind = .secondary; self.onClick = action; self.isIcon = true; self.glyph = draw
+        super.init(frame: .zero)
+    }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Glyph of an icon button (nil = the circular refresh arrow).
+    private var glyph: ((NSRect, NSColor) -> Void)?
 
     override var isFlipped: Bool { true }
 
@@ -68,7 +77,10 @@ final class RoundButton: NSView {
             }
         }
         Theme.fillRound(bounds, compact ? 7 : 8, fill: fill, outline: ring && isEnabled ? T.ACCENT : nil)
-        if isIcon { RoundButton.drawRefresh(bounds, fore); return }
+        if isIcon {
+            if let g = glyph { g(bounds, fore) } else { RoundButton.drawRefresh(bounds, fore) }
+            return
+        }
         Theme.drawText(title, in: bounds.insetBy(dx: compact ? 6 : 8, dy: 0), font: font, color: fore, align: .center)
     }
 
@@ -272,4 +284,164 @@ final class TabStrip: NSView {
     override func mouseMoved(with event: NSEvent) { let h = hit(event); if h != hover { hover = h; needsDisplay = true } }
     override func mouseExited(with event: NSEvent) { hover = -1; needsDisplay = true }
     override func mouseDown(with event: NSEvent) { let h = hit(event); if h >= 0 { selectedIndex = h } }
+}
+
+/// Amber attention line at the top of a view (WARN_BG fill, WARN_BORDER outline, warning sign, WARN_FG text) with
+/// compact buttons on the right. Hidden while it has no text.
+final class Banner: NSView, PageStrip {
+    private var buttons: [RoundButton] = []
+    /// The text; empty hides the banner.
+    var message = "" {
+        didSet {
+            if message == oldValue { return }
+            isHidden = message.isEmpty
+            needsLayout = true
+            needsDisplay = true
+            superview?.needsLayout = true
+        }
+    }
+    override var isFlipped: Bool { true }
+    var stripHeight: CGFloat { Theme.lineHeight(Theme.font) + 26 }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isHidden = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    @discardableResult
+    func addButton(_ title: String, tip: String, _ action: @escaping () -> Void) -> RoundButton {
+        let b = RoundButton(title, .secondary, action)
+        b.compact = true
+        b.tip = tip
+        buttons.append(b)
+        addSubview(b)
+        needsLayout = true
+        return b
+    }
+
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); needsLayout = true }
+
+    override func layout() {
+        super.layout()
+        var x = bounds.width - 10
+        let boxH = bounds.height - 6
+        for b in buttons.reversed() where !b.isHidden {
+            let s = b.preferredSize
+            x -= s.width
+            b.frame = NSRect(x: x, y: ((boxH - s.height) / 2).rounded(), width: s.width, height: s.height)
+            x -= 6
+        }
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        T.SURFACE.setFill(); bounds.fill()
+        let r = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - 6)
+        Theme.fillRound(r, 8, fill: T.WARN_BG, outline: T.WARN_BORDER)
+        let ic: CGFloat = 18
+        Theme.drawWarningSign(NSRect(x: 10, y: ((r.height - ic) / 2).rounded(), width: ic, height: ic), T.WARN, cut: T.WARN_BG)
+        let x: CGFloat = 10 + ic + 10
+        var right = bounds.width - 10
+        for b in buttons where !b.isHidden { right = min(right, b.frame.minX) }
+        Theme.drawText(message, in: NSRect(x: x, y: 0, width: max(0, right - x - 10), height: r.height), font: Theme.font, color: T.WARN_FG)
+    }
+}
+
+/// Path bar: one clickable segment per folder from the scanned root down to the folder shown (MUTED, FG on hover, the
+/// last one FG and not clickable), separated by chevrons. When it does not fit, the first segments collapse into "...".
+final class Breadcrumb: NSView, PageStrip {
+    private var parts: [(text: String, dir: DirNode)] = []
+    private var hits: [(rect: NSRect, index: Int)] = []
+    private var hover = -1
+    var onPick: ((DirNode) -> Void)?
+    override var isFlipped: Bool { true }
+    var stripHeight: CGFloat { Theme.lineHeight(Theme.font) + 12 }
+    var count: Int { parts.count }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isHidden = true
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    /// Segments from the top down: the text shown and the folder it opens.
+    func setParts(_ items: [(text: String, dir: DirNode)]) {
+        parts = items
+        hover = -1
+        let hide = items.isEmpty
+        if isHidden != hide { isHidden = hide; superview?.needsLayout = true }
+        needsDisplay = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
+    }
+
+    private func chevron(_ x: CGFloat, _ gap: CGFloat, _ chev: CGFloat) -> CGFloat {
+        Theme.drawChevron(NSRect(x: x + gap, y: ((bounds.height - chev) / 2).rounded(), width: chev, height: chev), T.MUTED, down: false)
+        return x + gap + chev + gap
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        T.SURFACE.setFill(); bounds.fill()
+        hits = []
+        if parts.isEmpty { return }
+        let gap: CGFloat = 4, chev: CGFloat = 10, pad: CGFloat = 5
+        let widths: [CGFloat] = parts.map { Theme.textWidth($0.text, Theme.font) + 2 * pad }
+        let dots = Theme.textWidth("...", Theme.font) + 2 * pad
+        let avail = bounds.width - 8
+        // Drop leading segments (after the first) until the rest fits.
+        func need(_ start: Int) -> CGFloat {
+            var w = widths[0]
+            if start > 1 { w += gap + chev + gap + dots }
+            var i = start
+            while i < parts.count { w += gap + chev + gap + widths[i]; i += 1 }
+            return w
+        }
+        var first = 1
+        while first < parts.count - 1 && need(first) > avail { first += 1 }
+        var x: CGFloat = 4
+        for i in 0..<parts.count {
+            if i > 0 && i < first { continue }
+            if i > 0 {
+                if i == first && first > 1 {
+                    x = chevron(x, gap, chev)
+                    Theme.drawText("...", in: NSRect(x: x, y: 0, width: dots, height: bounds.height), font: Theme.font, color: T.MUTED, align: .center)
+                    x += dots
+                }
+                x = chevron(x, gap, chev)
+            }
+            let last = i == parts.count - 1
+            let w = min(widths[i], max(20, bounds.width - x - 4))
+            let r = NSRect(x: x, y: 3, width: w, height: bounds.height - 6)
+            if !last && i == hover { Theme.fillRound(r, 6, fill: T.BORDER) }
+            Theme.drawText(parts[i].text, in: r, font: Theme.font, color: last || i == hover ? T.FG : T.MUTED, align: .center)
+            if !last { hits.append((rect: r, index: i)) }
+            x += w
+        }
+    }
+
+    private func hit(_ e: NSEvent) -> Int {
+        let p = convert(e.locationInWindow, from: nil)
+        for h in hits where h.rect.contains(p) { return h.index }
+        return -1
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let h = hit(event)
+        if h >= 0 { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        if h != hover { hover = h; needsDisplay = true }
+    }
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.arrow.set()
+        if hover != -1 { hover = -1; needsDisplay = true }
+    }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        let h = hit(event)
+        if h >= 0 && h < parts.count { onPick?(parts[h].dir) }
+    }
 }

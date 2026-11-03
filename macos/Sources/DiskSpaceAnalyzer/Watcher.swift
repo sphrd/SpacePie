@@ -76,6 +76,7 @@ final class LiveStream {
 /// When FSEvents reports that changes were lost, the status line suggests a rescan.
 extension MainWindowController {
     func startWatching(_ r: ScanRoot, since: UInt64? = nil) {
+        if r.readOnly { return }   // a saved scan opened from a file is never watched
         stopWatching(r)
         missed.removeAll { $0 === r }
         if liveTimer == nil {
@@ -226,7 +227,7 @@ extension MainWindowController {
         if !files.isEmpty || !added.isEmpty || structure {
             livePending = true
             markSuggestionsDirty()
-            if structure { for p in pages where p !== pContents { p.stale = true } }
+            if structure { deniedCache.removeAll(); for p in pages where p !== pContents { p.stale = true } }
         }
         if livePending && Date().timeIntervalSince(lastLiveRefresh) >= 4 { refreshAfterLive() }
         if fsPending.isEmpty && fsDeep.isEmpty { finishReplays() }

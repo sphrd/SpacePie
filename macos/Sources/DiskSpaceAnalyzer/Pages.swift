@@ -4,7 +4,8 @@ import AppKit
 /// open, slice for row in the same order, and hover is linked both ways.
 extension MainWindowController {
     static let minSizes: [Int64] = [0, 1 << 20, 10 << 20, 100 << 20, 1 << 30]
-    static let ageMonths = [0, 3, 6, 12, 24, 60]
+    // Date filter: not changed for (months), then not opened for (months, negative).
+    static let ageMonths = [0, 3, 6, 12, 24, 60, -3, -6, -12, -24]
     static let maxOwnSlices = 50          // every row of at least 2 % of the total (7.2 degrees) gets a slice of its own
     static let minOwnShare = 0.02         // (2 % allows at most 50); all smaller rows together form one "smaller items" slice
 
@@ -14,7 +15,7 @@ extension MainWindowController {
 
         pContents = Page("Contents", [Column("name", "Name", 210), Column("size", "Size", 80, true), Column("size", "% of folder", 125, true),
                                       Column("change", "Change", 80, true), Column("files", "Files", 74, true), Column("dirs", "Folders", 66, true),
-                                      Column("mod", "Modified", 128)], barColumn: 2, bar: nil)
+                                      Column("mod", "Modified", 128), Column("cat", "What it is", 240)], barColumn: 2, bar: nil)
         pContents.followsFolder = true
         pContents.fill = { [unowned self] in if let c = self.current, self.isAttached(c) { self.showContents(c) } }
         pages.append(pContents)
@@ -26,14 +27,16 @@ extension MainWindowController {
         // System (snapshots, purgeable space, device backups, drives) right after Apps.
         pSystem = buildSystemPage(); pages.append(pSystem)
 
-        // Files: the whole index under the selected folder, filtered; largest first.
+        // Files: the whole index under the selected folder (or everything scanned), filtered; largest first.
         fileSearch.onChange = { [unowned self] in self.fillFiles() }
-        fileSearch.toolTip = "Part of a name, or a pattern with * and ?. Several patterns: separate them with ; (⌘F)"
-        fileAge.tip = "Files not changed (modified) for at least this long"
-        for c in [fileType, fileMinSize, fileAge] { c.onChange = { [unowned self] _ in self.fillFiles() } }
+        fileSearch.toolTip = "Part of a name, or a pattern with * and ?. Several patterns: separate them with ; (⌘F). Folders with a matching name are listed too."
+        fileScope.tip = "Search the folder selected in the tree, or every scanned drive and folder at once"
+        fileAge.tip = "Files not changed (modified), or not opened (nor changed), for at least this long. \"Opened\" uses the last-access time macOS records"
+        for c in [fileScope, fileType, fileMinSize, fileAge] { c.onChange = { [unowned self] _ in self.fillFiles() } }
         pFiles = Page("Files", [Column("name", "Name", 210), Column("size", "Size", 80, true), Column("size", "% of folder", 125, true),
-                                Column("folder", "Folder", 330), Column("cat", "Type", 110), Column("mod", "Modified", 128)],
-                      barColumn: 2, bar: ActionBar([fileSearch, fileType, fileMinSize, fileAge]))
+                                Column("folder", "Folder", 330), Column("cat", "Type", 110), Column("mod", "Modified", 128),
+                                Column("used", "Last opened", 128)],
+                      barColumn: 2, bar: ActionBar([fileSearch, fileScope, fileType, fileMinSize, fileAge]))
         pFiles.followsFolder = true
         pFiles.chartScope = "of folder"
         pFiles.fill = { [unowned self] in self.fillFiles() }
@@ -94,6 +97,7 @@ extension MainWindowController {
     /// The scanned tree changed (scan, rescan, delete, measure): views refill when they are shown next.
     func viewsChanged() {
         if pages.isEmpty { return }
+        deniedCache.removeAll()
         for p in pages where p !== pContents { p.stale = true }
         updateBasketTitle()
         let a = activePage
@@ -170,7 +174,7 @@ extension MainWindowController {
         var title = d.name, sub = d.fullPath
         if d.parent == nil, let r = r {
             title = r.displayName
-            if r.isDrive && r.total > 0 {
+            if r.showsCapacity {
                 if r.used - d.size > 0 {
                     let s = ChartSlice("System / not readable", r.used - d.size, T.PILL)
                     s.detail = Fmt.pct(100 * Double(r.used - d.size) / Double(r.total)) + " of drive"
@@ -248,13 +252,25 @@ extension MainWindowController {
         f.minSize = MainWindowController.minSizes[fileMinSize.selectedIndex]
         let months = MainWindowController.ageMonths[fileAge.selectedIndex]
         if months > 0, let d = Calendar.current.date(byAdding: .month, value: -months, to: Date()) { f.modifiedBefore = Int64(d.timeIntervalSince1970) }
+        if months < 0, let d = Calendar.current.date(byAdding: .month, value: months, to: Date()) { f.usedBefore = Int64(d.timeIntervalSince1970) }
         return f
+    }
+
+    /// Whether macOS records when files are opened on the volume holding path: not on volumes mounted "noatime" (then
+    /// the last-access time only moves when a file changes).
+    static func lastAccessRecorded(_ path: String) -> Bool {
+        var st = statfs()
+        if statfs(path, &st) != 0 { return true }
+        return st.f_flags & UInt32(MNT_NOATIME) == 0
     }
 
     func fillFiles() {
         let p = pFiles!
         p.chartTitle = "Files"
-        guard let sc = scope() else {
+        let everywhere = fileScope.selectedIndex == 1
+        let sc = scope()
+        let scopes: [DirNode] = everywhere ? roots.compactMap { $0.node } : (sc.map { [$0] } ?? [])
+        if scopes.isEmpty {
             p.setCaption("Nothing scanned yet.")
             p.chartSub = ""
             p.empty = "Scan a drive or folder first."
@@ -262,22 +278,34 @@ extension MainWindowController {
             if activePage === p { refreshChart() }
             return
         }
+        let scopePath = everywhere ? (scopes.count == 1 ? scopes[0].fullPath : "\(Fmt.count(scopes.count)) scanned drives and folders") : scopes[0].fullPath
         let filter = currentFileFilter()
+        // Folders have no type or dates of their own here, so only a name search (and the size) finds them.
+        let withFolders = !filter.patterns.isEmpty && filter.category == nil && filter.modifiedBefore <= 0 && filter.usedBefore <= 0
+        let noAtime = filter.usedBefore > 0 && !scopes.allSatisfy { MainWindowController.lastAccessRecorded($0.fullPath) }
         filesGen += 1
         let gen = filesGen
-        let scopePath = sc.fullPath
         p.setCaption("Searching " + scopePath + "...")
-        readInBackground({ () -> ([ItemInfo], Int64, Int64, Int) in
-            let found = FileIndex.largest(sc, MainWindowController.topCount, filter)
-            let folder = max(Int64(1), sc.size)
+        readInBackground({ () -> ([ItemInfo], Int64, Int64, Int, Int64) in
+            let found = FileIndex.largest(scopes, MainWindowController.topCount, filter)
+            let dirs = withFolders ? FileIndex.folders(scopes, MainWindowController.topCount, filter) : (dirs: [DirNode](), count: Int64(0))
+            let folder = max(Int64(1), scopes.reduce(Int64(0)) { $0 + $1.size })
             var rows: [ItemInfo] = []
             var shown: Int64 = 0
+            for d in dirs.dirs {
+                let it = ItemInfo.forDir(d, folder)
+                it.folder = d.parent?.fullPath ?? ""
+                it.category = "Folder"
+                it.chartValue = 0       // a folder's size also holds matching files: the chart shows the files only
+                it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), it.folder, it.category, Fmt.date(it.modified), ""]
+                rows.append(it)
+            }
             for fe in found.files {
                 let it = ItemInfo.forFile(fe, folder)
                 it.folder = fe.dir.fullPath
                 it.category = FileTypes.category(FileIndex.ext(fe.name))
                 shown += fe.size
-                it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), it.folder, it.category, Fmt.date(it.modified)]
+                it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), it.folder, it.category, Fmt.date(it.modified), Fmt.date(it.used)]
                 rows.append(it)
             }
             if found.count > Int64(found.files.count) {
@@ -286,18 +314,20 @@ extension MainWindowController {
                 rest.name = "[\(Fmt.count(found.count - Int64(found.files.count))) smaller matching files not listed]"
                 rest.size = found.size - shown; rest.files = found.count - Int64(found.files.count)
                 rest.percent = 100 * Double(found.size - shown) / Double(folder)
-                rest.cells = [rest.name, Fmt.size(rest.size), Fmt.pct(rest.percent), "", "", ""]
+                rest.cells = [rest.name, Fmt.size(rest.size), Fmt.pct(rest.percent), "", "", "", ""]
                 rest.tip = rest.name + "\n" + scopePath
                 rows.append(rest)
             }
-            return (rows, found.count, found.size, found.files.count)
+            return (rows, found.count, found.size, found.files.count, dirs.count)
         }, { [weak self] res in
             guard let self = self, gen == self.filesGen else { return }
-            let (rows, count, size, shownCount) = res
+            let (rows, count, size, shownCount, dirCount) = res
             let filtered = !filter.isEmpty
-            p.setRows(rows, filtered ? "No files match the filters in \(scopePath)." : "No files in \(scopePath).")
-            p.setCaption("\(Fmt.count(count)) \(filtered ? "matching " : "")files in \(Fmt.shorten(scopePath, 70)), \(Fmt.size(size))"
-                         + (count > Int64(shownCount) ? "  -  showing the largest \(Fmt.count(shownCount))" : ""))
+            p.setRows(rows, filtered ? "Nothing matches the filters in \(scopePath)." : "No files in \(scopePath).")
+            let folders = dirCount > 0 ? " and \(Fmt.count(dirCount)) folder\(dirCount == 1 ? "" : "s")" : ""
+            p.setCaption("\(Fmt.count(count)) \(filtered ? "matching " : "")files\(folders) in \(Fmt.shorten(scopePath, 70)), \(Fmt.size(size))"
+                         + (count > Int64(shownCount) ? "  -  showing the largest \(Fmt.count(shownCount))" : "")
+                         + (noAtime ? "  -  this volume doesn't record when files are opened, so \"not opened\" uses the last change" : ""))
             p.chartTitle = filtered ? "Matching files" : "Largest files"
             p.chartSub = scopePath
             p.chartTotal = 0

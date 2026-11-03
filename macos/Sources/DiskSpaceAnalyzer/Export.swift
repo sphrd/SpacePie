@@ -11,7 +11,8 @@ final class ExportFormat: NSObject {
         super.init()
         let label = NSTextField(labelWithString: "Format:")
         label.frame = NSRect(x: 8, y: 13, width: 60, height: 17)
-        popup.addItems(withTitles: ["HTML report (.html)", "CSV - every folder (.csv)", "CSV - the list shown now (.csv)"])
+        popup.addItems(withTitles: ["HTML report (.html)", "CSV - every folder (.csv)", "CSV - the list shown now (.csv)",
+                                    "Scan file - open it again later in this app (.\(Snapshot.scanFileExtension))"])
         popup.target = self
         popup.action = #selector(changed(_:))
         view.addSubview(label); view.addSubview(popup)
@@ -23,7 +24,7 @@ final class ExportFormat: NSObject {
 
     @objc func changed(_ sender: Any?) {
         guard let p = panel else { return }
-        let ext = index == 0 ? "html" : "csv"
+        let ext = index == 0 ? "html" : index == 3 ? Snapshot.scanFileExtension : "csv"
         p.allowedFileTypes = [ext]
         let base = (p.nameFieldStringValue as NSString).deletingPathExtension
         p.nameFieldStringValue = base + "." + ext
@@ -57,11 +58,14 @@ extension MainWindowController {
         let r = rootOf(sc.top)
         let driveLine = sc.parent == nil && r != nil && r!.isDrive && r!.total > 0
             ? "\(Fmt.size(r!.used)) used of \(Fmt.size(r!.total)), \(Fmt.size(r!.free)) free" : ""
+        let savedPath = r?.path ?? sc.top.fullPath
+        let scanInfo = format == 3 ? scanFileInfo(sc) : SnapshotInfo()
         readInBackground({ () -> String? in
             do {
                 switch format {
                 case 0: try MainWindowController.htmlReport(sc, ver, driveLine).write(to: url, atomically: true, encoding: .utf8)
                 case 1: try MainWindowController.foldersCsv(sc).write(to: url, atomically: true, encoding: .utf8)
+                case 3: try Snapshot.writeScanFile(Snapshot.serialize(sc.top, scanInfo), to: url.path)
                 default: try listCsv.write(to: url, atomically: true, encoding: .utf8)
                 }
                 return nil
@@ -73,7 +77,8 @@ extension MainWindowController {
                 self.alert("Could not save the export", e)
                 return
             }
-            self.statusLabel.stringValue = "Exported to " + url.path
+            self.statusLabel.stringValue = format == 3 ? "Saved the whole scan of \(savedPath) to \(url.path). Open it again with Open scan..."
+                : "Exported to " + url.path
             if format == 0 { NSWorkspace.shared.open(url) }
         })
     }

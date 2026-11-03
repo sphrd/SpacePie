@@ -8,10 +8,14 @@ struct FileRec {
     var alloc: Int64          // size on disk (0 for files not downloaded from iCloud and for extra hard links)
     var modified: Int64       // last modification, seconds since 1970
     var flags: UInt32
+    var accessed: Int64 = 0   // last opened (last access), seconds since 1970; 0 = unknown
 
     static let datalessFlag: UInt32 = 1      // evicted iCloud / File Provider file: nothing on the disk
     static let hardLinkFlag: UInt32 = 2      // another name of a file already counted in this scan
     var dataless: Bool { flags & FileRec.datalessFlag != 0 }
+
+    /// When the file was last opened, never earlier than its last change (macOS may not record every open).
+    var lastUse: Int64 { accessed > modified ? accessed : modified }
 }
 
 /// A scanned folder with its totals and the index of its own files.
@@ -137,12 +141,15 @@ final class DirNode {
 final class FileEntry {
     let name: String
     let dir: DirNode
-    let bytes: Int64, alloc: Int64, modified: Int64
+    let bytes: Int64, alloc: Int64, modified: Int64, accessed: Int64
     let flags: UInt32
 
-    init(_ d: DirNode, _ f: FileRec) { name = f.name; dir = d; bytes = f.bytes; alloc = f.alloc; modified = f.modified; flags = f.flags }
+    init(_ d: DirNode, _ f: FileRec) {
+        name = f.name; dir = d; bytes = f.bytes; alloc = f.alloc; modified = f.modified; accessed = f.accessed; flags = f.flags
+    }
 
     var size: Int64 { DirNode.onDisk ? alloc : bytes }
+    var lastUse: Int64 { accessed > modified ? accessed : modified }
     var dataless: Bool { flags & FileRec.datalessFlag != 0 }
     var fullPath: String { PathUtil.join(dir.fullPath, name) }
 }
@@ -169,22 +176,49 @@ enum FileIndex {
 
     /// The n largest files under root (by the current measure) that pass the filter, largest first.
     static func largest(_ root: DirNode, _ n: Int, _ filter: FileFilter?) -> (files: [FileEntry], count: Int64, size: Int64) {
+        largest([root], n, filter)
+    }
+
+    /// The n largest files under any of the roots that pass the filter, largest first.
+    static func largest(_ roots: [DirNode], _ n: Int, _ filter: FileFilter?) -> (files: [FileEntry], count: Int64, size: Int64) {
         var count: Int64 = 0, total: Int64 = 0
         var heap: [(Int64, FileEntry)] = []
         var threshold: Int64 = -1
-        for d in root.descendants() {
-            guard let list = d.fileList else { continue }
-            for f in list {
-                if let flt = filter, !flt.match(f) { continue }
-                let s = measure(f)
-                count += 1; total += s
-                if heap.count >= n && s <= threshold { continue }
-                push(&heap, s, FileEntry(d, f), n)
-                threshold = heap.count >= n ? heap[0].0 : -1
+        for root in roots {
+            for d in root.descendants() {
+                guard let list = d.fileList else { continue }
+                for f in list {
+                    if let flt = filter, !flt.match(f) { continue }
+                    let s = measure(f)
+                    count += 1; total += s
+                    if heap.count >= n && s <= threshold { continue }
+                    push(&heap, s, FileEntry(d, f), n)
+                    threshold = heap.count >= n ? heap[0].0 : -1
+                }
             }
         }
         let result = heap.map { $0.1 }.sorted { $0.size > $1.size }
         return (result, count, total)
+    }
+
+    /// Folders under any of the roots whose name matches one of the filter's patterns (and its minimum size), largest
+    /// first, at most n; count is how many matched in all.
+    static func folders(_ roots: [DirNode], _ n: Int, _ filter: FileFilter) -> (dirs: [DirNode], count: Int64) {
+        if filter.patterns.isEmpty { return ([], 0) }
+        var found: [DirNode] = []
+        var count: Int64 = 0
+        for root in roots {
+            for d in root.descendants() {
+                if d.parent == nil || (filter.minSize > 0 && d.size < filter.minSize) { continue }
+                let lower = d.name.lowercased()
+                if !filter.patterns.contains(where: { FileFilter.nameMatches(lower, $0) }) { continue }
+                count += 1
+                found.append(d)
+            }
+        }
+        found.sort(by: DirNode.bySize)
+        if found.count > n { found.removeLast(found.count - n) }
+        return (found, count)
     }
 
     // Min-heap on the key, capped at n entries.
@@ -221,12 +255,17 @@ final class FileFilter {
     var category: String?             // nil = any
     var minSize: Int64 = 0
     var modifiedBefore: Int64 = 0     // seconds since 1970; 0 = any
+    var usedBefore: Int64 = 0         // not opened (nor changed) since; seconds since 1970; 0 = any
 
-    var isEmpty: Bool { patterns.isEmpty && category == nil && minSize <= 0 && modifiedBefore <= 0 }
+    var isEmpty: Bool { patterns.isEmpty && category == nil && minSize <= 0 && modifiedBefore <= 0 && usedBefore <= 0 }
 
     func match(_ f: FileRec) -> Bool {
         if minSize > 0 && FileIndex.measure(f) < minSize { return false }
         if modifiedBefore > 0 && (f.modified <= 0 || f.modified >= modifiedBefore) { return false }
+        if usedBefore > 0 {
+            let u = f.lastUse
+            if u <= 0 || u >= usedBefore { return false }
+        }
         if let c = category, FileTypes.category(FileIndex.ext(f.name)) != c { return false }
         if !patterns.isEmpty {
             let lower = f.name.lowercased()

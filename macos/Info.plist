@@ -30,5 +30,7 @@
     <false/>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright (c) 2026 sphrd - MIT License</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Disk Space Analyzer asks Finder to open the Get Info window of the file or folder you selected.</string>
 </dict>
 </plist>

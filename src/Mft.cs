@@ -70,7 +70,7 @@ namespace DiskSpaceAnalyzer
 
             // Per record (indexed by record number)
             byte[] flags;            // 1 = in use, 2 = directory
-            long[] bytes, alloc, modified;
+            long[] bytes, alloc, modified, accessed;
             uint[] attrs;
             int[] parent;
             string[] name;
@@ -128,6 +128,7 @@ namespace DiskSpaceAnalyzer
                 bytes = new long[n];
                 alloc = new long[n];
                 modified = new long[n];
+                accessed = new long[n];
                 attrs = new uint[n];
                 parent = new int[n];
                 name = new string[n];
@@ -247,6 +248,7 @@ namespace DiskSpaceAnalyzer
                             {
                                 byte* v = a + *(ushort*)(a + 20);
                                 modified[target] = *(long*)(v + 8);
+                                accessed[target] = *(long*)(v + 24);
                                 attrs[target] = *(uint*)(v + 32);
                             }
                             break;
@@ -317,7 +319,7 @@ namespace DiskSpaceAnalyzer
                 for (int r = 0; r < n; r++)
                 {
                     if (flags[r] != 1 || name[r] == null) continue;
-                    AddFile(lists, dirs, parent[r], new FileRec { Name = name[r], Bytes = bytes[r], Alloc = alloc[r], Modified = modified[r], Attr = attrs[r] });
+                    AddFile(lists, dirs, parent[r], new FileRec { Name = name[r], Bytes = bytes[r], Alloc = alloc[r], Modified = modified[r], Accessed = accessed[r], Attr = attrs[r] });
                 }
                 // Further hard links: same file in another folder; its space on disk is already counted once.
                 // One entry per (file, folder), preferring the long name over the 8.3 one.
@@ -330,7 +332,7 @@ namespace DiskSpaceAnalyzer
                     if (!best.TryGetValue(key, out cur) || (cur.Ns == 2 && l.Ns != 2)) best[key] = l;
                 }
                 foreach (var l in best.Values)
-                    AddFile(lists, dirs, l.Parent, new FileRec { Name = l.Name, Bytes = bytes[l.Record], Alloc = 0, Modified = modified[l.Record], Attr = attrs[l.Record] });
+                    AddFile(lists, dirs, l.Parent, new FileRec { Name = l.Name, Bytes = bytes[l.Record], Alloc = 0, Modified = modified[l.Record], Accessed = accessed[l.Record], Attr = attrs[l.Record] });
 
                 for (int r = 0; r < n; r++)
                 {

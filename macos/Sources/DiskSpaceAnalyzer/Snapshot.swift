@@ -10,6 +10,8 @@ struct SnapshotInfo {
     var volumeUUID = ""             // FSEvents' id of the volume's event history
     var fullDiskAccess = false
     var scanSeconds: Double = 0     // how long the full scan took
+    var total: Int64 = 0            // capacity of the drive when saved (0 = unknown; version 2)
+    var free: Int64 = 0
 }
 
 /// Compact binary copy of a full scan (every folder with its own files, i.e. the tree and the file index the Files and
@@ -17,12 +19,16 @@ struct SnapshotInfo {
 /// ~/Library/Application Support/DiskSpaceAnalyzer/snapshots/<hash of the root>.bin. The next start shows it at once and
 /// lets FSEvents replay what changed since (Replay). Only the 10 most recently written roots are kept; a file of another
 /// version is deleted. Layout: magic, version (both u32, uncompressed), then LZFSE: header, then the folders in pre-order
-/// (name, modified, flags, files, number of children); numbers are varints.
+/// (name, modified, flags, files, number of children); numbers are varints. Version 2 adds the drive's capacity (total,
+/// free) to the header and each file's last-access time; version 1 files are still read. A scan file the user saves
+/// (Export > Scan file, *.dsascan) is "DSASCAN1" followed by exactly such a snapshot.
 enum Snapshot {
     static let magic: UInt32 = 0x53415344      // "DSAS"
-    static let version: UInt32 = 1
+    static let version: UInt32 = 2             // 2: last-access times and the drive's capacity
     static let keep = 10
     static var folderOverride: String?         // self-test
+    static let scanFileMagic: [UInt8] = Array("DSASCAN1".utf8)
+    static let scanFileExtension = "dsascan"
 
     static var folder: String {
         if let f = folderOverride { return f }
@@ -73,6 +79,8 @@ enum Snapshot {
         w.str(info.volumeUUID)
         w.byte(info.fullDiskAccess ? 1 : 0)
         w.f64(info.scanSeconds)
+        w.sv(info.total)
+        w.sv(info.free)
         for d in root.descendants() {
             w.str(d.name)
             w.sv(d.modified)
@@ -91,6 +99,7 @@ enum Snapshot {
                     w.uv(UInt64(max(0, f.bytes)))
                     w.uv(UInt64(max(0, f.alloc)))
                     w.sv(f.modified)
+                    w.sv(f.accessed)
                     w.uv(UInt64(f.flags))
                 }
             }
@@ -102,14 +111,36 @@ enum Snapshot {
     /// Compresses and writes a serialized scan, then keeps only the 10 most recent roots.
     static func write(_ body: Data, _ rootPath: String) throws {
         try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let packed = try (body as NSData).compressed(using: .lzfse) as Data
+        try packed(body).write(to: URL(fileURLWithPath: file(for: rootPath)), options: .atomic)
+        prune()
+    }
+
+    /// Magic and version, then the compressed body.
+    static func packed(_ body: Data) throws -> Data {
+        let z = try (body as NSData).compressed(using: .lzfse) as Data
         var head = PackWriter()
         head.u32(magic)
         head.u32(version)
         var out = Data(head.bytes)
-        out.append(packed)
-        try out.write(to: URL(fileURLWithPath: file(for: rootPath)), options: .atomic)
-        prune()
+        out.append(z)
+        return out
+    }
+
+    /// Saves a serialized scan as a file the user can keep, send and open later (read-only): "DSASCAN1", then the snapshot.
+    static func writeScanFile(_ body: Data, to path: String) throws {
+        var out = Data(scanFileMagic)
+        let snap = try packed(body)
+        out.append(snap)
+        try out.write(to: URL(fileURLWithPath: path), options: .atomic)
+    }
+
+    /// Opens a scan file saved with writeScanFile; nil if it is not one or it is damaged. The top folder is named after
+    /// the drive or folder that was scanned.
+    static func loadScanFile(_ path: String) -> (DirNode, SnapshotInfo)? {
+        guard let raw = FileManager.default.contents(atPath: path), raw.count > scanFileMagic.count,
+              [UInt8](raw.prefix(scanFileMagic.count)) == scanFileMagic else { return nil }
+        guard let r = readSnapshot(raw.subdata(in: scanFileMagic.count..<raw.count), nil), let root = r.0 else { return nil }
+        return (root, r.1)
     }
 
     static func prune() {
@@ -125,11 +156,20 @@ enum Snapshot {
     static func load(_ rootPath: String) -> (DirNode, SnapshotInfo)? {
         let path = file(for: rootPath)
         guard let raw = FileManager.default.contents(atPath: path) else { return nil }
-        func drop() -> (DirNode, SnapshotInfo)? { try? FileManager.default.removeItem(atPath: path); return nil }
-        guard raw.count >= 8 else { return drop() }
+        guard let r = readSnapshot(raw, rootPath) else { try? FileManager.default.removeItem(atPath: path); return nil }
+        guard let root = r.0 else { return nil }
+        return (root, r.1)
+    }
+
+    /// Reads a snapshot (magic, version, compressed body). nil = not a snapshot of a known version, or damaged; a nil
+    /// node = a snapshot of another root than rootPath (with rootPath nil any root is accepted).
+    static func readSnapshot(_ raw: Data, _ rootPath: String?) -> (DirNode?, SnapshotInfo)? {
+        guard raw.count >= 8 else { return nil }
         var hr = PackReader([UInt8](raw.prefix(8)))
-        if hr.u32() != magic || hr.u32() != version { return drop() }
-        guard let body = try? (raw.subdata(in: 8..<raw.count) as NSData).decompressed(using: .lzfse) as Data else { return drop() }
+        if hr.u32() != magic { return nil }
+        let ver = hr.u32()
+        if ver != 1 && ver != version { return nil }
+        guard let body = try? (raw.subdata(in: 8..<raw.count) as NSData).decompressed(using: .lzfse) as Data else { return nil }
         var r = PackReader([UInt8](body))
         var info = SnapshotInfo()
         info.rootPath = r.str()
@@ -138,8 +178,12 @@ enum Snapshot {
         info.volumeUUID = r.str()
         info.fullDiskAccess = r.byte() != 0
         info.scanSeconds = r.f64()
-        if r.failed { return drop() }
-        if !PathUtil.same(info.rootPath, rootPath) { return nil }
+        if ver >= 2 {
+            info.total = r.sv()
+            info.free = r.sv()
+        }
+        if r.failed { return nil }
+        if let want = rootPath, !PathUtil.same(info.rootPath, want) { return (nil, info) }
 
         var all: [DirNode] = []
         func readNode(_ parent: DirNode?) -> (DirNode, Int) {
@@ -155,9 +199,14 @@ enum Snapshot {
                 list.reserveCapacity(n)
                 var b: Int64 = 0, a: Int64 = 0
                 for _ in 0..<n {
-                    let f = FileRec(name: r.str(), bytes: Int64(truncatingIfNeeded: r.uv()), alloc: Int64(truncatingIfNeeded: r.uv()),
-                                    modified: r.sv(), flags: UInt32(truncatingIfNeeded: r.uv()))
+                    let name = r.str()
+                    let fb = Int64(truncatingIfNeeded: r.uv())
+                    let fa = Int64(truncatingIfNeeded: r.uv())
+                    let fm = r.sv()
+                    let acc: Int64 = ver >= 2 ? r.sv() : 0
+                    let fl = UInt32(truncatingIfNeeded: r.uv())
                     if r.failed { break }
+                    let f = FileRec(name: name, bytes: fb, alloc: fa, modified: fm, flags: fl, accessed: acc)
                     b += f.bytes; a += f.alloc
                     list.append(f)
                 }
@@ -182,9 +231,9 @@ enum Snapshot {
             all.append(c.0)
             stack.append(c)
         }
-        if r.failed || !r.atEnd { return drop() }
+        if r.failed || !r.atEnd { return nil }
         for d in all.reversed() { d.aggregate() }
-        root.name = rootPath
+        root.name = rootPath ?? info.rootPath
         return (root, info)
     }
 }
@@ -311,6 +360,7 @@ extension MainWindowController {
         }
         let target = r!
         target.node = node
+        target.scanned = info.taken
         refreshCapacity(target)
         // The chart shows the logo until the replay (or the rescan) has brought the saved scan up to date.
         let unusable = Snapshot.unusable(info, path)
@@ -380,6 +430,9 @@ extension MainWindowController {
             if lastId > 0 { info.eventId = lastId }
             info.scanSeconds = rep.info.scanSeconds
             saveSnapshot(r, node, info)
+            // Up to date now: kept in the scan history like a full scan (timeline, daily copy).
+            r.scanned = Date()
+            rememberScan(r, node, complete: true)
             let n = rep.events
             let full = rep.info.scanSeconds > 0 ? String(format: "; a full scan took %.1f s", rep.info.scanSeconds) : ""
             statusLabel.stringValue = "Up to date: the scan of \(Fmt.date(rep.info.taken)) plus \(Fmt.count(n)) change\(n == 1 ? "" : "s") since"

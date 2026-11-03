@@ -51,6 +51,34 @@ final class PieChart: NSView {
     var onClick: ((ChartSlice) -> Void)?
     override var isFlipped: Bool { true }
 
+    // Treemap (the extension below): the same slices as rectangles.
+    private var treemapOn = false
+    private var tilesDirty = true
+    private var tiles: [TreemapTile] = []
+    private var hoverTile = -1
+    private var hoverUp = false
+    private var mapRect = NSRect.zero
+    private var upRect = NSRect.zero
+    /// Right margin of the title lines (room for the Ring / Treemap switch placed over the chart).
+    var titleRightMargin: CGFloat = 0 { didSet { if oldValue != titleRightMargin { needsDisplay = true } } }
+
+    /// Rectangles instead of rings.
+    var treemap: Bool {
+        get { treemapOn }
+        set {
+            if treemapOn == newValue { return }
+            treemapOn = newValue
+            tilesDirty = true
+            hover = -1; reported = -1; hoverTile = -1; hoverArc = -1; hoverUp = false
+            needsDisplay = true
+        }
+    }
+
+    /// Rectangles laid out at the last paint (self-test).
+    var tileCount: Int { tiles.count }
+
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); tilesDirty = true }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
@@ -65,6 +93,7 @@ final class PieChart: NSView {
     func showLogo(_ title: String, _ subtitle: String, _ note: String, working: Bool = false) {
         self.title = title; self.subtitle = subtitle; logoNote = note
         slices = []; arcs = []; rings = 0; total = 0; hover = -1; hoverArc = -1; reported = -1
+        tiles = []; tilesDirty = true; hoverTile = -1; hoverUp = false
         logoMode = true
         animTimer?.invalidate(); animTimer = nil; anim = 1
         setWorking(working)
@@ -91,6 +120,9 @@ final class PieChart: NSView {
         self.rings = rings
         arcs = []
         hoverArc = -1
+        tilesDirty = true
+        hoverTile = -1
+        hoverUp = false
         centerName = nil; canGoUp = false; hoverCenter = false
         if rings > 0 && total > 0 {
             var a = startAngle
@@ -150,7 +182,7 @@ final class PieChart: NSView {
     /// Highlight from the list (does not call onHover).
     func setHover(_ i: Int) {
         let v = (i >= slices.count || animating) ? -1 : i
-        if v != hover || hoverArc != -1 { hover = v; hoverArc = -1; needsDisplay = true }
+        if v != hover || hoverArc != -1 || hoverTile != -1 { hover = v; hoverArc = -1; hoverTile = -1; needsDisplay = true }
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -158,10 +190,11 @@ final class PieChart: NSView {
         guard !title.isEmpty else { return }
         let pad: CGFloat = 12
         var y = pad
-        Theme.drawText(title, in: NSRect(x: pad, y: y, width: bounds.width - 2 * pad, height: 20), font: Theme.font11, color: T.FG)
+        let titleW = max(10, bounds.width - 2 * pad - titleRightMargin)
+        Theme.drawText(title, in: NSRect(x: pad, y: y, width: titleW, height: 20), font: Theme.font11, color: T.FG)
         y += 22
         if !subtitle.isEmpty {
-            Theme.drawText(subtitle, in: NSRect(x: pad, y: y, width: bounds.width - 2 * pad, height: 16), font: Theme.font9, color: T.MUTED)
+            Theme.drawText(subtitle, in: NSRect(x: pad, y: y, width: titleW, height: 16), font: Theme.font9, color: T.MUTED)
             y += 16
         }
         y += 16
@@ -178,7 +211,8 @@ final class PieChart: NSView {
                 (logoNote as NSString).draw(in: NSRect(x: 10, y: pieRect.maxY + 14, width: bounds.width - 20, height: 40),
                                             withAttributes: [.font: Theme.font9, .foregroundColor: T.MUTED, .paragraphStyle: ps])
             }
-        } else if animating { drawMorph() }
+        } else if treemapOn { drawTreemap(NSRect(x: pad, y: y, width: bounds.width - 2 * pad, height: max(0, bounds.height - y - pad))) }
+        else if animating { drawMorph() }
         else { drawDonut() }
     }
 
@@ -337,6 +371,7 @@ final class PieChart: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
+        if treemapOn { treemapMouseMoved(p); return }
         let h = sliceAt(p), ha = arcAt(p)
         let hc = canGoUp && inCenter(p)
         if hc || ha >= 0 || (h >= 0 && slices[h].dir != nil) { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
@@ -346,12 +381,15 @@ final class PieChart: NSView {
 
     override func mouseExited(with event: NSEvent) {
         NSCursor.arrow.set()
-        if hover != -1 || hoverArc != -1 || hoverCenter { hover = -1; hoverArc = -1; hoverCenter = false; needsDisplay = true }
+        if hover != -1 || hoverArc != -1 || hoverCenter || hoverTile != -1 || hoverUp {
+            hover = -1; hoverArc = -1; hoverCenter = false; hoverTile = -1; hoverUp = false; needsDisplay = true
+        }
         if reported != -1 { reported = -1; onHover?(-1) }
     }
 
     override func mouseUp(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
+        if treemapOn { treemapClick(p); return }
         if canGoUp && inCenter(p) { onCenterClick?(); return }
         let ha = arcAt(p)
         if ha >= 0 {
@@ -362,5 +400,233 @@ final class PieChart: NSView {
         }
         let h = sliceAt(p)
         if h >= 0, slices[h].dir != nil { onClick?(slices[h]) }
+    }
+}
+
+/// One rectangle of the treemap: a slice (level 0) or a subfolder inside a folder slice (levels 1 and 2).
+final class TreemapTile {
+    var rect = NSRect.zero
+    var slice = 0                // index of the slice it belongs to
+    var level = 0                // 0 = the slice itself
+    var dir: DirNode?
+    var color: NSColor = T.ACCENT
+    var label = ""
+    var size: Int64 = 0, parentSize: Int64 = 0
+    var parentName: String?
+}
+
+/// Treemap view of the same slices as the ring chart: one rectangle per slice, area in true proportion (squarified so
+/// rectangles stay close to square). Folder slices hold their subfolders, two levels deep (like the outer rings). Hover,
+/// click (open a folder) and the link to the list work as for the rings; the area below the map shows the hovered item,
+/// and "Up" goes to the parent folder. Free space is an outlined empty rectangle.
+extension PieChart {
+    /// Squarified treemap (Bruls et al.): sizes in any order; returns one rectangle per size, in the same order.
+    static func squarify(_ sizes: [Double], _ area: NSRect) -> [NSRect] {
+        var result = [NSRect](repeating: .zero, count: sizes.count)
+        var order: [Int] = []
+        var sum = 0.0
+        for i in sizes.indices where sizes[i] > 0 { order.append(i); sum += sizes[i] }
+        if sum <= 0 || area.width <= 0 || area.height <= 0 { return result }
+        order.sort { sizes[$0] > sizes[$1] }
+        let scale = Double(area.width) * Double(area.height) / sum
+        var rect = area
+        var start = 0
+        while start < order.count {
+            let side = Double(min(rect.width, rect.height))
+            var end = start
+            var rowSum = 0.0, worst = Double.greatestFiniteMagnitude
+            while end < order.count {
+                let a = sizes[order[end]] * scale, s = rowSum + a
+                let maxA = max(a, end > start ? sizes[order[start]] * scale : a), minA = a
+                let w = max(side * side * maxA / (s * s), s * s / (side * side * minA))
+                if end > start && w > worst { break }
+                worst = w
+                rowSum = s
+                end += 1
+            }
+            // Lay out order[start..<end] along the shorter side.
+            let horizontal = rect.width >= rect.height        // a column on the left, stacked from the top
+            let thick = side > 0 ? rowSum / side : 0
+            var pos = Double(horizontal ? rect.minY : rect.minX)
+            for k in start..<end {
+                let len = thick > 0 ? sizes[order[k]] * scale / thick : 0
+                result[order[k]] = horizontal
+                    ? NSRect(x: rect.minX, y: CGFloat(pos), width: CGFloat(thick), height: CGFloat(len))
+                    : NSRect(x: CGFloat(pos), y: rect.minY, width: CGFloat(len), height: CGFloat(thick))
+                pos += len
+            }
+            let t = CGFloat(thick)
+            rect = horizontal
+                ? NSRect(x: rect.minX + t, y: rect.minY, width: max(0, rect.width - t), height: rect.height)
+                : NSRect(x: rect.minX, y: rect.minY + t, width: rect.width, height: max(0, rect.height - t))
+            start = end
+        }
+        return result
+    }
+
+    private func layoutTiles() {
+        tiles = []
+        tilesDirty = false
+        if total <= 0 || mapRect.width < 10 || mapRect.height < 10 { return }
+        let rects = PieChart.squarify(slices.map { Double(max(0, $0.size)) }, mapRect)
+        for (i, s) in slices.enumerated() {
+            let r = rects[i]
+            if r.width <= 0 || r.height <= 0 { continue }
+            let t = TreemapTile()
+            t.rect = r; t.slice = i; t.level = 0; t.dir = s.dir; t.color = s.color; t.label = s.label; t.size = s.size; t.parentSize = total
+            tiles.append(t)
+        }
+        let count = tiles.count
+        for i in 0..<count where tiles[i].dir != nil && !slices[tiles[i].slice].empty { addChildTiles(tiles[i], 1) }
+    }
+
+    /// Subfolders inside a folder's tile (below its name), down to level 2; small ones are left out. The folder's own
+    /// files take their share too (as a gap), so every subfolder keeps its true proportion.
+    private func addChildTiles(_ parent: TreemapTile, _ level: Int) {
+        guard level <= 2, let dir = parent.dir, !dir.children.isEmpty, dir.size > 0 else { return }
+        let r = parent.rect
+        let lh = Theme.lineHeight(Theme.font9)
+        let head: CGFloat = level == 1 && r.height > lh * 3 ? lh + 6 : 0
+        let inset: CGFloat = level == 1 ? 3 : 2
+        let inner = NSRect(x: r.minX + inset, y: r.minY + head + inset, width: r.width - 2 * inset, height: r.height - head - 2 * inset)
+        if inner.width < 12 || inner.height < 12 { return }
+        var kids: [DirNode] = []
+        var sizes: [Double] = []
+        for c in dir.children {
+            if c.size <= 0 || kids.count >= 200 { break }      // children are sorted by size
+            kids.append(c)
+            sizes.append(Double(c.size))
+        }
+        if kids.isEmpty { return }
+        let kidsSum = kids.reduce(Int64(0)) { $0 + $1.size }
+        if dir.size - kidsSum > 0 { sizes.append(Double(dir.size - kidsSum)) }
+        let rects = PieChart.squarify(sizes, inner)
+        let base = slices[parent.slice].color
+        var k = 0
+        for (i, c) in kids.enumerated() {
+            let cr = rects[i]
+            if cr.width < 4 || cr.height < 4 { continue }
+            let t = TreemapTile()
+            t.rect = cr; t.slice = parent.slice; t.level = level; t.dir = c
+            t.color = PieChart.blend(base, T.SURFACE, (level == 1 ? 0.28 : 0.5) + (k % 2 == 0 ? 0 : 0.12))
+            k += 1
+            t.label = c.name; t.size = c.size; t.parentSize = dir.size; t.parentName = dir.name
+            tiles.append(t)
+            addChildTiles(t, level + 1)
+        }
+    }
+
+    private func drawTreemap(_ area: NSRect) {
+        let lh = Theme.lineHeight(Theme.font9)
+        let infoH = lh * 2 + 10
+        let map = NSRect(x: area.minX, y: area.minY, width: area.width, height: max(40, area.height - infoH)).integral
+        if map != mapRect { mapRect = map; tilesDirty = true }
+        if tilesDirty { layoutTiles() }
+        // Logo -> treemap: the logo fades out while the tiles fade in.
+        let alpha: CGFloat = animating ? PieChart.ease(anim) : 1
+        if animating { drawBrandLogo(pieRect, alpha: 1 - alpha) }
+        if total <= 0 { T.BORDER.setFill(); NSBezierPath(rect: mapRect).fill() }
+        for (i, t) in tiles.enumerated() {
+            let s = slices[t.slice]
+            let hot = i == hoverTile || (t.level == 0 && t.slice == hover && hoverTile < 0)
+            let rr = t.rect
+            let edge = NSBezierPath(rect: rr.insetBy(dx: 0.5, dy: 0.5))
+            edge.lineWidth = 1
+            if s.empty && t.level == 0 {
+                // Free space: nothing drawn but an outline (a faint fill while hovered), like the gap in the ring.
+                if hot { T.BORDER.withAlphaComponent(alpha).setFill(); NSBezierPath(rect: rr).fill() }
+                T.BORDER.withAlphaComponent(alpha).setStroke()
+                edge.stroke()
+            } else {
+                let col = hot ? PieChart.blend(t.color, .white, 0.25) : t.color
+                col.withAlphaComponent(alpha).setFill()
+                NSBezierPath(rect: rr).fill()
+                T.SURFACE.withAlphaComponent(alpha).setStroke()
+                edge.stroke()
+            }
+            // Names where they fit: every slice, and level-1 folders that are large enough.
+            if alpha < 1 || t.level > 1 { continue }
+            if rr.width < 44 || rr.height < lh + 6 { continue }
+            if t.level == 1 && (rr.width < 70 || rr.height < lh * 2 + 6) { continue }
+            let fg = s.empty ? T.MUTED : PieChart.readable(t.color)
+            let tr = NSRect(x: rr.minX + 5, y: rr.minY + 3, width: rr.width - 10, height: lh)
+            Theme.drawText(t.label, in: tr, font: Theme.font9, color: fg)
+            if t.level == 0 && t.dir == nil && rr.height >= lh * 2 + 8 {
+                Theme.drawText(Fmt.size(t.size), in: NSRect(x: tr.minX, y: tr.minY + lh, width: tr.width, height: lh), font: Theme.font9, color: fg)
+            }
+        }
+        drawTreemapInfo(NSRect(x: area.minX, y: mapRect.maxY + 6, width: area.width, height: infoH - 6))
+    }
+
+    /// Dark text on light tiles, white on dark ones.
+    static func readable(_ c: NSColor) -> NSColor {
+        let s = c.usingColorSpace(.sRGB) ?? c
+        let lum = 0.299 * s.redComponent + 0.587 * s.greenComponent + 0.114 * s.blueComponent
+        return lum > 0.6 ? T.BG : T.FG
+    }
+
+    /// Below the map: the hovered item (name; size and share), or the folder shown; "Up" on the right.
+    private func drawTreemapInfo(_ r: NSRect) {
+        var l1 = "", l2 = ""
+        if hoverTile >= 0 && hoverTile < tiles.count && tiles[hoverTile].level > 0 {
+            let t = tiles[hoverTile]
+            let share = String(format: "%.1f %%", 100 * Double(t.size) / Double(max(1, t.parentSize)))
+            l1 = t.label
+            l2 = Fmt.size(t.size) + "  -  " + share + " of " + (t.parentName.map { PathUtil.name($0) } ?? "parent")
+        } else if hover >= 0 && hover < slices.count {
+            l1 = slices[hover].label
+            l2 = Fmt.size(slices[hover].size) + (slices[hover].detail.isEmpty ? "" : "  -  " + slices[hover].detail)
+        } else {
+            l1 = centerName ?? "Total"
+            l2 = Fmt.size(total)
+        }
+        upRect = .zero
+        var right = r.maxX
+        if canGoUp {
+            let tw = Theme.textWidth("Up", Theme.font9)
+            let h = Theme.lineHeight(Theme.font9) + 8
+            upRect = NSRect(x: r.maxX - tw - 30, y: r.minY + ((r.height - h) / 2).rounded(), width: tw + 30, height: h)
+            Theme.fillRound(upRect, 7, fill: hoverUp ? T.SECONDARY_HOVER : T.BORDER)
+            let a: CGFloat = 10
+            // An arrow pointing up: the back arrow turned by 90 degrees.
+            Theme.drawArrow(NSRect(x: upRect.minX + 8, y: upRect.midY - a / 2, width: a, height: a), T.FG, dx: 0, dy: -1)
+            Theme.drawText("Up", in: NSRect(x: upRect.minX + 20, y: upRect.minY, width: upRect.width - 24, height: upRect.height),
+                           font: Theme.font9, color: T.FG, align: .center)
+            right = upRect.minX - 8
+        }
+        let h = Theme.lineHeight(Theme.font9)
+        Theme.drawText(l1, in: NSRect(x: r.minX, y: r.minY + 2, width: max(0, right - r.minX), height: h), font: Theme.font9, color: T.FG)
+        Theme.drawText(l2, in: NSRect(x: r.minX, y: r.minY + 2 + h, width: max(0, right - r.minX), height: h), font: Theme.font9, color: T.MUTED)
+    }
+
+    // children come after their parents: the deepest tile first
+    private func hitTile(_ p: NSPoint) -> Int {
+        if logoMode || animating { return -1 }
+        var i = tiles.count - 1
+        while i >= 0 {
+            if tiles[i].rect.contains(p) { return i }
+            i -= 1
+        }
+        return -1
+    }
+
+    private func treemapMouseMoved(_ p: NSPoint) {
+        let t = hitTile(p)
+        let up = canGoUp && upRect.contains(p)
+        let slice = t >= 0 ? tiles[t].slice : -1
+        let shown = t >= 0 && tiles[t].level > 0 ? t : -1
+        if up || (t >= 0 && tiles[t].dir != nil) { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        if slice != hover || shown != hoverTile || up != hoverUp { hover = slice; hoverTile = shown; hoverUp = up; needsDisplay = true }
+        if slice != reported { reported = slice; onHover?(slice) }
+    }
+
+    private func treemapClick(_ p: NSPoint) {
+        if canGoUp && upRect.contains(p) { onCenterClick?(); return }
+        let t = hitTile(p)
+        guard t >= 0, let d = tiles[t].dir else { return }
+        if tiles[t].level == 0 { onClick?(slices[tiles[t].slice]); return }
+        let s = ChartSlice(d.name, d.size, tiles[t].color)
+        s.dir = d
+        onClick?(s)
     }
 }

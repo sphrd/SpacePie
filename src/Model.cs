@@ -11,9 +11,13 @@ namespace DiskSpaceAnalyzer
         public long Bytes;      // file size
         public long Alloc;      // size on disk (clusters actually used; 0 for online-only cloud files)
         public long Modified;   // last write, FILETIME
+        public long Accessed;   // last opened (last access), FILETIME; 0 = unknown
         public uint Attr;
 
         public bool OnlineOnly { get { return (Attr & Native.AttrCloudMask) != 0; } }
+
+        /// <summary>When the file was last opened, never earlier than its last change (Windows may not record opens).</summary>
+        public long LastUse { get { return Accessed > Modified ? Accessed : Modified; } }
     }
 
     /// <summary>A scanned folder with its totals and the index of its own files.</summary>
@@ -149,16 +153,17 @@ namespace DiskSpaceAnalyzer
     {
         public string Name;
         public DirNode Dir;
-        public long Bytes, Alloc, Modified;
+        public long Bytes, Alloc, Modified, Accessed;
         public uint Attr;
 
         public long Size { get { return DirNode.OnDisk ? Alloc : Bytes; } }
         public bool OnlineOnly { get { return (Attr & Native.AttrCloudMask) != 0; } }
         public string FullPath { get { return Native.Join(Dir.FullPath, Name); } }
+        public long LastUse { get { return Accessed > Modified ? Accessed : Modified; } }
 
         public static FileEntry From(DirNode d, ref FileRec f)
         {
-            return new FileEntry { Name = f.Name, Dir = d, Bytes = f.Bytes, Alloc = f.Alloc, Modified = f.Modified, Attr = f.Attr };
+            return new FileEntry { Name = f.Name, Dir = d, Bytes = f.Bytes, Alloc = f.Alloc, Modified = f.Modified, Accessed = f.Accessed, Attr = f.Attr };
         }
 
         public static readonly Comparison<FileEntry> BySizeDesc = (a, b) => b.Size.CompareTo(a.Size);
@@ -172,9 +177,16 @@ namespace DiskSpaceAnalyzer
         /// <summary>The n largest files under root (by the current measure) that pass the filter, largest first.</summary>
         public static List<FileEntry> Largest(DirNode root, int n, FileFilter filter, out long matchCount, out long matchSize)
         {
+            return Largest(new[] { root }, n, filter, out matchCount, out matchSize);
+        }
+
+        /// <summary>The n largest files under any of the roots that pass the filter, largest first.</summary>
+        public static List<FileEntry> Largest(IEnumerable<DirNode> roots, int n, FileFilter filter, out long matchCount, out long matchSize)
+        {
             matchCount = 0; matchSize = 0;
             var heap = new List<KeyValuePair<long, FileEntry>>();
             long threshold = -1;
+            foreach (var root in roots)
             foreach (var d in root.Descendants())
             {
                 if (d.FileList == null) continue;
@@ -194,6 +206,27 @@ namespace DiskSpaceAnalyzer
             foreach (var kv in heap) result.Add(kv.Value);
             result.Sort(FileEntry.BySizeDesc);
             return result;
+        }
+
+        /// <summary>Folders under any of the roots whose name matches one of the filter's patterns (and its minimum size), largest first, at most n.</summary>
+        public static List<DirNode> Folders(IEnumerable<DirNode> roots, int n, FileFilter filter, out long matchCount)
+        {
+            matchCount = 0;
+            var found = new List<DirNode>();
+            if (filter == null || filter.Patterns == null || filter.Patterns.Length == 0) return found;
+            foreach (var root in roots)
+                foreach (var d in root.Descendants())
+                {
+                    if (d.Parent == null || (filter.MinSize > 0 && d.Size < filter.MinSize)) continue;
+                    bool any = false;
+                    foreach (var p in filter.Patterns) if (FileFilter.NameMatches(d.Name, p)) { any = true; break; }
+                    if (!any) continue;
+                    matchCount++;
+                    found.Add(d);
+                }
+            found.Sort(DirNode.BySizeDesc);
+            if (found.Count > n) found.RemoveRange(n, found.Count - n);
+            return found;
         }
 
         // Min-heap on Key, capped at n entries.
@@ -238,10 +271,11 @@ namespace DiskSpaceAnalyzer
         public string Category;         // null = any
         public long MinSize;
         public long ModifiedBefore;     // FILETIME; 0 = any
+        public long UsedBefore;         // not opened (nor changed) since; FILETIME; 0 = any
 
         public bool IsEmpty
         {
-            get { return (Patterns == null || Patterns.Length == 0) && Category == null && MinSize <= 0 && ModifiedBefore <= 0; }
+            get { return (Patterns == null || Patterns.Length == 0) && Category == null && MinSize <= 0 && ModifiedBefore <= 0 && UsedBefore <= 0; }
         }
 
         public bool FolderOk(DirNode d) { return true; }
@@ -250,6 +284,7 @@ namespace DiskSpaceAnalyzer
         {
             if (MinSize > 0 && FileIndex.Measure(ref f) < MinSize) return false;
             if (ModifiedBefore > 0 && (f.Modified <= 0 || f.Modified >= ModifiedBefore)) return false;
+            if (UsedBefore > 0) { long u = f.LastUse; if (u <= 0 || u >= UsedBefore) return false; }
             if (Category != null)
             {
                 string ext = FileIndex.Extension(f.Name);

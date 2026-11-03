@@ -55,6 +55,8 @@ namespace DiskSpaceAnalyzer
         public ItemInfo GroupOf;              // member of a group: shares the group's chart slice
         public string Name, Folder, Path, Ext, Category, Note;
         public long Size, Files, Dirs, Modified;
+        /// <summary>Last opened (last access, never earlier than Modified); 0 = not shown.</summary>
+        public long Used;
         public long Change = long.MinValue;   // compared with the previous scan; MinValue = unknown
         public long ChartValue = -1;          // size used by the chart when it differs from Size
         public double Percent;
@@ -77,7 +79,7 @@ namespace DiskSpaceAnalyzer
         {
             return new ItemInfo
             {
-                File = f, Name = f.OnlineOnly ? f.Name + "  (online-only)" : f.Name, Size = f.Size, Files = 1, Modified = f.Modified,
+                File = f, Name = f.OnlineOnly ? f.Name + "  (online-only)" : f.Name, Size = f.Size, Files = 1, Modified = f.Modified, Used = f.LastUse,
                 Percent = parentSize > 0 ? 100.0 * f.Size / parentSize : 0
             };
         }
@@ -104,6 +106,7 @@ namespace DiskSpaceAnalyzer
                 case "files": r = a.Files.CompareTo(b.Files); break;
                 case "dirs": r = a.Dirs.CompareTo(b.Dirs); break;
                 case "mod": r = a.Modified.CompareTo(b.Modified); break;
+                case "used": r = a.Used.CompareTo(b.Used); break;
                 case "change": r = a.Change.CompareTo(b.Change); break;
                 case "cat": r = string.Compare(a.Category, b.Category, StringComparison.OrdinalIgnoreCase); break;
                 case "note": r = string.Compare(a.Note, b.Note, StringComparison.OrdinalIgnoreCase); break;

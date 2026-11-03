@@ -26,6 +26,7 @@ namespace DiskSpaceAnalyzer
             if (info == null) { SetScanning(false, null); return false; }
             double loaded = sw.Elapsed.TotalSeconds;
             r.Node = info.Node;
+            r.Scanned = info.Saved;
             r.Complete = true;
             RefreshCapacity(r);
             StartWatching(r);   // changes from now on come live; the journal covers the time in between
@@ -53,6 +54,7 @@ namespace DiskSpaceAnalyzer
             RefreshAfterLive();
             r.JournalId = id;
             r.JournalUsn = next;
+            r.Scanned = DateTime.Now;
             RememberScan(r, r.Node, true);
             RefreshTree(current ?? r.Node);
             ViewsChanged();

@@ -377,6 +377,7 @@ final class SelfTestRun {
         }
         steps.waitUntil(10) { History.load(self.dir) != nil }
         steps.then { self.check(History.load(self.dir) != nil, "history: scan saved for the Changes view") }
+        addV2Checks()
         // Partial delete: a folder on the delete list with a file that cannot be removed (its folder is read-only) stays
         // on the list with the size of what is left. (Wait until the echo of the deletes above is no longer ignored.)
         steps.wait(3.5)
@@ -936,6 +937,23 @@ final class ShotRun {
             if let v = self.fda?.window?.contentView { self.save(v, "\(w.pages.count + 5)-full-disk-access") }
             self.fda?.close()
         }
+        // The folder contents as a treemap (the Ring / Treemap choice is put back afterwards).
+        var chartMode = 0
+        steps.then {
+            w.viewTabs.selectedIndex = contentsIndex
+            chartMode = w.chartMode.selectedIndex
+            w.chartMode.selectedIndex = 1
+        }
+        steps.wait(1.5)
+        steps.then {
+            self.shot("\(w.pages.count + 6)-treemap")
+            w.chartMode.selectedIndex = chartMode
+            // A row of a well-known folder or file: its hover tip says what it is (Quick Look itself can't be captured).
+            if let r = w.pContents.items.firstIndex(where: { MainWindowController.knownFor($0) != nil }) { self.hover(w.contents, r) }
+            else { print("what-it-is: no well-known folder in this folder") }
+        }
+        steps.wait(0.9)
+        steps.then { self.shotWithTip("\(w.pages.count + 7)-what-it-is"); HoverTip.shared.reset() }
         // Deleting: the themed confirmation, the delete strip mid-delete (rows leaving the Delete list), the error report.
         let demo = dir + "/delete-demo"
         steps.then {

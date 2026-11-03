@@ -304,6 +304,9 @@ namespace DiskSpaceAnalyzer
         {
             { "Enter", "Open the selected folder or file" },
             { "Backspace", "Up to the parent folder" },
+            { "Alt+Left / Right", "Back / Forward (also the mouse side buttons)" },
+            { "Space", "Preview the selected file or folder" },
+            { "Alt+Enter", "Windows Properties" },
             { "F5", "Rescan the selected folder" },
             { "Ctrl+D", "Add to the delete list" },
             { "Ctrl+Shift+D", "Delete permanently (also Del)" },

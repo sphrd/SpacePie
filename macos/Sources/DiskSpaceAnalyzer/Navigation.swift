@@ -1,0 +1,169 @@
+import AppKit
+
+/// A folder opened before (Back / Forward): the folder itself while it is in a scan, else found again by its path.
+final class NavEntry {
+    weak var node: DirNode?
+    let path: String
+    init(_ node: DirNode) { self.node = node; path = node.fullPath }
+}
+
+/// The window's content view: also takes a dropped scan file (or folder).
+final class DropView: FlatView {
+    var canDrop: ((URL) -> Bool)?
+    var onDrop: ((URL) -> Void)?
+
+    private func url(_ info: NSDraggingInfo) -> URL? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL]
+        return urls?.first
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if let u = url(sender), canDrop?(u) == true { return .copy }
+        return []
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        if let u = url(sender), canDrop?(u) == true { return .copy }
+        return []
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let u = url(sender), canDrop?(u) == true else { return false }
+        DispatchQueue.main.async { [weak self] in self?.onDrop?(u) }
+        return true
+    }
+}
+
+/// Getting around and knowing what you look at: Back / Forward through the folders opened, the path bar above the
+/// folder contents, and the banner naming folders that could not be read.
+extension MainWindowController {
+    static let maxHistory = 100
+
+    func buildNavigation() {
+        crumbs.onPick = { [unowned self] d in if self.isAttached(d) && !self.busy { self.selectDir(d) } }
+        unreadBanner.addButton("Show them", tip: "List the folders that could not be read") { [unowned self] in self.showUnreadable() }
+        unreadAccess = unreadBanner.addButton("Full Disk Access...", tip: "Let the app read every folder (System Settings > Privacy & Security > Full Disk Access)") {
+            _ = NSWorkspace.shared.open(FullDiskAccess.settingsURL)
+        }
+        unreadAccess?.isHidden = FullDiskAccess.granted
+        // Top to bottom: banner, path bar, caption, list.
+        pContents.addAbove(unreadBanner)
+        pContents.addAbove(crumbs)
+        // The mouse's back and forward buttons (buttons 4 and 5).
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { [weak self] e in
+            guard let self = self, e.window === self.window else { return e }
+            if e.buttonNumber == 3 { self.goBack(); return nil }
+            if e.buttonNumber == 4 { self.goForward(); return nil }
+            return e
+        }
+    }
+
+    // MARK: Back / Forward
+
+    /// Called whenever a folder is opened: remembers the one shown before, for Back.
+    func recordNavigation(_ from: DirNode?, _ to: DirNode) {
+        guard !navigating, let f = from, f !== to, isAttached(f) else { return }
+        navBack.append(NavEntry(f))
+        if navBack.count > MainWindowController.maxHistory { navBack.removeFirst(navBack.count - MainWindowController.maxHistory) }
+        navForward.removeAll()
+    }
+
+    func goBack() { step(back: true) }
+
+    func goForward() { step(back: false) }
+
+    /// Opens the most recent folder of the list that still exists in a scan; the folder shown now goes to the other list.
+    private func step(back: Bool) {
+        if busy { return }
+        while let entry = back ? navBack.popLast() : navForward.popLast() {
+            // The same folder object while it is still in a scan (also in a saved scan); otherwise by its path.
+            var d: DirNode? = nil
+            if let n = entry.node, isAttached(n) { d = n } else { d = findScanned(entry.path, exact: true) }
+            guard let target = d else { continue }
+            if let c = current, isAttached(c) {
+                if back { navForward.append(NavEntry(c)) } else { navBack.append(NavEntry(c)) }
+            }
+            navigating = true
+            selectDir(target)
+            if !activePage.followsFolder, let i = pages.firstIndex(where: { $0 === pContents }) { viewTabs.selectedIndex = i }
+            navigating = false
+            break
+        }
+        updateNavButtons()
+    }
+
+    func updateNavButtons() {
+        btnBack.isEnabled = !busy && !navBack.isEmpty
+        btnForward.isEnabled = !busy && !navForward.isEmpty
+    }
+
+    /// The item belongs to a saved scan opened from a file (browsed only, never changed).
+    func fromReadOnly(_ it: ItemInfo) -> Bool {
+        let d: DirNode? = it.isDir ? it.dir : it.file?.dir
+        guard let n = d, let r = rootOf(n.top) else { return false }
+        return r.readOnly
+    }
+
+    /// The saved scan whose top folder is selected in the tree (nil otherwise).
+    func selectedSavedScan() -> ScanRoot? {
+        guard lastView === outline, let r = outline.item(atRow: outline.selectedRow) as? ScanRoot, r.readOnly else { return nil }
+        return r
+    }
+
+    // MARK: Path bar
+
+    func updateCrumbs(_ d: DirNode?) {
+        var parts: [(text: String, dir: DirNode)] = []
+        if let d = d {
+            var chain: [DirNode] = []
+            var n: DirNode? = d
+            while let c = n { chain.insert(c, at: 0); n = c.parent }
+            let r = rootOf(chain.first)
+            for c in chain {
+                let text = c.parent == nil ? (r.map { $0.isDrive ? $0.displayName : $0.path } ?? c.name) : c.name
+                parts.append((text: text, dir: c))
+            }
+        }
+        crumbs.setParts(parts)
+    }
+
+    // MARK: Folders that could not be read
+
+    /// Folders under top that could not be read (access denied, or protected and not entered without Full Disk Access);
+    /// cached per scanned tree until it changes.
+    func deniedUnder(_ top: DirNode) -> [DirNode] {
+        let key = ObjectIdentifier(top)
+        if let c = deniedCache[key], c.top === top { return c.list }
+        let list = top.descendants().filter { $0.denied || $0.skipped == .needsAccess }
+        deniedCache[key] = (top: top, list: list)
+        return list
+    }
+
+    /// Shows or hides the banner for the tree that holds d: how many folders could not be read and what to do.
+    func updateUnreadBanner(_ d: DirNode?) {
+        guard let d = d, isAttached(d), let r = rootOf(d.top), !r.readOnly else { unreadBanner.message = ""; return }
+        let here = deniedUnder(d.top).filter { $0.isUnder(d) }
+        if here.isEmpty { unreadBanner.message = ""; return }
+        let one = here.count == 1
+        unreadAccess?.isHidden = FullDiskAccess.granted
+        unreadBanner.needsLayout = true
+        unreadBanner.message = "\(Fmt.count(here.count)) folder\(one ? "" : "s") \(d.parent == nil ? "in this scan" : "in here") could not be read (access denied), "
+            + "so \(one ? "its" : "their") size\(one ? "" : "s") \(one ? "is" : "are") missing from these totals."
+    }
+
+    func showUnreadable() {
+        guard let d = current, isAttached(d) else { return }
+        let here = deniedUnder(d.top).filter { $0.isUnder(d) }
+        if here.isEmpty { return }
+        var lines = here.prefix(2000).map { n -> String in n.fullPath + "   " + (n.denied ? "access denied" : "needs Full Disk Access") }
+        if here.count > lines.count { lines.append("... and \(Fmt.count(here.count - lines.count)) more") }
+        let granted = FullDiskAccess.granted
+        let d2 = PromptDialog(icon: .warn, heading: "\(Fmt.count(here.count)) folder\(here.count == 1 ? "" : "s") could not be read",
+                              text: "macOS refused access, so what is inside them is not counted. Some belong to macOS or to other users.",
+                              warning: granted ? "Some folders stay closed even with Full Disk Access (other users' folders, folders macOS protects)."
+                                  : "Give the app Full Disk Access (button in the toolbar, or here) to read most of them, then scan again.",
+                              details: lines, buttons: [("OK", .primary)], defaultIndex: 0, cancelIndex: 0)
+        d2.show(over: window) { _ in }
+    }
+}

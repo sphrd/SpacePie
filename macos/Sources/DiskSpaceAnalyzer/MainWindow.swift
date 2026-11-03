@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 /// A top-level entry of the tree: a drive (scanned or not) or a folder the user scanned.
 final class ScanRoot {
@@ -11,9 +12,21 @@ final class ScanRoot {
     var previous: PrevNode?            // the scan before this one (folder sizes only), for the Changes view
     var previousTime = Date.distantPast
     var replay: Replay?                // shown from its snapshot while FSEvents replays the changes since
+    /// A scan opened from a file (Open scan): browsed only; nothing is rescanned, watched or deleted.
+    var readOnly = false
+    var sourceFile = ""
+    var scanned = Date.distantPast     // when the scan shown was made (distantPast = unknown)
     init(path: String) { self.path = path }
-    var displayName: String { isDrive && !label.isEmpty ? label : path }
+    var displayName: String {
+        if readOnly { return path + "  (saved scan, " + Fmt.date(scanned) + ")" }
+        return isDrive && !label.isEmpty ? label : path
+    }
     var used: Int64 { max(0, total - free) }
+    /// The chart shows the drive's free space and the part not scanned: a drive, or a saved scan of a whole volume.
+    var showsCapacity: Bool {
+        if isDrive { return total > 0 }
+        return readOnly && total > 0 && (path == "/" || PathUtil.parent(path) == "/Volumes")
+    }
 }
 
 // MARK: - Tree and header views
@@ -185,7 +198,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     var suppressTreeSelection = false
 
     // Toolbar and panes
-    let root = FlatView()
+    let root = DropView()
     let pathLabel = NSTextField(labelWithString: "Location:")
     let pathPanel = ContainerPanel()
     let pathField = NSTextField()
@@ -193,12 +206,15 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     lazy var btnBrowse = RoundButton("Choose...", .secondary) { [unowned self] in self.browse() }
     lazy var btnScan = RoundButton("Scan", .primary) { [unowned self] in self.startScan() }
     lazy var btnAccess = RoundButton("Full Disk Access...", .secondary) { [unowned self] in self.openFullDiskAccess() }
+    lazy var btnBack = RoundButton(icon: { (r: NSRect, c: NSColor) in Theme.drawArrow(r, c, left: true) }, { [unowned self] in self.goBack() })
+    lazy var btnForward = RoundButton(icon: { (r: NSRect, c: NSColor) in Theme.drawArrow(r, c, left: false) }, { [unowned self] in self.goForward() })
     lazy var btnUp = RoundButton("Up", .secondary) { [unowned self] in self.goUp() }
     lazy var btnRescan = RoundButton(refresh: { [unowned self] in self.rescanSelected() })
     lazy var btnFinder = RoundButton("Show in Finder", .secondary) { [unowned self] in self.showInFinder() }
     lazy var btnAddList = RoundButton("Add to delete list", .secondary) { [unowned self] in self.addSelectionToBasket() }
     lazy var btnDelete = RoundButton("Delete permanently", .warn) { [unowned self] in self.deleteSelected() }
     lazy var btnExport = RoundButton("Export...", .secondary) { [unowned self] in self.exportScan() }
+    lazy var btnOpenScan = RoundButton("Open scan...", .secondary) { [unowned self] in self.openScanDialog() }
     let measure = Segmented(["Size", "Size on disk"])
     let scanBar = ScanBar()
     let split = NSSplitView()
@@ -213,6 +229,9 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     let viewTabs = TabStrip(["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes", "Delete list"])
     let chartPanel = ContainerPanel()
     let chart = PieChart()
+    /// Ring or treemap, top right of the chart pane; the choice is remembered (UserDefaults).
+    let chartMode = Segmented(["Ring", "Treemap"])
+    static let treemapKey = "ChartTreemap"
     let statusLabel = NSTextField(labelWithString: "Choose a drive or folder and press Scan.")
     let liveLabel = NSTextField(labelWithString: "")
     let driveLabel = NSTextField(labelWithString: "")
@@ -232,10 +251,13 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     var contents: HoverTable { pContents.table }
 
     // Files view
-    let fileSearch = SearchBox("Search names  (e.g. *.iso, invoice)")
+    let fileSearch = SearchBox("Search names  (e.g. *.iso, invoice, node_modules)")
+    let fileScope = ChoiceBox("", ["In the selected folder", "In everything scanned"])
     let fileType = ChoiceBox("", ["Any type"] + FileTypes.categories)
     let fileMinSize = ChoiceBox("", ["Any size", "1 MB or more", "10 MB or more", "100 MB or more", "1 GB or more"])
-    let fileAge = ChoiceBox("", ["Any date", "Older than 3 months", "Older than 6 months", "Older than 1 year", "Older than 2 years", "Older than 5 years"])
+    let fileAge = ChoiceBox("", ["Any date", "Not changed for 3 months", "Not changed for 6 months", "Not changed for 1 year",
+                                 "Not changed for 2 years", "Not changed for 5 years", "Not opened for 3 months", "Not opened for 6 months",
+                                 "Not opened for 1 year", "Not opened for 2 years"])
     var filesGen = 0
     // File types view
     let typeGroup = ChoiceBox("Group by: ", ["Extension", "Category"])
@@ -308,6 +330,26 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     // Self-test (--cli selftest)
     var selfTestDir: String?
     var selfTestFailed = false
+    // Back / Forward, path bar, unreadable folders (Navigation.swift)
+    var navBack: [NavEntry] = []
+    var navForward: [NavEntry] = []
+    var navigating = false
+    let crumbs = Breadcrumb()
+    let unreadBanner = Banner()
+    var unreadAccess: RoundButton?
+    var deniedCache: [ObjectIdentifier: (top: DirNode, list: [DirNode])] = [:]
+    var mouseMonitor: Any?
+    // Changes: compare any two scans (History.swift)
+    let changeFrom = ChoiceBox("From: ", ["Previous scan"])
+    let changeTo = ChoiceBox("To: ", ["Now"])
+    let historyStrip = HistoryStrip()
+    var fromChoices: [ScanChoice] = []
+    var toChoices: [ScanChoice] = []
+    var archiveCache: [String: PrevNode] = [:]
+    weak var changesRoot: ScanRoot?
+    // Quick Look (Preview.swift)
+    var quickLookURLs: [URL] = []
+    let quickLookSource = QuickLookSource()
 
     convenience init() {
         let vf = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -363,15 +405,18 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         btnScan.tip = "Analyze the drive or folder"
         btnAccess.tip = "Let the app read every folder (System Settings > Privacy & Security > Full Disk Access)"
         btnUp.tip = "Go to the parent folder (⌘↑)"
+        btnBack.tip = "Back to the folder shown before (⌘[)"
+        btnForward.tip = "Forward again (⌘])"
         btnRescan.tip = "Rescan the selected folder (⌘R)"
         btnAddList.tip = "Collect the selected items in the delete list; review them there, then delete them together (⌘D)"
         btnDelete.tip = "Permanently delete the selected items, bypassing the Trash (⇧⌘D or ⌘⌫)"
-        btnExport.tip = "Save the scan as an HTML report or a CSV file"
+        btnExport.tip = "Save the scan as an HTML report, a CSV file, or a scan file to open again later"
+        btnOpenScan.tip = "Open a scan saved with Export (.\(Snapshot.scanFileExtension)): browse it read-only, next to the drives"
         measure.tip = "Size: file lengths, as Finder shows them. Size on disk: the space really used (blocks, files not downloaded from iCloud)"
         measure.selectedIndex = DirNode.onDisk ? 1 : 0
         measure.onChange = { [unowned self] i in self.setMeasure(i == 1) }
-        for v: NSView in [pathLabel, pathPanel, btnBrowse, btnScan, btnAccess, btnUp, btnRescan, btnFinder, btnAddList, btnDelete, btnExport, measure,
-                          scanBar, split, statusLabel, liveLabel, driveLabel, versionLink] {
+        for v: NSView in [pathLabel, pathPanel, btnBrowse, btnScan, btnAccess, btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnDelete,
+                          btnOpenScan, btnExport, measure, scanBar, split, statusLabel, liveLabel, driveLabel, versionLink] {
             root.addSubview(v)
         }
         for l in [statusLabel, driveLabel, liveLabel] { l.font = Theme.font9; l.textColor = T.MUTED; l.lineBreakMode = .byTruncatingTail }
@@ -427,6 +472,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
             }
             p.onSorted = { [unowned self] pg in if self.activePage === pg { self.refreshChart() } }
             p.onSelection = { [unowned self] pg in self.lastView = pg.table; self.updateButtons() }
+            p.knownFor = { it in MainWindowController.knownFor(it) }
         }
         activePage.root.isHidden = false
         if let si = pages.firstIndex(where: { $0 === pSuggest }) { viewTabs.colors[si] = T.SUGGEST }
@@ -436,7 +482,23 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
         // Chart
         chartPanel.addSubview(chart)
-        chartPanel.onLayout = { [unowned self] r in self.chart.frame = r }
+        // Ring or treemap, top right of the chart pane (the title leaves room for it); the choice is remembered.
+        chartMode.font = Theme.font9
+        chartMode.backFill = T.SURFACE
+        chartMode.tip = "Show the open list as a ring chart or as a treemap (rectangles sized by space)"
+        chart.treemap = UserDefaults.standard.bool(forKey: MainWindowController.treemapKey)
+        chartMode.selectedIndex = chart.treemap ? 1 : 0
+        chartMode.onChange = { [unowned self] i in
+            self.chart.treemap = i == 1
+            UserDefaults.standard.set(i == 1, forKey: MainWindowController.treemapKey)
+        }
+        chartPanel.addSubview(chartMode)
+        chartPanel.onLayout = { [unowned self] r in
+            self.chart.frame = r
+            let cs = self.chartMode.preferredSize
+            self.chartMode.frame = NSRect(x: r.maxX - cs.width - 10, y: r.minY + 10, width: cs.width, height: cs.height)
+            self.chart.titleRightMargin = cs.width + 10
+        }
         chart.onHover = { [unowned self] i in
             self.activePage.table.setHighlight(i >= 0 && i < self.chart.slices.count ? self.chart.slices[i].rows : [])
         }
@@ -494,6 +556,16 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(volumesChanged), name: NSWorkspace.didMountNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(volumesChanged), name: NSWorkspace.didUnmountNotification, object: nil)
 
+        buildNavigation()
+        // A scan file (.dsascan) dropped on the window opens read-only; a folder dropped on it is scanned.
+        root.canDrop = { [unowned self] u in
+            !self.busy && (MainWindowController.isScanFile(u.path) || (!self.scanning && PathUtil.isDir(u.path)))
+        }
+        root.onDrop = { [unowned self] u in
+            if MainWindowController.isScanFile(u.path) { self.openScanFile(u.path) } else { self.scanPath(u.path) }
+        }
+        root.registerForDraggedTypes([.fileURL])
+
         root.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(layoutRoot), name: NSView.frameDidChangeNotification, object: root)
         // Full Disk Access can be granted while the app runs: check again whenever the app comes to the front.
@@ -528,16 +600,17 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         pathPanel.needsLayout = true
         y += h + 8
         var x = m
-        for btn in [btnUp, btnRescan, btnFinder, btnAddList, btnDelete] {
+        for btn in [btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnDelete] {
             if btn === btnDelete { x += 10 }
             let p = btn.preferredSize
             let bw = btn.isIcon ? h : p.width
             btn.frame = NSRect(x: x, y: y, width: bw, height: h)
             x += bw + gap
         }
-        let ms = measure.preferredSize, es = btnExport.preferredSize
+        let ms = measure.preferredSize, es = btnExport.preferredSize, os = btnOpenScan.preferredSize
         measure.frame = NSRect(x: b.width - m - ms.width, y: y, width: ms.width, height: h)
         btnExport.frame = NSRect(x: measure.frame.minX - 16 - es.width, y: y, width: es.width, height: h)
+        btnOpenScan.frame = NSRect(x: btnExport.frame.minX - gap - os.width, y: y, width: os.width, height: h)
         y += h + 10
         if !scanBar.isHidden { scanBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
         if !deleteBar.isHidden { deleteBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
@@ -583,8 +656,11 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     func start(initialPath: String?) {
         loadDrives()
         refreshTree(nil)
-        let path = initialPath ?? "/"
+        // A scan file passed on the command line opens read-only next to the startup disk, which is analyzed as usual.
+        let scanFile = initialPath.flatMap { MainWindowController.isScanFile($0) ? $0 : nil }
+        let path = scanFile != nil ? "/" : (initialPath ?? "/")
         if fastStart { openLastScan(path) } else { scanPath(path) }
+        if let f = scanFile { openScanFile(f) }
         // The installed apps (bundles, icons) are read while the disk is scanned; their sizes follow from the scan.
         if selfTestDir == nil { prefetchApps() }
         if selfTestDir == nil {
@@ -596,12 +672,13 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
     static func same(_ a: String, _ b: String) -> Bool { PathUtil.same(a, b) }
 
-    func findRoot(_ path: String) -> ScanRoot? { roots.first { PathUtil.same($0.path, path) } }
+    func findRoot(_ path: String) -> ScanRoot? { roots.first { !$0.readOnly && PathUtil.same($0.path, path) } }
     func rootOf(_ top: DirNode?) -> ScanRoot? { guard let t = top else { return nil }; return roots.first { $0.node === t } }
     func isAttached(_ d: DirNode?) -> Bool { guard let d = d else { return false }; return rootOf(d.top) != nil }
 
     func sortRoots() {
         roots.sort { a, b in
+            if a.readOnly != b.readOnly { return b.readOnly }
             if a.isSystem != b.isSystem { return a.isSystem }
             if a.isDrive != b.isDrive { return a.isDrive }
             return a.path.localizedStandardCompare(b.path) == .orderedAscending
@@ -616,7 +693,10 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         return (total, free)
     }
 
-    func refreshCapacity(_ r: ScanRoot) { let c = MainWindowController.capacity(r.path); r.total = c.0; r.free = c.1 }
+    func refreshCapacity(_ r: ScanRoot) {
+        if r.readOnly { return }   // a saved scan keeps the capacity it was saved with
+        let c = MainWindowController.capacity(r.path); r.total = c.0; r.free = c.1
+    }
 
     private func loadDrives() {
         let keys: [URLResourceKey] = [.volumeNameKey, .volumeIsLocalKey, .volumeIsInternalKey, .volumeIsRemovableKey, .volumeIsEjectableKey, .volumeIsBrowsableKey]
@@ -627,7 +707,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
             if v.volumeIsLocal == false || v.volumeIsBrowsable == false { continue }   // network shares are not listed
             ready.append((u.path, v))
         }
-        roots.removeAll { r in r.isDrive && !ready.contains { PathUtil.same($0.0, r.path) } && !r.scanning }
+        roots.removeAll { r in r.isDrive && !r.readOnly && !ready.contains { PathUtil.same($0.0, r.path) } && !r.scanning }
         for (path, v) in ready {
             let r = findRoot(path) ?? { let n = ScanRoot(path: path); roots.append(n); return n }()
             r.isDrive = true
@@ -709,6 +789,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
                     self.scanner = nil; self.scanRoot = nil
                     self.setScanning(false, nil)
                     target.node = result
+                    target.scanned = Date()
                     self.refreshCapacity(target)
                     self.rememberScan(target, result, complete: !s.cancelled)
                     if !s.cancelled {
@@ -769,7 +850,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     /// scan did enter is preferred to one that was skipped (e.g. Desktop scanned on its own, skipped in the disk's scan).
     func findScanned(_ path: String, exact: Bool) -> DirNode? {
         var skipped: DirNode?
-        for r in roots {
+        for r in roots where !r.readOnly {
             guard let n = r.node, PathUtil.isWithin(path, n.fullPath) else { continue }
             if let d = MainWindowController.findByPath(n, path), !exact || PathUtil.same(d.fullPath, path) {
                 if !d.insideSkipped { return d }
@@ -847,6 +928,10 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         btnDelete.isEnabled = idle && any
         btnAddList.isEnabled = !busy && any
         btnExport.isEnabled = !busy && any
+        btnOpenScan.isEnabled = !busy
+        // A saved scan opened from a file is only browsed.
+        if let a = active, a.readOnly { btnRescan.isEnabled = false; btnDelete.isEnabled = false; btnAddList.isEnabled = false }
+        updateNavButtons()
         measure.isEnabled = !busy
         if pBasket != nil {
             btnBasketRemove.isEnabled = !busy && !basket.isEmpty
@@ -871,6 +956,11 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
     func updateDriveLabel() {
         defer { layoutStatus() }
+        if let r = active, r.readOnly {
+            driveLabel.stringValue = r.total > 0 ? "Saved scan of \(Fmt.date(r.scanned)): \(Fmt.size(r.free)) free of \(Fmt.size(r.total)) then"
+                : "Saved scan of \(Fmt.date(r.scanned))"
+            return
+        }
         guard let r = active, r.total > 0 else { driveLabel.stringValue = ""; return }
         refreshCapacity(r)
         driveLabel.stringValue = "\(r.displayName)  \(Fmt.size(r.free)) free of \(Fmt.size(r.total)) (\(Int((100 * Double(r.free) / Double(max(1, r.total))).rounded()))% free)"
@@ -1026,6 +1116,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         active = r
         refreshCapacity(r)
         if !busy && !scanning { pathField.stringValue = r.path }
+        updateCrumbs(nil)
+        unreadBanner.message = ""
         pContents.setRows([], r.scanning
             ? "Scanning \(r.displayName)...\nThe results appear here when the scan finishes. You can browse other drives meanwhile."
             : "\(r.displayName) has not been scanned yet.\nPress Scan, or double-click the drive, to analyze it.")
@@ -1037,12 +1129,15 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     }
 
     func showContents(_ d: DirNode) {
+        recordNavigation(current, d)
         current = d
         if let r = rootOf(d.top), r !== active {
             active = r
             updateDriveLabel()
             if !busy && !scanning { pathField.stringValue = r.path }
         }
+        updateCrumbs(d)
+        updateUnreadBanner(d)
         var items: [ItemInfo] = d.children.map { ItemInfo.forDir($0, d.size) }
         var files = Scanner.listFiles(d)
         files.sort { $0.size > $1.size }
@@ -1060,7 +1155,10 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         }
         setChanges(d, items)
         for it in items {
-            it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), changeText(it), Fmt.count(it.files), it.isDir ? Fmt.count(it.dirs) : "", Fmt.date(it.modified)]
+            let known = MainWindowController.knownFor(it)
+            it.category = known?.short ?? ""
+            it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), changeText(it), Fmt.count(it.files), it.isDir ? Fmt.count(it.dirs) : "",
+                        Fmt.date(it.modified), it.category]
             if it.isDir, let dn = it.dir, dn.denied || dn.skipped != .no { it.color = T.MUTED }
         }
         var empty = ""
@@ -1072,7 +1170,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         case .no: break
         }
         pContents.setRows(items, empty)
-        pContents.setCaption("\(Fmt.shorten(d.fullPath, 90))  -  \(Fmt.size(d.size)) in \(Fmt.count(d.files)) files and \(Fmt.count(d.dirs)) folders" + changeCaption(d))
+        // The path is in the path bar above; the caption gives the totals.
+        pContents.setCaption("\(Fmt.size(d.size)) in \(Fmt.count(d.files)) files and \(Fmt.count(d.dirs)) folders" + changeCaption(d))
         contentsChanged()
         updateButtons()
     }
@@ -1149,6 +1248,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
             return true
         case 126 where cmd: goUp(); return true                         // Cmd+Up
         case 114: lastView = view; addSelectionToBasket(); return true  // Help / Insert key of full-size keyboards
+        case 49 where !cmd && !e.modifierFlags.contains(.option) && !e.modifierFlags.contains(.control) && spacePreviews(view):
+            lastView = view; quickLookSelected(); return true           // Space: Quick Look (not where Space ticks checkboxes)
         default: break
         }
         return false
@@ -1161,7 +1262,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         if let v = window?.firstResponder as? NSView, v === outline || pages.contains(where: { $0.table === v }) { lastView = v }
         let sel = selection()
         let any = !sel.isEmpty
-        let deletable = any && !busy && sel.allSatisfy { $0.canDelete }
+        let deletable = any && !busy && sel.allSatisfy { $0.canDelete && !fromReadOnly($0) }
         func add(_ title: String, _ key: String, _ mods: NSEvent.ModifierFlags, _ enabled: Bool, _ action: Selector, warn: Bool = false) {
             let it = NSMenuItem(title: title, action: action, keyEquivalent: key)
             if !key.isEmpty { it.keyEquivalentModifierMask = mods }
@@ -1177,17 +1278,26 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
             m.addItem(.separator())
         }
         add("Open", "", [], any && sel.count == 1, #selector(menuOpen))
+        add("Quick Look", " ", [], any && sel.count == 1 && (sel[0].isDir || sel[0].file != nil || sel[0].fullPath != nil), #selector(menuQuickLook))
         add("Show in Finder", "", [], any, #selector(menuFinder))
+        add("Get Info", "i", .command, any && sel.count == 1 && sel[0].fullPath != nil, #selector(menuGetInfo))
         add("Copy path", "", [], any, #selector(menuCopy))
-        add("Rescan folder", "r", .command, any && !busy && !scanning && sel.count == 1 && sel[0].isDir, #selector(menuRescan))
+        add("Rescan folder", "r", .command, any && !busy && !scanning && sel.count == 1 && sel[0].isDir && !fromReadOnly(sel[0]), #selector(menuRescan))
         m.addItem(.separator())
         if lastView !== pBasket.table { add("Add to delete list", "d", .command, deletable, #selector(menuAddList)) }
         add("Move to Trash...", "", [], deletable && !scanning, #selector(menuTrash))
         add("Delete permanently...", "d", [.command, .shift], deletable && !scanning, #selector(menuDelete), warn: true)
+        if selectedSavedScan() != nil {
+            m.addItem(.separator())
+            add("Close saved scan", "", [], !busy, #selector(menuCloseSavedScan))
+        }
     }
 
     @objc private func menuUninstall() { uninstallSelectedApp() }
     @objc private func menuOpen() { openSelected() }
+    @objc private func menuQuickLook() { quickLookSelected() }
+    @objc private func menuGetInfo() { getInfoSelected() }
+    @objc private func menuCloseSavedScan() { closeSavedScan(selectedSavedScan()) }
     @objc private func menuFinder() { showInFinder() }
     @objc private func menuCopy() { copyPath() }
     @objc private func menuRescan() { rescanSelected() }
@@ -1236,6 +1346,10 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         if busy || scanning { return }
         let sel = selection()
         guard let dir = sel.count == 1 && sel[0].isDir ? sel[0].dir : current else { return }
+        if let ro = rootOf(dir.top), ro.readOnly {
+            statusLabel.stringValue = "This is a saved scan opened from a file: it can be browsed, not rescanned."
+            return
+        }
         if dir.parent == nil { scanPath(rootOf(dir)?.path ?? dir.fullPath); return }
         let path = dir.fullPath
         let s = Scanner()
@@ -1278,6 +1392,24 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     @objc func menuBarScan(_ sender: Any?) { startScan() }
     @objc func menuBarFind(_ sender: Any?) { showFilesSearch() }
     @objc func menuBarExport(_ sender: Any?) { exportScan() }
+    @objc func menuBarOpenScan(_ sender: Any?) { openScanDialog() }
+    @objc func menuBarBack(_ sender: Any?) { goBack() }
+    @objc func menuBarForward(_ sender: Any?) { goForward() }
+    @objc func menuBarGetInfo(_ sender: Any?) { getInfoSelected() }
+    @objc func menuBarQuickLook(_ sender: Any?) { quickLookSelected() }
+
+    // MARK: Quick Look panel control (the panel looks for its controller in the responder chain)
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        quickLookSource.urls = quickLookURLs
+        panel.dataSource = quickLookSource
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil
+    }
 }
 
 /// Chevron that opens the drive list next to the path field.

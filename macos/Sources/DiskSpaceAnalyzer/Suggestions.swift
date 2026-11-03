@@ -90,7 +90,7 @@ extension MainWindowController {
             p.setCaption("Looking again for space that can be freed (the scanned data changed)...")
         }
         updateButtons()
-        let scanned = roots.compactMap { $0.node }
+        let scanned = roots.filter { !$0.readOnly }.compactMap { $0.node }
         readInBackground({ [unowned self] in self.findSuggestions(scanned) }, { [weak self] found in
             guard let self = self, gen == self.suggestGen else { return }
             self.suggestFinding = false

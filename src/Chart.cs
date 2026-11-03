@@ -35,7 +35,7 @@ namespace DiskSpaceAnalyzer
     /// small consecutive rows are merged into one "smaller items" slice. Drawn from sizes already in memory.
     /// The centre shows the hovered slice, or the total. Hover is shared with the list in both directions.
     /// </summary>
-    internal sealed class PieChart : Control
+    internal sealed partial class PieChart : Control
     {
         List<ChartSlice> slices = new List<ChartSlice>();
         List<ChartArc> arcs = new List<ChartArc>();
@@ -135,6 +135,9 @@ namespace DiskSpaceAnalyzer
             total = 0;
             foreach (var s in this.slices) total += Math.Max(0, s.Size);
             this.rings = rings;
+            tilesDirty = true;
+            tiles.Clear();   // the old layout must not be hit-tested against the new slices
+            hoverTile = -1;
             hoverArc = -1;
             centerName = null;
             canGoUp = hoverCenter = false;
@@ -217,7 +220,8 @@ namespace DiskSpaceAnalyzer
         public void SetHover(int index)
         {
             if (index >= slices.Count || Animating) index = -1;
-            if (index == hover) return;
+            if (index == hover && hoverTile < 0) return;
+            hoverTile = -1;
             hover = index;
             Invalidate();
         }
@@ -230,11 +234,11 @@ namespace DiskSpaceAnalyzer
             int pad = Theme.S(10);
             int y = pad;
             const TextFormatFlags one = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(g, title, Theme.FONT_11, new Rectangle(pad, y, Width - 2 * pad, Theme.FONT_11.Height), Theme.FG, one);
+            TextRenderer.DrawText(g, title, Theme.FONT_11, new Rectangle(pad, y, Width - 2 * pad - TitleRightMargin, Theme.FONT_11.Height), Theme.FG, one);
             y += Theme.FONT_11.Height + Theme.S(2);
             if (subtitle.Length > 0)
             {
-                TextRenderer.DrawText(g, subtitle, Theme.FONT_9, new Rectangle(pad, y, Width - 2 * pad, Theme.FONT_9.Height), Theme.MUTED, one);
+                TextRenderer.DrawText(g, subtitle, Theme.FONT_9, new Rectangle(pad, y, Width - 2 * pad - TitleRightMargin, Theme.FONT_9.Height), Theme.MUTED, one);
                 y += Theme.FONT_9.Height;
             }
             y += Theme.S(16);
@@ -251,6 +255,7 @@ namespace DiskSpaceAnalyzer
                 if (working) Theme.DrawMouthLoop(g, pieRect, Theme.Now, Theme.ACCENT);
                 DrawLogoNote(g);
             }
+            else if (treemap) PaintTreemap(g, new Rectangle(pad, y, Width - 2 * pad, Height - y - pad));
             else if (Animating) DrawMorph(g);
             else DrawDonut(g);
         }
@@ -474,6 +479,7 @@ namespace DiskSpaceAnalyzer
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
+            if (treemap) { TreemapMouseMove(e.Location); return; }
             int h = HitTest(e.Location);
             int ha = HitArc(e.Location);
             bool hc = canGoUp && InCenter(e.Location);
@@ -489,7 +495,7 @@ namespace DiskSpaceAnalyzer
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
-            if (hover != -1 || hoverArc != -1 || hoverCenter) { hover = -1; hoverArc = -1; hoverCenter = false; Invalidate(); }
+            if (hover != -1 || hoverArc != -1 || hoverCenter || hoverTile != -1) { hover = -1; hoverArc = -1; hoverTile = -1; hoverCenter = false; hoverUp = false; Invalidate(); }
             if (reported != -1)
             {
                 reported = -1;
@@ -501,6 +507,7 @@ namespace DiskSpaceAnalyzer
         {
             base.OnMouseUp(e);
             if (e.Button != MouseButtons.Left) return;
+            if (treemap) { TreemapClick(e.Location); return; }
             if (canGoUp && InCenter(e.Location)) { if (CenterClicked != null) CenterClicked(); return; }
             int ha = HitArc(e.Location);
             if (ha >= 0) { if (SliceClicked != null) SliceClicked(new ChartSlice { Dir = arcs[ha].Dir, Label = arcs[ha].Dir.Name }); return; }

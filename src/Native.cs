@@ -151,6 +151,11 @@ namespace DiskSpaceAnalyzer
             return ((long)d->WriteHigh << 32) | d->WriteLow;
         }
 
+        public static long AccessTime(FindData* d)
+        {
+            return ((long)d->AccessHigh << 32) | d->AccessLow;
+        }
+
         public static uint GetAttributes(string path)
         {
             return GetFileAttributesW(LongPath(path));

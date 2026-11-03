@@ -2,12 +2,17 @@ import AppKit
 
 /// Something an app left behind in ~/Library or /Library (settings, caches, support files...).
 final class AppLeftover {
+    static let exact = "Exact match", sameDeveloper = "Same developer", nameOnly = "Name only - check before removing"
     var path: String, kind: String
     var size: Int64 = 0                   // -1 = not measured (needs Full Disk Access)
     var note = ""
     var needsAdmin = false
     var isDir = false
     var checked = true
+    /// How sure it belongs to the app (exact, sameDeveloper, nameOnly). Name-only matches are never pre-checked and never
+    /// moved by the one-step uninstall.
+    var match = AppLeftover.exact
+    var sure: Bool { match != AppLeftover.nameOnly }
     init(_ path: String, _ kind: String) { self.path = path; self.kind = kind }
 }
 
@@ -119,8 +124,10 @@ final class InstalledApp {
     }
 
     /// Items named after the bundle id B or the app name N in ~/Library and /Library (case-insensitive; names shorter
-    /// than 4 characters and com.apple.* never match).
-    static func findLeftovers(bundleId: String, name: String, home: String = PathUtil.home, fullDiskAccess: Bool = FullDiskAccess.granted) -> [AppLeftover] {
+    /// than 4 characters and com.apple.* never match), each with how sure it belongs to the app (exact match, same
+    /// developer, name only). otherBundleIds: the other installed apps (a developer folder shared with one is left out).
+    static func findLeftovers(bundleId: String, name: String, home: String = PathUtil.home, fullDiskAccess: Bool = FullDiskAccess.granted,
+                              otherBundleIds: [String] = []) -> [AppLeftover] {
         let b = bundleId.lowercased(), n = name.lowercased()
         if b.hasPrefix("com.apple.") { return [] }
         let useB = b.count >= 4, useN = n.count >= 4 && !n.hasPrefix("com.apple.")
@@ -128,12 +135,15 @@ final class InstalledApp {
         var out: [AppLeftover] = []
         var seen = Set<String>()
         let fm = FileManager.default
-        func add(_ p: String, _ kind: String, _ admin: Bool, _ measure: Bool) {
+        func add(_ p: String, _ kind: String, _ admin: Bool, _ measure: Bool, _ tier: String = AppLeftover.exact) {
             if !seen.insert(p.lowercased()).inserted { return }
             let l = AppLeftover(p, kind)
+            l.match = tier
             l.isDir = PathUtil.isDir(p)
             l.needsAdmin = admin || access(PathUtil.parent(p), W_OK) != 0
             if l.needsAdmin { l.note = "needs administrator"; l.checked = false }
+            // Name-only matches start unchecked: an uninstaller that ticks them is how the wrong folder gets deleted.
+            if !l.sure { l.checked = false }
             if !measure {
                 l.size = -1
                 l.note = "needs Full Disk Access to measure"
@@ -145,16 +155,18 @@ final class InstalledApp {
             }
             out.append(l)
         }
-        func scan(_ dir: String, _ kind: String, admin: Bool = false, measure: Bool = true, _ match: (String) -> Bool) {
+        func scan(_ dir: String, _ kind: String, admin: Bool = false, measure: Bool = true, tier: String = AppLeftover.exact,
+                  _ match: (String) -> Bool) {
             guard let names = try? fm.contentsOfDirectory(atPath: dir) else { return }
-            for nm in names.sorted() where match(nm.lowercased()) { add(PathUtil.join(dir, nm), kind, admin, measure) }
+            for nm in names.sorted() where match(nm.lowercased()) { add(PathUtil.join(dir, nm), kind, admin, measure, tier) }
         }
         func isB(_ x: String) -> Bool { useB && x == b }
         func isN(_ x: String) -> Bool { useN && x == n }
-        /// The bundle id as a whole dot-separated part of a name: "TEAMID.com.foo.app" or "com.foo.app".
-        func hasToken(_ x: String) -> Bool {
+        /// tok as a whole dot-separated part of a name: "TEAMID.com.foo.app" or "com.foo.app".
+        func hasToken(_ x: String, _ tok: String) -> Bool {
+            if tok.isEmpty { return false }
             var from = x.startIndex
-            while let r = x.range(of: b, range: from..<x.endIndex) {
+            while let r = x.range(of: tok, range: from..<x.endIndex) {
                 let before = r.lowerBound == x.startIndex || x[x.index(before: r.lowerBound)] == "."
                 let after = r.upperBound == x.endIndex || x[r.upperBound] == "."
                 if before && after { return true }
@@ -170,7 +182,7 @@ final class InstalledApp {
             scan(lib + "/Preferences", "Settings") { $0 == b + ".plist" || ($0.hasPrefix(b + ".") && $0.hasSuffix(".plist")) }
             scan(lib + "/Preferences/ByHost", "Settings") { $0.hasPrefix(b + ".") && $0.hasSuffix(".plist") }
             scan(lib + "/Containers", "Container", measure: fullDiskAccess) { $0 == b }
-            scan(lib + "/Group Containers", "Container", measure: fullDiskAccess) { hasToken($0) }
+            scan(lib + "/Group Containers", "Container", measure: fullDiskAccess) { hasToken($0, b) }
             scan(lib + "/Saved Application State", "Saved state") { $0 == b + ".savedstate" }
             scan(lib + "/HTTPStorages", "Web data") { $0 == b || $0 == b + ".binarycookies" }
             scan(lib + "/WebKit", "Web data") { $0 == b }
@@ -182,6 +194,72 @@ final class InstalledApp {
             scan("/Library/LaunchDaemons", "Launch daemon", admin: true) { $0.hasPrefix(b) && $0.hasSuffix(".plist") }
             scan("/Library/PrivilegedHelperTools", "Helper tool", admin: true) { $0.hasPrefix(b) }
         }
+        // Same developer: the developer part of the bundle id ("com.foo" of "com.foo.app"), when no other installed app has
+        // it: group containers shared under it, and the app's folder inside a developer folder (Application Support/Foo/App;
+        // the developer folder itself when it holds nothing else).
+        let parts = b.split(separator: ".").map { String($0) }
+        let others = otherBundleIds.map { $0.lowercased() }.filter { $0 != b }
+        if parts.count >= 3 && !b.hasPrefix("com.apple.") {
+            let devPrefix = parts[0] + "." + parts[1], developer = parts[1]
+            let shared = others.contains { $0 == devPrefix || $0.hasPrefix(devPrefix + ".") }
+            if !shared && devPrefix.count >= 6 && !InstalledApp.genericNames.contains(developer) {
+                for lib in [home + "/Library", "/Library"] {
+                    scan(lib + "/Group Containers", "Container", measure: fullDiskAccess, tier: AppLeftover.sameDeveloper) { hasToken($0, devPrefix) }
+                    if developer.count < 4 { continue }
+                    let support = lib + "/Application Support"
+                    for d in DeleteJob.children(support) where PathUtil.isDir(d) && PathUtil.name(d).lowercased() == developer {
+                        let inside = DeleteJob.children(d).filter { PathUtil.name($0) != ".DS_Store" }
+                        let mine = inside.filter { let x = PathUtil.name($0).lowercased(); return isN(x) || isB(x) }
+                        if mine.isEmpty { continue }
+                        if mine.count == inside.count { add(d, "Support files", false, true, AppLeftover.sameDeveloper) }
+                        else { for p in mine { add(p, "Support files", false, true, AppLeftover.sameDeveloper) } }
+                    }
+                }
+            }
+        }
+        // Name only (check before removing): a shortened name of the app (without version, edition or the developer's name),
+        // or a folder with the app's name in Documents (the user's own files may be there).
+        let short = InstalledApp.shortNames(name: n, bundleId: b).filter { $0 != n && $0 != b }
+        if !short.isEmpty {
+            for lib in [home + "/Library", "/Library"] {
+                scan(lib + "/Application Support", "Support files", tier: AppLeftover.nameOnly) { short.contains($0) }
+                scan(lib + "/Caches", "Cache", tier: AppLeftover.nameOnly) { short.contains($0) }
+                scan(lib + "/Logs", "Logs", tier: AppLeftover.nameOnly) { short.contains($0) }
+            }
+        }
+        // ~/Documents is protected: only looked at with Full Disk Access (no permission prompt).
+        if useN && fullDiskAccess {
+            let docs = home + "/Documents"
+            for nm in [name] + Array(short) {
+                let p = PathUtil.join(docs, nm)
+                if PathUtil.isDir(p) { add(p, "Documents folder", false, true, AppLeftover.nameOnly) }
+            }
+        }
+        return out
+    }
+
+    /// Words that never identify an app on their own.
+    static let genericNames: Set<String> = ["app", "apps", "mac", "macos", "data", "cache", "caches", "logs", "log", "support", "helper",
+                                             "update", "updater", "common", "shared", "plugins", "plugin", "default", "desktop", "settings",
+                                             "preferences", "documents", "files", "tools", "tool", "google", "microsoft", "adobe", "apple",
+                                             "mozilla", "user", "users", "temp", "tmp", "library", "application", "applications", "com",
+                                             "org", "net", "io", "pro", "lite", "free", "beta", "studio", "player", "editor", "viewer"]
+
+    /// Shortened forms of an app's name (lower case, at least 4 characters, never a generic word): without a trailing
+    /// version or edition ("Foo Pro 3" -> "foo"), without spaces, and the last part of the bundle id.
+    static func shortNames(name: String, bundleId: String) -> Set<String> {
+        var out = Set<String>()
+        func add(_ s0: String) {
+            let s = s0.trimmingCharacters(in: .whitespaces)
+            if s.count >= 4 && !genericNames.contains(s) && !s.hasPrefix("com.apple.") { out.insert(s) }
+        }
+        let editions: Set<String> = ["pro", "lite", "free", "beta", "plus", "hd", "x", "desktop", "app", "for", "mac", "macos", "studio", "edition"]
+        var words = name.lowercased().split(separator: " ").map { String($0) }
+        while let last = words.last, words.count > 1,
+              editions.contains(last) || last.allSatisfy({ $0.isNumber || $0 == "." }) { words.removeLast() }
+        add(words.joined(separator: " "))
+        add(name.lowercased().replacingOccurrences(of: " ", with: ""))
+        if let last = bundleId.lowercased().split(separator: ".").last, bundleId.split(separator: ".").count >= 3 { add(String(last)) }
         return out
     }
 
@@ -384,12 +462,14 @@ extension MainWindowController {
                 c.folderIcon = l.isDir
                 if !a.uninstalled && l.kind == "App" && PathUtil.same(l.path, a.path) { c.icon = a.icon }
                 c.path = l.path
-                c.category = l.note
+                c.category = l.kind
+                c.note = l.match + (l.note.isEmpty ? "" : "; " + l.note)
                 c.folder = l.path
                 c.hideBar = true
-                c.cells = [c.name, l.size < 0 ? "—" : Fmt.size(l.size), "", l.note, "", "", l.path]
-                c.tip = c.name + "\n" + l.path + (l.note.isEmpty ? "" : "\n" + l.note)
+                c.cells = [c.name, l.size < 0 ? "—" : Fmt.size(l.size), "", l.kind, c.note, "", l.path]
+                c.tip = c.name + "\n" + l.path + "\n" + c.note
                 c.check = a.uninstalled ? (l.checked ? 1 : 0) : -1
+                if !l.sure { c.color = T.WARN_FG }
                 rows.append(c)
             }
         }
@@ -508,11 +588,12 @@ extension MainWindowController {
         if a.loadingItems { if let d = done { a.itemWaiters.append(d) }; return }
         a.loadingItems = true
         let id = a.bundleId, name = a.name, path = a.path, size = a.size
+        let others = (apps ?? []).filter { $0 !== a && !$0.uninstalled }.map { $0.bundleId }
         DispatchQueue.global(qos: .userInitiated).async {
             let bundle = AppLeftover(path, "App")
             bundle.isDir = true
             bundle.size = size
-            let items = (PathUtil.exists(path) ? [bundle] : []) + InstalledApp.findLeftovers(bundleId: id, name: name)
+            let items = (PathUtil.exists(path) ? [bundle] : []) + InstalledApp.findLeftovers(bundleId: id, name: name, otherBundleIds: others)
             DispatchQueue.main.async {
                 a.loadingItems = false
                 if !a.uninstalled { a.leftovers = items }
@@ -575,23 +656,44 @@ extension MainWindowController {
             }
             return
         }
-        let total = items.reduce(Int64(0)) { $0 + max(0, $1.size) }
+        // Name-only matches are listed but not moved: they may belong to something else.
+        let sure = items.filter { $0.sure }
+        let review = items.filter { !$0.sure }
+        let total = sure.reduce(Int64(0)) { $0 + max(0, $1.size) }
         let go = { [unowned self] in
             self.quitIfRunning(a) { ok in
-                if ok { self.trashAll(a, items, total, done) } else { done?(false) }
+                if ok { self.trashAll(a, sure, review, total, done) } else { done?(false) }
             }
         }
         if appsAuto { go(); return }
         uninstallDialog(a, items, total).show(over: window) { i in if i == 0 { go() } else { done?(false) } }
     }
 
-    /// Uninstall confirmation: every item of the app on its own line with its size; the red Uninstall button, Cancel
-    /// the default.
+    /// Uninstall confirmation: every item of the app on its own line with its size and how sure it belongs to the app;
+    /// items matched only by name are listed separately ("listed, but not moved"). The red Uninstall button, Cancel the
+    /// default.
     func uninstallDialog(_ a: InstalledApp, _ items: [AppLeftover], _ total: Int64) -> PromptDialog {
-        let details = items.map { $0.path + "   " + ($0.size < 0 ? "—" : Fmt.size($0.size)) }
+        let sure = items.filter { $0.sure }
+        let review = items.filter { !$0.sure }
+        func line(_ l: AppLeftover) -> String { l.path + "   " + (l.size < 0 ? "—" : Fmt.size(l.size)) + "  -  " + l.match }
+        var details = sure.map { line($0) }
+        if !review.isEmpty {
+            details.append("")
+            details.append("Listed, but not moved (name only - check before removing):")
+            details.append(contentsOf: review.map { line($0) })
+        }
         return PromptDialog(icon: .danger, heading: "Uninstall \(a.name)?",
-                            text: "The app and all its files (\(Fmt.count(items.count)) item\(items.count == 1 ? "" : "s"), \(Fmt.size(total))) are moved to the Trash.",
-                            details: details, buttons: [("Uninstall", .danger), ("Cancel", .secondary)], defaultIndex: 1, cancelIndex: 1)
+                            text: "The app and all its files (\(Fmt.count(sure.count)) item\(sure.count == 1 ? "" : "s"), \(Fmt.size(total))) are moved to the Trash.",
+                            warning: MainWindowController.reviewNote(review, a.name), details: details,
+                            buttons: [("Uninstall", .danger), ("Cancel", .secondary)], defaultIndex: 1, cancelIndex: 1)
+    }
+
+    /// "N items (size) match only by name: listed, but not moved. Check them in the list if they belong to App." ("" = none)
+    static func reviewNote(_ review: [AppLeftover], _ app: String) -> String {
+        if review.isEmpty { return "" }
+        let n = review.count, size = review.reduce(Int64(0)) { $0 + max(0, $1.size) }
+        return "\(Fmt.count(n)) item\(n == 1 ? "" : "s") (\(Fmt.size(size))) match only by name: listed, but not moved. "
+            + "Check \(n == 1 ? "it" : "them") in the list if \(n == 1 ? "it belongs" : "they belong") to \(app)."
     }
 
     /// Asks a running app to quit and waits up to 5 s; false (and a message) when it is still running.
@@ -620,8 +722,9 @@ extension MainWindowController {
         poll()
     }
 
-    /// Moves the bundle and all its files to the Trash, then checks what is left.
-    private func trashAll(_ a: InstalledApp, _ items: [AppLeftover], _ total: Int64, _ done: ((Bool) -> Void)?) {
+    /// Moves the bundle and all its files that surely belong to it to the Trash, then checks what is left. Items matched
+    /// only by name stay listed under the app, unchecked.
+    private func trashAll(_ a: InstalledApp, _ items: [AppLeftover], _ review: [AppLeftover], _ total: Int64, _ done: ((Bool) -> Void)?) {
         let targets = items.map { DeleteTarget(path: $0.path, label: PathUtil.name($0.path), isDir: $0.isDir, size: max(0, $0.size)) }
         runDelete(targets, trash: appsTrash, showErrors: false) { [unowned self] _ in
             var left: [AppLeftover] = []
@@ -633,27 +736,45 @@ extension MainWindowController {
                 l.checked = !l.needsAdmin
                 left.append(l)
             }
-            if left.isEmpty {
+            let named = review.filter { PathUtil.exists($0.path) }
+            for l in named { l.checked = false }
+            if left.isEmpty && named.isEmpty {
                 self.apps?.removeAll { $0 === a }
                 self.showApps()
                 self.statusLabel.stringValue = "\(a.name) and all its files were moved to the Trash (\(Fmt.size(total)))."
                 done?(true)
                 return
             }
+            if left.isEmpty {
+                // Everything that surely belonged to it went; what matches only by name is listed, unchecked.
+                a.uninstalled = true
+                a.leftovers = named
+                a.expanded = true
+                self.showApps()
+                self.selectApp(a)
+                let k = named.count
+                self.statusLabel.stringValue = "\(a.name) and its files were moved to the Trash (\(Fmt.size(total))). \(Fmt.count(k)) item\(k == 1 ? "" : "s") "
+                    + "matching only by name \(k == 1 ? "is" : "are") listed unchecked: check \(k == 1 ? "it" : "them") to remove \(k == 1 ? "it" : "them")."
+                done?(true)
+                return
+            }
             a.uninstalled = true
-            a.leftovers = left
+            a.leftovers = left + named
             a.expanded = true
             self.showApps()
             self.selectApp(a)
             let n = left.count
-            self.statusLabel.stringValue = "\(a.name) was partly removed: \(Fmt.count(n)) item\(n == 1 ? "" : "s") could not be moved to the Trash (\(Fmt.size(a.leftoverSize)))."
+            let leftSize = left.reduce(Int64(0)) { $0 + max(0, $1.size) }
+            self.statusLabel.stringValue = "\(a.name) was partly removed: \(Fmt.count(n)) item\(n == 1 ? "" : "s") could not be moved to the Trash (\(Fmt.size(leftSize)))."
             if !self.appsAuto {
                 let admin = left.contains { $0.needsAdmin }
-                self.alert("\(a.name) was partly removed",
-                           "\(Fmt.count(n)) item\(n == 1 ? "" : "s") (\(Fmt.size(a.leftoverSize))) could not be moved to the Trash: in use, protected or access denied. "
-                           + "They stay listed under the app; press Remove leftovers to try again"
-                           + (admin ? " (items that need an administrator: remove them in Finder)." : "."),
-                           details: left.map { $0.path + "  -  " + $0.note })
+                let more = named.isEmpty ? "" : " " + MainWindowController.reviewNote(named, a.name)
+                var msg = "\(Fmt.count(n)) item\(n == 1 ? "" : "s") (\(Fmt.size(leftSize))) could not be moved to the Trash: in use, protected or access denied. "
+                msg += "They stay listed under the app; press Remove leftovers to try again"
+                msg += admin ? " (items that need an administrator: remove them in Finder)." : "."
+                msg += more
+                let lines: [String] = left.map { $0.path + "  -  " + $0.note } + named.map { $0.path + "  -  " + $0.match }
+                self.alert("\(a.name) was partly removed", msg, details: lines)
             }
             done?(false)
         }

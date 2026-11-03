@@ -229,7 +229,7 @@ namespace DiskSpaceAnalyzer
     /// <summary>Drop-down choice: the current choice and a chevron in a rounded field; click opens a styled list.</summary>
     internal sealed class ChoiceBox : RoundedPanel
     {
-        readonly string[] choices;
+        string[] choices;
         readonly string prefix;
         int selected;
         bool hover;
@@ -263,6 +263,17 @@ namespace DiskSpaceAnalyzer
                 if (SelectedIndexChanged != null) SelectedIndexChanged(this, EventArgs.Empty);
             }
         }
+
+        /// <summary>Replaces the choices and selects one, without raising SelectedIndexChanged.</summary>
+        public void SetChoices(string[] items, int select)
+        {
+            choices = items != null && items.Length > 0 ? items : new[] { "" };
+            selected = Math.Max(0, Math.Min(select, choices.Length - 1));
+            Invalidate();
+            if (Parent != null) Parent.PerformLayout();
+        }
+
+        public int Count { get { return choices.Length; } }
 
         public override Size GetPreferredSize(Size proposedSize)
         {
@@ -1367,6 +1378,190 @@ namespace DiskSpaceAnalyzer
                 }
             }
             using (var p = new Pen(Theme.BORDER)) g.DrawLine(p, 0, Height - 1, Width, Height - 1);
+        }
+    }
+
+    /// <summary>
+    /// Amber attention line at the top of a view (WARN_BG fill, WARN_BORDER outline, warning sign, WARN_FG text) with
+    /// compact buttons on the right. Hidden while it has no text.
+    /// </summary>
+    internal sealed class Banner : Panel
+    {
+        readonly List<RoundButton> buttons = new List<RoundButton>();
+        string message = "";
+
+        public Banner()
+        {
+            Dock = DockStyle.Top;
+            BackColor = Theme.SURFACE;
+            Height = Theme.FONT.Height + Theme.S(26);
+            Visible = false;
+            DoubleBuffered = true;
+            ResizeRedraw = true;
+        }
+
+        public RoundButton AddButton(string text, string tip, ToolTip tips, Action click)
+        {
+            var b = new RoundButton(text, ButtonKind.Secondary) { Compact = true };
+            b.Click += (s, e) => click();
+            if (tips != null) tips.SetToolTip(b, tip);
+            buttons.Add(b);
+            Controls.Add(b);
+            return b;
+        }
+
+        /// <summary>Shows the banner with this text; null or empty hides it.</summary>
+        public string Message
+        {
+            get { return message; }
+            set { message = value ?? ""; Visible = message.Length > 0; Invalidate(); }
+        }
+
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            base.OnLayout(e);
+            int x = Width - Theme.S(10);
+            for (int i = buttons.Count - 1; i >= 0; i--)
+            {
+                var b = buttons[i];
+                if (!b.Visible) continue;
+                var sz = b.GetPreferredSize(Size.Empty);
+                x -= sz.Width;
+                b.Bounds = new Rectangle(x, (Height - Theme.S(6) - sz.Height) / 2, sz.Width, sz.Height);
+                x -= Theme.S(6);
+            }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(BackColor);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            var r = new Rectangle(0, 0, Width - 1, Height - Theme.S(6));
+            Theme.FillRound(g, r, Theme.S(8), Theme.WARN_BG, Theme.WARN_BORDER);
+            int ic = Theme.S(18);
+            Theme.DrawWarningSign(g, new Rectangle(Theme.S(10), (r.Height - ic) / 2, ic, ic), Theme.WARN);
+            int x = Theme.S(10) + ic + Theme.S(10), right = Width - Theme.S(10);
+            foreach (var b in buttons) if (b.Visible) right = Math.Min(right, b.Left);
+            TextRenderer.DrawText(g, message, Theme.FONT, new Rectangle(x, 0, Math.Max(0, right - x - Theme.S(10)), r.Height), Theme.WARN_FG,
+                TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+        }
+    }
+
+    /// <summary>
+    /// Path bar: one clickable segment per folder from the scanned root down to the folder shown (MUTED, FG on hover, the
+    /// last one FG and not clickable), separated by chevrons. When it does not fit, the first segments collapse into "...".
+    /// </summary>
+    internal sealed class Breadcrumb : Control
+    {
+        readonly List<KeyValuePair<string, object>> parts = new List<KeyValuePair<string, object>>();
+        readonly List<KeyValuePair<Rectangle, int>> hits = new List<KeyValuePair<Rectangle, int>>();
+        int hover = -1;
+        public event Action<object> PartClicked;
+
+        public Breadcrumb()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.Selectable, false);
+            Font = Theme.FONT;
+            BackColor = Theme.SURFACE;
+            Dock = DockStyle.Top;
+            Height = Font.Height + Theme.S(12);
+        }
+
+        /// <summary>Segments from the top down: shown text and what PartClicked reports for it.</summary>
+        public void SetParts(IEnumerable<KeyValuePair<string, object>> items)
+        {
+            parts.Clear();
+            parts.AddRange(items);
+            hover = -1;
+            Invalidate();
+        }
+
+        public int Count { get { return parts.Count; } }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(BackColor);
+            hits.Clear();
+            if (parts.Count == 0) return;
+            const TextFormatFlags f = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
+            int gap = Theme.S(6), chev = Theme.S(10), pad = Theme.S(4);
+            var widths = new int[parts.Count];
+            for (int i = 0; i < parts.Count; i++) widths[i] = TextRenderer.MeasureText(parts[i].Key, Font, Size.Empty, f).Width + 2 * pad;
+            int dots = TextRenderer.MeasureText("...", Font, Size.Empty, f).Width + 2 * pad;
+            // Drop leading segments (after the first) until the rest fits.
+            int first = 1, avail = Width - Theme.S(8);
+            Func<int, int> need = start =>
+            {
+                int w = widths[0];
+                if (start > 1) w += gap + chev + gap + dots;
+                for (int i = start; i < parts.Count; i++) w += gap + chev + gap + widths[i];
+                return w;
+            };
+            while (first < parts.Count - 1 && need(first) > avail) first++;
+            int x = Theme.S(4);
+            for (int i = 0; i < parts.Count; i++)
+            {
+                if (i > 0 && i < first) continue;
+                if (i > 0)
+                {
+                    if (i == first && first > 1)
+                    {
+                        DrawChevron(g, ref x, gap, chev);
+                        TextRenderer.DrawText(g, "...", Font, new Rectangle(x, 0, dots, Height), Theme.MUTED, f | TextFormatFlags.HorizontalCenter);
+                        x += dots;
+                    }
+                    DrawChevron(g, ref x, gap, chev);
+                }
+                bool last = i == parts.Count - 1;
+                int w = Math.Min(widths[i], Math.Max(Theme.S(20), Width - x - Theme.S(4)));
+                var r = new Rectangle(x, Theme.S(3), w, Height - Theme.S(6));
+                if (!last && i == hover) Theme.FillRound(g, r, Theme.S(6), Theme.BORDER, Theme.BORDER);
+                TextRenderer.DrawText(g, parts[i].Key, Font, r, last ? Theme.FG : i == hover ? Theme.FG : Theme.MUTED,
+                    f | TextFormatFlags.HorizontalCenter | TextFormatFlags.EndEllipsis);
+                if (!last) hits.Add(new KeyValuePair<Rectangle, int>(r, i));
+                x += w;
+            }
+        }
+
+        void DrawChevron(Graphics g, ref int x, int gap, int chev)
+        {
+            x += gap;
+            int cy = Height / 2, h = Theme.S(4);
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var p = new Pen(Theme.MUTED, Math.Max(1.2f, 1.2f * Theme.Scale)))
+                g.DrawLines(p, new[] { new Point(x + chev / 2 - h / 2, cy - h), new Point(x + chev / 2 + h / 2, cy), new Point(x + chev / 2 - h / 2, cy + h) });
+            g.SmoothingMode = SmoothingMode.Default;
+            x += chev + gap;
+        }
+
+        int HitTest(Point p)
+        {
+            foreach (var h in hits) if (h.Key.Contains(p)) return h.Value;
+            return -1;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            int h = HitTest(e.Location);
+            Cursor = h >= 0 ? Cursors.Hand : Cursors.Default;
+            if (h != hover) { hover = h; Invalidate(); }
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (hover != -1) { hover = -1; Invalidate(); }
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            int h = e.Button == MouseButtons.Left ? HitTest(e.Location) : -1;
+            if (h >= 0 && PartClicked != null) PartClicked(parts[h].Value);
         }
     }
 }

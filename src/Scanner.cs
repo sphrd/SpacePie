@@ -133,7 +133,7 @@ namespace DiskSpaceAnalyzer
                         else
                         {
                             long s = Native.Size(d);
-                            var f = new FileRec { Name = new string(name), Bytes = s, Modified = Native.WriteTime(d), Attr = attr };
+                            var f = new FileRec { Name = new string(name), Bytes = s, Modified = Native.WriteTime(d), Accessed = Native.AccessTime(d), Attr = attr };
                             f.Alloc = Native.Allocated(s, attr, cluster, path, f.Name);
                             files.Add(f);
                         }

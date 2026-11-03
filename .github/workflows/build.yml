@@ -65,6 +65,35 @@ jobs:
           $alloc = [long]($m[2] -replace '\D')
           "drive used $used, scanned on disk $alloc"
           if ($alloc -gt $used * 1.02) { throw 'size on disk is larger than the used space' }
+
+      - name: Accuracy against robocopy (lists without copying, skips junctions and links)
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          foreach ($path in @("$env:WINDIR\System32", "$env:ProgramFiles")) {
+            $out = New-TemporaryFile
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            Start-Process .\DiskSpaceAnalyzer.exe -ArgumentList '--cli','scan',"`"$path`"" -Wait -NoNewWindow -RedirectStandardOutput $out.FullName
+            $l = ((Get-Content $out.FullName | Where-Object { $_ -match 'bytes' } | Select-Object -First 1).Split("`t"))
+            $db = [long]($l[1] -replace '\D'); $df = [long]($l[3] -replace '\D'); $ds = $l[5]
+            $r = robocopy "$path" "$env:RUNNER_TEMP\none" /L /S /XJ /NFL /NDL /NJH /BYTES /R:0 /W:0
+            $rf = [long]([regex]::Matches(($r | Select-String '^\s*Files\s*:').Line, '\d+')[0].Value)
+            $rb = [long]([regex]::Matches(($r | Select-String '^\s*Bytes\s*:').Line, '\d+')[0].Value)
+            "{0}: app {1:N0} files, {2:N0} bytes ({3}) / robocopy {4:N0} files, {5:N0} bytes" -f $path, $df, $db, $ds, $rf, $rb
+            # robocopy counts a file symbolic link as the file it points to; the app counts the link itself (0 bytes).
+            if ($df -ne $rf) { throw "file counts differ for $path" }
+            if ([math]::Abs($rb - $db) -gt $rb * 0.01) { throw "sizes differ by more than 1 % for $path" }
+          }
+          $global:LASTEXITCODE = 0   # robocopy exits with 1 when it listed files
+
+      - name: SHA-256 for the release notes
+        id: hash
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash .\DiskSpaceAnalyzer.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "sha=$h" >> $env:GITHUB_OUTPUT
+          "DiskSpaceAnalyzer.exe SHA-256: $h"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -76,6 +105,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: DiskSpaceAnalyzer.exe
+          append_body: true
+          body: |
+
+            **SHA-256** (check with `Get-FileHash .\DiskSpaceAnalyzer.exe`):
+            `DiskSpaceAnalyzer.exe`: `${{ steps.hash.outputs.sha }}`
 
   macos:
     # Runs after the Windows job, so on a tag both attach their files to the same release.
@@ -138,6 +172,28 @@ jobs:
           kill $pid 2>/dev/null || true
           ls -la "$RUNNER_TEMP/shots" || true
 
+      - name: Accuracy against du and find (sizes on disk, files)
+        run: |
+          BIN="macos/build/Disk Space Analyzer.app/Contents/MacOS/DiskSpaceAnalyzer"
+          for p in /usr/share /Applications; do
+            line=$("$BIN" --cli scan "$p" | grep bytes | head -1)
+            alloc=$(echo "$line" | cut -f3 | tr -dc 0-9)
+            files=$(echo "$line" | cut -f4 | tr -dc 0-9)
+            secs=$(echo "$line" | cut -f6)
+            du_k=$(du -sk -x "$p" 2>/dev/null | cut -f1)
+            find_f=$(find -x "$p" -type f 2>/dev/null | wc -l | tr -d " ")
+            echo "$p: app $files files, $alloc bytes on disk ($secs) / du $((du_k * 1024)) bytes, find $find_f files"
+            # du also counts the folders themselves; a few per cent apart is expected, more is an error.
+            awk -v a="$alloc" -v d="$((du_k * 1024))" 'BEGIN { if (d > 0 && (a - d > d * 0.1 || d - a > d * 0.1)) exit 1 }' || { echo "sizes differ by more than 10 %"; exit 1; }
+          done
+
+      - name: SHA-256 for the release notes
+        id: hash
+        run: |
+          h=$(shasum -a 256 DiskSpaceAnalyzer-macOS.dmg | cut -d" " -f1)
+          echo "sha=$h" >> "$GITHUB_OUTPUT"
+          echo "DiskSpaceAnalyzer-macOS.dmg SHA-256: $h"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -151,3 +207,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: DiskSpaceAnalyzer-macOS.dmg
+          append_body: true
+          body: |
+            `DiskSpaceAnalyzer-macOS.dmg`: `${{ steps.hash.outputs.sha }}` (check with `shasum -a 256 DiskSpaceAnalyzer-macOS.dmg`)

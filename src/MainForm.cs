@@ -26,8 +26,19 @@ namespace DiskSpaceAnalyzer
         public long JournalUsn;
         public bool Complete;                    // Node is a whole scan (not stopped), so it can be saved for a fast restart
         public DateTime PreviousTime;
+        /// <summary>A scan opened from a file (Open scan): browsed only; nothing is rescanned, watched or deleted.</summary>
+        public bool ReadOnly;
+        public string SourceFile;
+        public DateTime Scanned;
 
-        public string DisplayName { get { return IsDrive && Label.Length > 0 ? Path + "  " + Label : Path; } }
+        public string DisplayName
+        {
+            get
+            {
+                if (ReadOnly) return Path + "  (saved scan, " + Scanned.ToString("yyyy-MM-dd HH:mm") + ")";
+                return IsDrive && Label.Length > 0 ? Path + "  " + Label : Path;
+            }
+        }
     }
 
     internal sealed partial class MainForm : Form
@@ -63,6 +74,8 @@ namespace DiskSpaceAnalyzer
         readonly Panel toolbar;
         readonly SplitContainer split, split2;
         readonly PieChart chart;
+        readonly Segmented chartMode;
+        static string TreemapMarker { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"DiskSpaceAnalyzer\treemap"); } }
         readonly DarkTreeView tree;
         readonly SizeListView contents;
         readonly Label statusLabel, driveLabel;
@@ -70,7 +83,7 @@ namespace DiskSpaceAnalyzer
         readonly System.Windows.Forms.Timer uiTimer;
         readonly ContextMenuStrip menu;
         readonly ToolTip tips = new ToolTip();
-        ToolStripMenuItem miOpen, miExplorer, miCopy, miRescan, miAddList, miRecycle, miDelete;
+        ToolStripMenuItem miOpen, miPreview, miExplorer, miCopy, miProps, miRescan, miAddList, miRecycle, miDelete, miCloseScan;
 
         public MainForm(string initialPath)
         {
@@ -129,7 +142,8 @@ namespace DiskSpaceAnalyzer
             btnExplorer = Btn("Show in Explorer", ButtonKind.Secondary, "Open the selected item in Windows Explorer", ShowInExplorer);
             btnAddList = Btn("Add to delete list", ButtonKind.Secondary, "Collect the selected items in the delete list; review them there, then delete them together (Ctrl+D)", AddSelectionToBasket);
             btnDelete = Btn("Delete permanently", ButtonKind.Warn, "Permanently delete the selected items, bypassing the Recycle Bin (Ctrl+Shift+D)", DeleteSelected);
-            btnExport = Btn("Export...", ButtonKind.Secondary, "Save the scan as a CSV file or an HTML report", ExportScan);
+            btnExport = Btn("Export...", ButtonKind.Secondary, "Save the scan as an HTML report, a CSV file, or a scan file to open again later", ExportScan);
+            btnOpenScan = Btn("Open scan...", ButtonKind.Secondary, "Open a scan saved with Export (" + Snapshot.ScanFileExtension + "): browse it read-only, next to the drives", OpenScanDialog);
 
 
             measure = new Segmented("Size", "Size on disk");
@@ -138,7 +152,7 @@ namespace DiskSpaceAnalyzer
             tips.SetToolTip(measure, "Size: file lengths, as Explorer shows them. Size on disk: the space really used (compression, clusters, online-only cloud files)");
 
             toolbar = new Panel { Dock = DockStyle.Top, BackColor = Theme.BG };
-            toolbar.Controls.AddRange(new Control[] { pathLabel, pathBox, btnBrowse, btnScan, btnAdmin, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnExport, measure });
+            toolbar.Controls.AddRange(new Control[] { pathLabel, pathBox, btnBrowse, btnScan, btnAdmin, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete, btnExport, btnOpenScan, measure });
             toolbar.Layout += (s, e) => LayoutToolbar();
 
             // Context menu
@@ -148,13 +162,16 @@ namespace DiskSpaceAnalyzer
                 ShowImageMargin = false, Padding = new Padding(0, S(4), 0, S(4)), DropShadowEnabled = !Theme.HasDwmCorners
             };
             miOpen = new ToolStripMenuItem("Open folder", null, (s, e) => OpenSelected());
+            miPreview = new ToolStripMenuItem("Preview", null, (s, e) => PreviewSelected()) { ShortcutKeyDisplayString = "Space" };
             miExplorer = new ToolStripMenuItem("Show in Explorer", null, (s, e) => ShowInExplorer());
             miCopy = new ToolStripMenuItem("Copy path", null, (s, e) => CopyPath());
+            miProps = new ToolStripMenuItem("Properties", null, (s, e) => ShowProperties()) { ShortcutKeyDisplayString = "Alt+Enter" };
             miRescan = new ToolStripMenuItem("Rescan folder", null, (s, e) => RescanSelected()) { ShortcutKeyDisplayString = "F5" };
             miAddList = new ToolStripMenuItem("Add to delete list", null, (s, e) => AddSelectionToBasket()) { ShortcutKeyDisplayString = "Ctrl+D" };
             miRecycle = new ToolStripMenuItem("Move to Recycle Bin...", null, (s, e) => RecycleSelected());
             miDelete = new ToolStripMenuItem("Delete permanently...", null, (s, e) => DeleteSelected()) { ShortcutKeyDisplayString = "Ctrl+Shift+D" };
-            menu.Items.AddRange(new ToolStripItem[] { miOpen, miExplorer, miCopy, miRescan, new ToolStripSeparator(), miAddList, miRecycle, miDelete });
+            miCloseScan = new ToolStripMenuItem("Close saved scan", null, (s, e) => CloseSavedScan(SelectedSavedScan()));
+            menu.Items.AddRange(new ToolStripItem[] { miOpen, miPreview, miExplorer, miCopy, miProps, miRescan, new ToolStripSeparator(), miAddList, miRecycle, miDelete, miCloseScan });
             foreach (ToolStripItem it in menu.Items) it.ForeColor = Theme.FG;
             miDelete.ForeColor = Theme.WARN_FG;
             menu.Opened += (s, e) => Theme.RoundPopup(menu.Handle);
@@ -164,14 +181,17 @@ namespace DiskSpaceAnalyzer
                 var sel = GetSelection();
                 bool any = sel.Count > 0 && !busy;
                 miOpen.Enabled = any && sel.Count == 1;
+                miPreview.Enabled = any && sel.Count == 1 && (sel[0].IsDir || sel[0].File != null);
+                miProps.Enabled = any && sel.Count == 1;
                 miExplorer.Enabled = any;
                 miCopy.Enabled = any;
-                miRescan.Enabled = any && !scanning && sel.Count == 1 && sel[0].IsDir;
-                bool deletable = any && !scanning && sel.All(i => i.CanDelete);
-                miAddList.Enabled = any && sel.All(i => i.CanDelete);
+                miRescan.Enabled = any && !scanning && sel.Count == 1 && sel[0].IsDir && !FromReadOnly(sel[0]);
+                bool deletable = any && !scanning && sel.All(i => i.CanDelete && !FromReadOnly(i));
+                miAddList.Enabled = any && sel.All(i => i.CanDelete && !FromReadOnly(i));
                 miAddList.Visible = lastView != (pBasket != null ? pBasket.List : null);
                 miRecycle.Enabled = deletable;
                 miDelete.Enabled = deletable;
+                miCloseScan.Visible = SelectedSavedScan() != null;
             };
 
             // Folder tree. The image list only reserves the icon slot; glyphs are drawn by the tree.
@@ -221,11 +241,12 @@ namespace DiskSpaceAnalyzer
 
             // Folder contents (the first view); the other views are built in Views.cs.
             contents = new SizeListView { ContextMenuStrip = menu };
-            contents.SetColumns(new[] { "Name", "Size", "% of folder", "Change", "Files", "Folders", "Modified" },
-                new[] { "name", "size", "size", "change", "files", "dirs", "mod" }, new[] { 300, 90, 170, 90, 80, 70, 140 });
+            contents.SetColumns(new[] { "Name", "Size", "% of folder", "Change", "Files", "Folders", "Modified", "What it is" },
+                new[] { "name", "size", "size", "change", "files", "dirs", "mod", "cat" }, new[] { 300, 90, 170, 90, 80, 70, 140, 300 });
             contents.BarColumn = 2;
             var listPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill, TrackFocus = true };
             BuildViews(listPanel);
+            BuildNavigation();
             split = new SplitContainer { Dock = DockStyle.Fill, SplitterWidth = S(10), BackColor = Theme.BG };
             split.Panel1.BackColor = Theme.BG;
             split.Panel2.BackColor = Theme.BG;
@@ -239,6 +260,28 @@ namespace DiskSpaceAnalyzer
             chart.HoverChanged += i => ActivePage.List.SetHighlight(i >= 0 && i < chart.Slices.Count ? chart.Slices[i].Rows : null);
             var chartPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill };
             chartPanel.Controls.Add(chart);
+            // Ring or treemap, top right of the chart pane; the choice is remembered (a marker file).
+            chartMode = new Segmented("Ring", "Treemap") { Font = Theme.FONT_9 };
+            chart.Treemap = File.Exists(TreemapMarker);
+            chartMode.SelectedIndex = chart.Treemap ? 1 : 0;
+            chartMode.SelectedIndexChanged += (s, e) =>
+            {
+                chart.Treemap = chartMode.SelectedIndex == 1;
+                try
+                {
+                    if (chart.Treemap) { Directory.CreateDirectory(Path.GetDirectoryName(TreemapMarker)); File.WriteAllText(TreemapMarker, ""); }
+                    else if (File.Exists(TreemapMarker)) File.Delete(TreemapMarker);
+                }
+                catch (Exception) { }
+            };
+            tips.SetToolTip(chartMode, "Show the open list as a ring chart or as a treemap (rectangles sized by space)");
+            chart.Controls.Add(chartMode);
+            chart.Resize += (s, e) =>
+            {
+                var cs = chartMode.GetPreferredSize(Size.Empty);
+                chartMode.Bounds = new Rectangle(chart.Width - cs.Width - S(10), S(10), cs.Width, cs.Height);
+                chart.TitleRightMargin = cs.Width + S(10);
+            };
             split2 = new SplitContainer { Dock = DockStyle.Fill, SplitterWidth = S(10), BackColor = Theme.BG, FixedPanel = FixedPanel.Panel2 };
             split2.Panel1.BackColor = Theme.BG;
             split2.Panel2.BackColor = Theme.BG;
@@ -342,6 +385,7 @@ namespace DiskSpaceAnalyzer
                 var files = e.Data.GetData(DataFormats.FileDrop) as string[];
                 if (files == null || files.Length == 0 || busy || scanning) return;
                 string p = files[0];
+                if (IsScanFile(p)) { OpenScanFile(p); return; }
                 if (!Directory.Exists(p)) p = Path.GetDirectoryName(p);
                 pathBox.Text = p;
                 StartScan();
@@ -359,7 +403,8 @@ namespace DiskSpaceAnalyzer
                 RefreshTree(null);
                 ShowPage();
                 // The system drive is analyzed automatically; other drives are listed and scanned on demand.
-                if (!string.IsNullOrEmpty(initialPath)) ScanPath(initialPath);
+                if (IsScanFile(initialPath)) { ScanPath(Path.GetPathRoot(Environment.SystemDirectory)); OpenScanFile(initialPath); }
+                else if (!string.IsNullOrEmpty(initialPath)) ScanPath(initialPath);
                 else ScanPath(Path.GetPathRoot(Environment.SystemDirectory));
                 // The installed apps (registry, Store, logos) are read while the drive is scanned; sizes follow from the scan.
                 if (SelfTestDir == null) PrefetchApps();
@@ -454,7 +499,7 @@ namespace DiskSpaceAnalyzer
             pathBox.Bounds = new Rectangle(px, 0, Math.Max(S(120), btnBrowse.Left - gap - px), h);
 
             int x = 0, y = h + S(8);
-            foreach (var b in new[] { btnUp, btnRescan, btnExplorer, btnAddList, btnDelete })
+            foreach (var b in btnBack != null ? new[] { btnBack, btnForward, btnUp, btnRescan, btnExplorer, btnAddList, btnDelete } : new[] { btnUp, btnRescan, btnExplorer, btnAddList, btnDelete })
             {
                 if (b == btnDelete) x += groupGap - gap;
                 var p = b.GetPreferredSize(Size.Empty);
@@ -465,6 +510,8 @@ namespace DiskSpaceAnalyzer
             measure.Bounds = new Rectangle(w - ms.Width, y, ms.Width, h);
             var es = btnExport.GetPreferredSize(Size.Empty);
             btnExport.Bounds = new Rectangle(measure.Left - groupGap - es.Width, y, es.Width, h);
+            var os = btnOpenScan.GetPreferredSize(Size.Empty);
+            btnOpenScan.Bounds = new Rectangle(btnExport.Left - gap - os.Width, y, os.Width, h);
             int total = y + h + S(10);
             if (toolbar.Height != total) toolbar.Height = total;
         }
@@ -473,6 +520,11 @@ namespace DiskSpaceAnalyzer
         {
             base.OnKeyDown(e);
             if (e.KeyCode == Keys.F1) { ShowAbout(); e.Handled = true; return; }
+            if (e.Alt && e.KeyCode == Keys.Left) { GoBack(); e.Handled = true; return; }
+            if (e.Alt && e.KeyCode == Keys.Enter && lastView != null && lastView.Focused) { ShowProperties(); e.Handled = e.SuppressKeyPress = true; return; }
+            if (e.KeyCode == Keys.Space && e.Modifiers == Keys.None && lastView != null && lastView.Focused && SpacePreviews())
+            { PreviewSelected(); e.Handled = e.SuppressKeyPress = true; return; }
+            if (e.Alt && e.KeyCode == Keys.Right) { GoForward(); e.Handled = true; return; }
             if (pathBox.Box.Focused) return;
             if (e.KeyCode == Keys.Delete || (e.KeyCode == Keys.D && e.Control && e.Shift)) { DeleteSelected(); e.Handled = true; }
             else if (e.KeyCode == Keys.D && e.Control) { AddSelectionToBasket(); e.Handled = true; }
@@ -484,6 +536,14 @@ namespace DiskSpaceAnalyzer
             else if (e.KeyCode == Keys.C && e.Control) { CopyPath(); e.Handled = true; }
             else if (e.KeyCode == Keys.Insert) { AddSelectionToBasket(); e.Handled = true; }
             else if (e.KeyCode == Keys.F && e.Control) { ShowFilesSearch(); e.Handled = true; }
+        }
+
+        /// <summary>The saved scan whose top folder is selected in the tree (null otherwise).</summary>
+        ScanRoot SelectedSavedScan()
+        {
+            var d = lastView == tree && tree.SelectedNode != null ? tree.SelectedNode.Tag as DirNode : null;
+            var r = d != null && d.Parent == null ? RootOf(d) : null;
+            return r != null && r.ReadOnly ? r : null;
         }
 
         void ShowAbout()
@@ -576,6 +636,7 @@ namespace DiskSpaceAnalyzer
             }
 
             r.Node = result;
+            r.Scanned = DateTime.Now;
             r.Complete = !s.Cancelled;
             r.JournalId = journal ? jid : 0;
             r.JournalUsn = journal ? jusn : 0;
@@ -629,7 +690,7 @@ namespace DiskSpaceAnalyzer
             return string.Equals(a.TrimEnd('\\'), b.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
         }
 
-        ScanRoot FindRoot(string path) { return roots.FirstOrDefault(r => SamePath(r.Path, path)); }
+        ScanRoot FindRoot(string path) { return roots.FirstOrDefault(r => !r.ReadOnly && SamePath(r.Path, path)); }
 
         ScanRoot RootOf(DirNode top) { return top == null ? null : roots.FirstOrDefault(r => r.Node == top); }
 
@@ -637,6 +698,7 @@ namespace DiskSpaceAnalyzer
         {
             roots.Sort((a, b) =>
             {
+                if (a.ReadOnly != b.ReadOnly) return a.ReadOnly ? 1 : -1;
                 if (a.IsSystem != b.IsSystem) return a.IsSystem ? -1 : 1;
                 if (a.IsDrive != b.IsDrive) return a.IsDrive ? -1 : 1;
                 return string.Compare(a.Path, b.Path, StringComparison.OrdinalIgnoreCase);
@@ -645,6 +707,7 @@ namespace DiskSpaceAnalyzer
 
         static void RefreshCapacity(ScanRoot r)
         {
+            if (r.ReadOnly) return;   // a saved scan keeps the capacity it was saved with
             try
             {
                 var d = new DriveInfo(Path.GetPathRoot(r.Path));
@@ -667,7 +730,7 @@ namespace DiskSpaceAnalyzer
                 if (d.DriveType == DriveType.Network) continue;
                 try { if (d.IsReady) ready.Add(d); } catch (Exception) { }
             }
-            roots.RemoveAll(r => r.IsDrive && !ready.Any(d => SamePath(d.Name, r.Path)));
+            roots.RemoveAll(r => r.IsDrive && !r.ReadOnly && !ready.Any(d => SamePath(d.Name, r.Path)));
             foreach (var d in ready)
             {
                 var r = FindRoot(d.Name);
@@ -691,6 +754,7 @@ namespace DiskSpaceAnalyzer
         protected override void WndProc(ref Message m)
         {
             if (CustomFrame(ref m)) return;
+            if (AppCommand(ref m)) return;
             base.WndProc(ref m);
             // WM_DEVICECHANGE: DBT_DEVICEARRIVAL / DBT_DEVICEREMOVECOMPLETE -> refresh the drive list.
             if (m.Msg == 0x219 && (m.WParam == (IntPtr)0x8000 || m.WParam == (IntPtr)0x8004))
@@ -716,6 +780,8 @@ namespace DiskSpaceAnalyzer
             if (!busy) pathBox.Text = r.Path;
             contents.ResetHover();
             contents.Items.Clear();
+            UpdateCrumbs(null);
+            if (unreadBanner != null) unreadBanner.Message = null;
             contents.EmptyText = r.Scanning
                 ? "Scanning " + r.DisplayName + "...\nThe results appear here when the scan finishes. You can browse other drives meanwhile."
                 : r.DisplayName + " has not been scanned yet.\nPress Scan, or double-click the drive, to analyze it.";
@@ -804,7 +870,7 @@ namespace DiskSpaceAnalyzer
             if (r != null) RefreshCapacity(r);
             var slices = BuildSlices(contents, d.Size, "of folder");
             string title = d.Parent == null && r != null ? r.DisplayName : d.Name, sub = d.FullPath;
-            if (d.Parent == null && r != null && r.IsDrive && r.Total > 0)
+            if (d.Parent == null && r != null && (r.IsDrive || (r.ReadOnly && r.Path.Length <= 3)) && r.Total > 0)
             {
                 long used = r.Total - r.Free;
                 if (used - d.Size > 0)
@@ -903,8 +969,12 @@ namespace DiskSpaceAnalyzer
             btnDelete.Enabled = idle && root != null;
             btnAddList.Enabled = !busy && root != null;
             btnExport.Enabled = !busy && root != null;
+            btnOpenScan.Enabled = !busy;
             measure.Enabled = !busy;
             if (btnBasketRecycle != null) btnBasketRecycle.Enabled = btnBasketDelete.Enabled = idle && basket.Count > 0;
+            // A saved scan opened from a file is only browsed.
+            if (active != null && active.ReadOnly) btnRescan.Enabled = btnDelete.Enabled = btnAddList.Enabled = false;
+            UpdateNavButtons();
             UpdateSuggestionButtons();
             UpdateAppButtons();
             UpdateSystemButtons();
@@ -943,6 +1013,12 @@ namespace DiskSpaceAnalyzer
         {
             driveLabel.Text = "";
             if (active == null) return;
+            if (active.ReadOnly)
+            {
+                driveLabel.Text = active.Total > 0 ? string.Format("Saved scan of {0:g}: {1} free of {2} then", active.Scanned, Fmt.Size(active.Free), Fmt.Size(active.Total))
+                    : string.Format("Saved scan of {0:g}", active.Scanned);
+                return;
+            }
             try
             {
                 var d = new DriveInfo(Path.GetPathRoot(active.Path));
@@ -1115,6 +1191,7 @@ namespace DiskSpaceAnalyzer
 
         void ShowContents(DirNode d)
         {
+            RecordNavigation(current, d);
             current = d;
             var r = RootOf(d.Top);
             if (r != null && r != active)
@@ -1126,6 +1203,8 @@ namespace DiskSpaceAnalyzer
             contents.EmptyText = null;
             var items = new List<ItemInfo>();
             if (d.Children != null) foreach (var c in d.Children) items.Add(ItemInfo.ForDir(c, d.Size));
+            UpdateCrumbs(d);
+            UpdateUnreadBanner(d);
             var files = Scanner.ListFiles(d);
             files.Sort(FileEntry.BySizeDesc);
             for (int i = 0; i < files.Count && i < MaxFilesShown; i++) items.Add(ItemInfo.ForFile(files[i], d.Size));
@@ -1147,18 +1226,20 @@ namespace DiskSpaceAnalyzer
             contents.Items.Clear();
             contents.Items.AddRange(items.Select(it =>
             {
+                var known = KnownFor(it);
+                it.Category = known != null ? known.Short : null;
                 var lvi = new ListViewItem(new[]
                 {
                     it.Name, Fmt.Size(it.Size), it.Percent.ToString("0.0") + " %", ChangeText(it),
-                    it.Files.ToString("N0"), it.IsDir ? it.Dirs.ToString("N0") : "", Fmt.Date(it.Modified)
+                    it.Files.ToString("N0"), it.IsDir ? it.Dirs.ToString("N0") : "", Fmt.Date(it.Modified), known != null ? known.Short : ""
                 }) { Tag = it };
                 if (it.IsSummary) lvi.ForeColor = Theme.MUTED;
                 else if (it.IsDir && it.Dir.Denied) lvi.ForeColor = Theme.MUTED;
                 return lvi;
             }).ToArray());
             contents.EndUpdate();
-            pContents.Caption.Text = string.Format("{0}  -  {1} in {2:N0} files and {3:N0} folders{4}", Fmt.Shorten(d.FullPath, 90), Fmt.Size(d.Size),
-                d.Files, d.Dirs, ChangeCaption(d));
+            // The path is in the path bar above; the caption gives the totals.
+            pContents.Caption.Text = string.Format("{0} in {1:N0} files and {2:N0} folders{3}", Fmt.Size(d.Size), d.Files, d.Dirs, ChangeCaption(d));
             ContentsChanged();
             UpdateButtons();
         }
@@ -1286,6 +1367,8 @@ namespace DiskSpaceAnalyzer
             var sel = GetSelection();
             DirNode dir = sel.Count == 1 && sel[0].IsDir ? sel[0].Dir : current;
             if (dir == null) return;
+            var ro = RootOf(dir.Top);
+            if (ro != null && ro.ReadOnly) { statusLabel.Text = "This is a saved scan opened from a file: it can be browsed, not rescanned."; return; }
             if (dir.Parent == null) { var rr = RootOf(dir); ScanPath(rr != null ? rr.Path : dir.FullPath); return; }
 
             string path = dir.FullPath;

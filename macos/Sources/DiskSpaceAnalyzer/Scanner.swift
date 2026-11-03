@@ -153,7 +153,8 @@ final class Scanner {
 
     /// Lists one directory. getattrlistbulk returns, per entry: length (u32), returned attribute set, the error code
     /// (u32, because it is requested), then the other requested attributes in the order of their bits: name
-    /// (attrreference), object type (u32), modification time (timespec), flags (u32), file id (u64); and for files the
+    /// (attrreference), object type (u32), modification time (timespec), access time (timespec), flags (u32), file id (u64);
+    /// and for files the
     /// link count (u32), allocated size (off_t) and data length (off_t). Fields are only 4-byte aligned, so every read is
     /// unaligned. files == nil when the folder cannot be read.
     static func readFolder(_ path: String, wantDirs: Bool, skip: Set<String> = [], cancelled: () -> Bool = { false },
@@ -166,7 +167,8 @@ final class Scanner {
         var req = attrlist()
         req.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
         req.commonattr = attrgroup_t(ATTR_CMN_RETURNED_ATTRS) | attrgroup_t(ATTR_CMN_NAME) | attrgroup_t(ATTR_CMN_ERROR)
-            | attrgroup_t(ATTR_CMN_OBJTYPE) | attrgroup_t(ATTR_CMN_MODTIME) | attrgroup_t(ATTR_CMN_FLAGS) | attrgroup_t(ATTR_CMN_FILEID)
+            | attrgroup_t(ATTR_CMN_OBJTYPE) | attrgroup_t(ATTR_CMN_MODTIME) | attrgroup_t(ATTR_CMN_ACCTIME) | attrgroup_t(ATTR_CMN_FLAGS)
+            | attrgroup_t(ATTR_CMN_FILEID)
         req.fileattr = attrgroup_t(ATTR_FILE_LINKCOUNT) | attrgroup_t(ATTR_FILE_ALLOCSIZE) | attrgroup_t(ATTR_FILE_DATALENGTH)
         let bufSize = 256 * 1024
         let buf = UnsafeMutableRawPointer.allocate(byteCount: bufSize, alignment: 16)
@@ -198,6 +200,11 @@ final class Scanner {
                 if returned.commonattr & attrgroup_t(ATTR_CMN_MODTIME) != 0 {
                     mtime = Int64(p.loadUnaligned(as: timespec.self).tv_sec); p += MemoryLayout<timespec>.size
                 }
+                // ATTR_CMN_ACCTIME (0x1000) comes after ATTR_CMN_MODTIME (0x400) and before ATTR_CMN_FLAGS (0x40000).
+                var atime: Int64 = 0
+                if returned.commonattr & attrgroup_t(ATTR_CMN_ACCTIME) != 0 {
+                    atime = Int64(p.loadUnaligned(as: timespec.self).tv_sec); p += MemoryLayout<timespec>.size
+                }
                 var flags: UInt32 = 0
                 if returned.commonattr & attrgroup_t(ATTR_CMN_FLAGS) != 0 { flags = p.loadUnaligned(as: UInt32.self); p += 4 }
                 var fileId: UInt64 = 0
@@ -218,7 +225,8 @@ final class Scanner {
                     if type != VREG.rawValue { dataLen = 0; allocSize = 0 }             // sockets, pipes, devices: counted, no size
                     if flags & Scanner.sfDataless != 0 { allocSize = 0; recFlags |= FileRec.datalessFlag }
                     if links > 1 && fileId != 0 && !firstLink(fileId) { allocSize = 0; recFlags |= FileRec.hardLinkFlag }
-                    files.append(FileRec(name: String(cString: namePtr), bytes: dataLen, alloc: allocSize, modified: mtime, flags: recFlags))
+                    files.append(FileRec(name: String(cString: namePtr), bytes: dataLen, alloc: allocSize, modified: mtime, flags: recFlags,
+                                         accessed: atime))
                 }
             }
             if cancelled() { break }

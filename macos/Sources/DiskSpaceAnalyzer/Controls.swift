@@ -14,6 +14,7 @@ final class Segmented: NSView, BarItem {
     var onChange: ((Int) -> Void)?
     var isEnabled = true { didSet { needsDisplay = true } }
     var backFill: NSColor = T.BG
+    var font: NSFont = Theme.font { didSet { needsDisplay = true } }
     var tip: String? { didSet { toolTip = tip } }
     var selectedIndex = 0 {
         didSet { if oldValue != selectedIndex { needsDisplay = true; onChange?(selectedIndex) } }
@@ -23,10 +24,10 @@ final class Segmented: NSView, BarItem {
     init(_ options: [String]) { self.options = options; super.init(frame: .zero) }
     required init?(coder: NSCoder) { fatalError() }
 
-    private func optionWidth(_ i: Int) -> CGFloat { Theme.textWidth(options[i], Theme.font) + 26 }
+    private func optionWidth(_ i: Int) -> CGFloat { Theme.textWidth(options[i], font) + 26 }
 
     var preferredSize: NSSize {
-        NSSize(width: 6 + options.indices.reduce(CGFloat(0)) { $0 + optionWidth($1) }, height: ceil(Theme.font.ascender - Theme.font.descender) + 14)
+        NSSize(width: 6 + options.indices.reduce(CGFloat(0)) { $0 + optionWidth($1) }, height: ceil(font.ascender - font.descender) + 14)
     }
 
     private func optionRect(_ i: Int) -> NSRect {
@@ -57,7 +58,7 @@ final class Segmented: NSView, BarItem {
             let r = optionRect(i)
             let fore: NSColor = !isEnabled ? T.DISABLED_FG : i == selectedIndex ? T.BG : i == hover ? T.FG : T.MUTED
             if i == selectedIndex { Theme.fillRound(r, 6, fill: isEnabled ? T.ACCENT : T.DISABLED_BG) }
-            Theme.drawText(options[i], in: r, font: Theme.font, color: fore, align: .center)
+            Theme.drawText(options[i], in: r, font: font, color: fore, align: .center)
         }
     }
 }
@@ -125,14 +126,15 @@ final class SearchBox: PanelView, BarItem, NSTextFieldDelegate {
 
 /// Drop-down choice: the current choice and a chevron in a rounded field; a click opens the list.
 final class ChoiceBox: PanelView, BarItem {
-    private let choices: [String]
+    private(set) var choices: [String]
     private let prefix: String
     private var hover = false
+    private var quiet = false
     var onChange: ((Int) -> Void)?
     var isEnabled = true { didSet { needsDisplay = true } }
     var tip: String? { didSet { toolTip = tip } }
     var selectedIndex = 0 {
-        didSet { if oldValue != selectedIndex { needsDisplay = true; onChange?(selectedIndex) } }
+        didSet { if oldValue != selectedIndex { needsDisplay = true; if !quiet { onChange?(selectedIndex) } } }
     }
 
     init(_ prefix: String, _ choices: [String]) {
@@ -142,6 +144,18 @@ final class ChoiceBox: PanelView, BarItem {
         backFill = T.SURFACE
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Replaces the choices and selects one, without calling onChange.
+    func setChoices(_ items: [String], _ select: Int) {
+        choices = items.isEmpty ? [""] : items
+        quiet = true
+        selectedIndex = max(0, min(select, choices.count - 1))
+        quiet = false
+        needsDisplay = true
+        (superview as? ActionBar)?.relayout()
+    }
+
+    var count: Int { choices.count }
 
     var preferredSize: NSSize {
         let w = choices.map { Theme.textWidth(prefix + $0, Theme.font) }.max() ?? 40

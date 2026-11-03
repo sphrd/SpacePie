@@ -18,7 +18,7 @@ namespace DiskSpaceAnalyzer
     /// </summary>
     internal static unsafe class Snapshot
     {
-        const int Version = 1;
+        const int Version = 2;   // 2: last-access times and the drive's capacity
         const int Keep = 4;
         internal static string DirOverride;   // self-test
 
@@ -40,6 +40,7 @@ namespace DiskSpaceAnalyzer
             public DateTime Saved;
             public ulong JournalId;
             public long Usn;           // journal position when the saved scan started (0 = none)
+            public long Total, Free;   // capacity of the drive when saved (0 = unknown)
             public DirNode Node;
         }
 
@@ -48,40 +49,66 @@ namespace DiskSpaceAnalyzer
         public static void Save(string root, DirNode node, ulong journalId, long usn)
         {
             Directory.CreateDirectory(Dir);
-            string file = FileFor(root), tmp = file + ".tmp";
-            using (var fs = File.Create(tmp))
-            using (var z = new DeflateStream(fs, CompressionLevel.Fastest))
-            using (var w = new BinaryWriter(new BufferedStream(z, 1 << 16), Encoding.UTF8))
-            {
-                w.Write(Version);
-                w.Write(root);
-                w.Write(DateTime.UtcNow.ToBinary());
-                w.Write(journalId);
-                w.Write(usn);
-                var stack = new Stack<DirNode>();
-                stack.Push(node);
-                while (stack.Count > 0)
-                {
-                    var d = stack.Pop();
-                    w.Write(d.Name ?? "");
-                    w.Write(d.Modified);
-                    w.Write(d.Denied);
-                    if (d.FileList == null) w.Write(-1);
-                    else
-                    {
-                        w.Write(d.FileList.Length);
-                        foreach (var f in d.FileList) { w.Write(f.Name); w.Write(f.Bytes); w.Write(f.Alloc); w.Write(f.Modified); w.Write(f.Attr); }
-                    }
-                    int n = d.Children == null ? 0 : d.Children.Count;
-                    w.Write(n);
-                    for (int i = n - 1; i >= 0; i--) stack.Push(d.Children[i]);
-                }
-            }
-            if (File.Exists(file)) File.Delete(file);
-            File.Move(tmp, file);
+            Write(FileFor(root), false, root, node, journalId, usn, DateTime.UtcNow, 0, 0);
             // Keep the most recent drives only.
             foreach (var old in new DirectoryInfo(Dir).GetFiles("*.snap").OrderByDescending(f => f.LastWriteTimeUtc).Skip(Keep))
                 try { old.Delete(); } catch (Exception) { }
+        }
+
+        /// <summary>A scan file saved by the user (Save scan) starts with this, then the snapshot.</summary>
+        static readonly byte[] ScanFileMagic = Encoding.ASCII.GetBytes("DSASCAN1");
+        public const string ScanFileExtension = ".dsascan";
+
+        /// <summary>Saves a scan as a file the user can keep, send and open later (read-only).</summary>
+        public static void SaveTo(string file, string root, DirNode node, DateTime scanned, long total, long free)
+        {
+            Write(file, true, root, node, 0, 0, scanned.ToUniversalTime(), total, free);
+        }
+
+        /// <summary>Opens a scan file saved with SaveTo; null if it is not one or is damaged.</summary>
+        public static Info LoadFrom(string file) { return Read(file, null); }
+
+        static void Write(string file, bool userFile, string root, DirNode node, ulong journalId, long usn, DateTime savedUtc, long total, long free)
+        {
+            string tmp = file + ".tmp";
+            using (var fs = File.Create(tmp))
+            {
+                if (userFile) fs.Write(ScanFileMagic, 0, ScanFileMagic.Length);
+                using (var z = new DeflateStream(fs, CompressionLevel.Fastest))
+                using (var w = new BinaryWriter(new BufferedStream(z, 1 << 16), Encoding.UTF8))
+                    WriteBody(w, root, node, journalId, usn, savedUtc, total, free);
+            }
+            if (File.Exists(file)) File.Delete(file);
+            File.Move(tmp, file);
+        }
+
+        static void WriteBody(BinaryWriter w, string root, DirNode node, ulong journalId, long usn, DateTime savedUtc, long total, long free)
+        {
+            w.Write(Version);
+            w.Write(root);
+            w.Write(savedUtc.ToBinary());
+            w.Write(journalId);
+            w.Write(usn);
+            w.Write(total);
+            w.Write(free);
+            var stack = new Stack<DirNode>();
+            stack.Push(node);
+            while (stack.Count > 0)
+            {
+                var d = stack.Pop();
+                w.Write(d.Name ?? "");
+                w.Write(d.Modified);
+                w.Write(d.Denied);
+                if (d.FileList == null) w.Write(-1);
+                else
+                {
+                    w.Write(d.FileList.Length);
+                    foreach (var f in d.FileList) { w.Write(f.Name); w.Write(f.Bytes); w.Write(f.Alloc); w.Write(f.Modified); w.Write(f.Accessed); w.Write(f.Attr); }
+                }
+                int n = d.Children == null ? 0 : d.Children.Count;
+                w.Write(n);
+                for (int i = n - 1; i >= 0; i--) stack.Push(d.Children[i]);
+            }
         }
 
         /// <summary>The saved scan of root (totals recomputed), or null if none or unreadable.</summary>
@@ -89,53 +116,73 @@ namespace DiskSpaceAnalyzer
         {
             string file = FileFor(root);
             if (!File.Exists(file)) return null;
+            return Read(file, root);
+        }
+
+        /// <summary>Reads a snapshot (root given) or a user's scan file (root null: the file must start with the scan-file header).</summary>
+        static Info Read(string file, string root)
+        {
             try
             {
                 using (var fs = File.OpenRead(file))
-                using (var z = new DeflateStream(fs, CompressionMode.Decompress))
-                using (var r = new BinaryReader(new BufferedStream(z, 1 << 16), Encoding.UTF8))
                 {
-                    if (r.ReadInt32() != Version) return null;
-                    var info = new Info { Root = r.ReadString(), Saved = DateTime.FromBinary(r.ReadInt64()).ToLocalTime(), JournalId = r.ReadUInt64(), Usn = r.ReadInt64() };
-                    if (!string.Equals(info.Root, root, StringComparison.OrdinalIgnoreCase)) return null;
-                    // Pre-order with child counts: rebuild with a stack of (node, children still to read).
-                    var all = new List<DirNode>();
-                    var stack = new Stack<KeyValuePair<DirNode, int>>();
-                    DirNode top = null;
-                    do
+                    if (root == null)
                     {
-                        var d = new DirNode { Name = r.ReadString(), Modified = r.ReadInt64(), Denied = r.ReadBoolean() };
-                        int nf = r.ReadInt32();
-                        if (nf >= 0)
-                        {
-                            var list = new FileRec[nf];
-                            for (int i = 0; i < nf; i++)
-                            {
-                                list[i] = new FileRec { Name = r.ReadString(), Bytes = r.ReadInt64(), Alloc = r.ReadInt64(), Modified = r.ReadInt64(), Attr = r.ReadUInt32() };
-                                d.LocalBytes += list[i].Bytes; d.LocalAlloc += list[i].Alloc;
-                            }
-                            d.FileList = list;
-                            d.LocalFiles = nf;
-                        }
-                        int nc = r.ReadInt32();
-                        if (stack.Count > 0)
-                        {
-                            var p = stack.Pop();
-                            d.Parent = p.Key;
-                            if (p.Key.Children == null) p.Key.Children = new List<DirNode>(p.Value);
-                            p.Key.Children.Add(d);
-                            if (p.Value > 1) stack.Push(new KeyValuePair<DirNode, int>(p.Key, p.Value - 1));
-                        }
-                        else top = d;
-                        all.Add(d);
-                        if (nc > 0) stack.Push(new KeyValuePair<DirNode, int>(d, nc));
-                    } while (stack.Count > 0);
-                    for (int i = all.Count - 1; i >= 0; i--) all[i].Aggregate();   // children come after parents
-                    info.Node = top;
-                    return info;
+                        var head = new byte[ScanFileMagic.Length];
+                        if (fs.Read(head, 0, head.Length) != head.Length || !head.SequenceEqual(ScanFileMagic)) return null;
+                    }
+                    using (var z = new DeflateStream(fs, CompressionMode.Decompress))
+                    using (var r = new BinaryReader(new BufferedStream(z, 1 << 16), Encoding.UTF8))
+                        return ReadBody(r, root);
                 }
             }
             catch (Exception) { return null; }
+        }
+
+        static Info ReadBody(BinaryReader r, string root)
+        {
+            int version = r.ReadInt32();
+            if (version != 1 && version != Version) return null;
+            var info = new Info { Root = r.ReadString(), Saved = DateTime.FromBinary(r.ReadInt64()).ToLocalTime(), JournalId = r.ReadUInt64(), Usn = r.ReadInt64() };
+            if (version >= 2) { info.Total = r.ReadInt64(); info.Free = r.ReadInt64(); }
+            if (root != null && !string.Equals(info.Root, root, StringComparison.OrdinalIgnoreCase)) return null;
+            // Pre-order with child counts: rebuild with a stack of (node, children still to read).
+            var all = new List<DirNode>();
+            var stack = new Stack<KeyValuePair<DirNode, int>>();
+            DirNode top = null;
+            do
+            {
+                var d = new DirNode { Name = r.ReadString(), Modified = r.ReadInt64(), Denied = r.ReadBoolean() };
+                int nf = r.ReadInt32();
+                if (nf >= 0)
+                {
+                    var list = new FileRec[nf];
+                    for (int i = 0; i < nf; i++)
+                    {
+                        list[i] = new FileRec { Name = r.ReadString(), Bytes = r.ReadInt64(), Alloc = r.ReadInt64(), Modified = r.ReadInt64() };
+                        if (version >= 2) list[i].Accessed = r.ReadInt64();
+                        list[i].Attr = r.ReadUInt32();
+                        d.LocalBytes += list[i].Bytes; d.LocalAlloc += list[i].Alloc;
+                    }
+                    d.FileList = list;
+                    d.LocalFiles = nf;
+                }
+                int nc = r.ReadInt32();
+                if (stack.Count > 0)
+                {
+                    var p = stack.Pop();
+                    d.Parent = p.Key;
+                    if (p.Key.Children == null) p.Key.Children = new List<DirNode>(p.Value);
+                    p.Key.Children.Add(d);
+                    if (p.Value > 1) stack.Push(new KeyValuePair<DirNode, int>(p.Key, p.Value - 1));
+                }
+                else top = d;
+                all.Add(d);
+                if (nc > 0) stack.Push(new KeyValuePair<DirNode, int>(d, nc));
+            } while (stack.Count > 0);
+            for (int i = all.Count - 1; i >= 0; i--) all[i].Aggregate();   // children come after parents
+            info.Node = top;
+            return info;
         }
 
         // ---------------------------------------------------------------- USN change journal

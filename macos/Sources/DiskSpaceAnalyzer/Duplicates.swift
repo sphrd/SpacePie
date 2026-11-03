@@ -168,6 +168,10 @@ extension MainWindowController {
     func findDuplicates() {
         if let f = dupeFinder { f.cancel(); return }
         guard let sc = scope() else { pDupes.setCaption("Scan a drive or folder first."); return }
+        if let sr = rootOf(sc.top), sr.readOnly {
+            pDupes.setCaption("Duplicates are found by reading the files; a saved scan opened from a file can only be browsed.")
+            return
+        }
         let finder = DuplicateFinder()
         dupeFinder = finder
         dupeCacheNote = ""

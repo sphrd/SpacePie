@@ -53,7 +53,7 @@ extension MainWindowController {
 
     func addSelectionToBasket() {
         if busy || lastView === pBasket.table { return }
-        let sel = selection().filter { $0.canDelete }
+        let sel = selection().filter { $0.canDelete && !fromReadOnly($0) }
         if sel.isEmpty { return }
         var added = 0
         for it in sel { for t in DeleteTarget.from(it) where addTarget(t) { added += 1 } }
@@ -102,7 +102,7 @@ extension MainWindowController {
 
     func deleteSelection(trash: Bool) {
         if busy || scanning { return }
-        let sel = selection().filter { $0.canDelete }
+        let sel = selection().filter { $0.canDelete && !fromReadOnly($0) }
         if sel.isEmpty { return }
         let targets = sel.flatMap { DeleteTarget.from($0) }
         confirmAndDelete(targets, trash: trash) { [weak self] job in
@@ -163,29 +163,85 @@ extension MainWindowController {
 
     static let riskyPaths = ["/System", "/Library", "/Applications", "/usr", "/bin", "/sbin", "/private", "/opt"]
 
-    /// The confirmation before deleting or moving to the Trash: every target on its own line with its size; for a
-    /// permanent delete the red "Delete permanently" button, Cancel the default (Return and Escape).
-    func deleteConfirmDialog(_ targets: [DeleteTarget], trash: Bool) -> PromptDialog {
-        let total = targets.reduce(Int64(0)) { $0 + $1.size }
+    /// The confirmation before deleting or moving to the Trash: every target on its own line with its size (and whether it
+    /// is in a synced folder or kept because its volume has no Trash); for a permanent delete the red "Delete permanently"
+    /// button, Cancel the default (Return and Escape). Button 0 goes ahead: with trash, when every target is kept it means
+    /// "Delete permanently", when some are kept "Move the others".
+    func deleteConfirmDialog(_ targets: [DeleteTarget], trash: Bool, synced: [ObjectIdentifier: String] = [:],
+                             kept: [ObjectIdentifier: String] = [:]) -> PromptDialog {
+        var total = targets.reduce(Int64(0)) { $0 + $1.size }
         let n = targets.count, s = n == 1 ? "" : "s"
         let details = targets.map { t -> String in
-            (t.emptyTrash ? "Empty the Trash" : PathUtil.trim(t.path) + (t.contentsOnly ? "  (contents)" : "")) + "   " + Fmt.size(t.size)
+            var line = (t.emptyTrash ? "Empty the Trash" : PathUtil.trim(t.path) + (t.contentsOnly ? "  (contents)" : "")) + "   " + Fmt.size(t.size)
+            if let why = kept[ObjectIdentifier(t)] { line += "  -  kept: " + why }
+            if let svc = synced[ObjectIdentifier(t)] { line += "  -  synced with " + svc }
+            return line
         }
         var warnings: [String] = []
         if trash && targets.contains(where: { $0.emptyTrash }) { warnings.append("The Trash itself is emptied: its items are deleted for good.") }
         if targets.contains(where: { t in !t.contentsOnly && !t.emptyTrash && MainWindowController.riskyPaths.contains { PathUtil.isWithin(t.path, $0) } }) {
             warnings.append("This includes macOS system, library or application content. Deleting it can break macOS or installed apps.")
         }
+        // Synced folders: deleting here deletes in the cloud and on the other devices too.
+        if !synced.isEmpty {
+            var services: [String] = []
+            for t in targets { if let svc = synced[ObjectIdentifier(t)], !services.contains(svc) { services.append(svc) } }
+            let names = services.joined(separator: " and ")
+            if n == 1 {
+                warnings.append("It is in a folder synced with \(names). Deleting it here also deletes it in the cloud and on your other devices.")
+            } else {
+                let who = synced.count == n ? "They are all" : "\(Fmt.count(synced.count)) of them \(synced.count == 1 ? "is" : "are")"
+                warnings.append("\(who) in folders synced with \(names). Deleting them here also deletes them in the cloud and on your other devices.")
+            }
+        }
+        let warning = warnings.joined(separator: "\n")
+        if trash && !kept.isEmpty {
+            var reasons: [String] = []
+            for t in targets { if let why = kept[ObjectIdentifier(t)], !reasons.contains(why) { reasons.append(why) } }
+            let why = reasons.joined(separator: "; ")
+            if kept.count == n {
+                return PromptDialog(icon: .danger, heading: (n == 1 ? "This item" : "These items") + " can't go to the Trash",
+                                    text: "\(n == 1 ? "It" : "They") would have to be deleted permanently: \(why). Nothing has been deleted.",
+                                    warning: warning, details: details,
+                                    buttons: [("Delete permanently", .danger), ("Cancel", .secondary)], defaultIndex: 1, cancelIndex: 1)
+            }
+            let keep = targets.filter { kept[ObjectIdentifier($0)] != nil }.reduce(Int64(0)) { $0 + $1.size }
+            total -= keep
+            let k = kept.count
+            return PromptDialog(icon: .warn, heading: "Move \(Fmt.count(n)) item\(s) to the Trash?",
+                                text: "\(Fmt.count(k)) of them (\(Fmt.size(keep))) can't go to the Trash: \(why). \(k == 1 ? "It is" : "They are") kept; the other \(Fmt.size(total)) go to the Trash.",
+                                warning: warning, details: details,
+                                buttons: [("Move the others", .primary), ("Cancel", .secondary)], defaultIndex: 1, cancelIndex: 1)
+        }
         if trash {
             return PromptDialog(icon: .warn, heading: "Move \(Fmt.count(n)) item\(s) to the Trash?",
                                 text: "\(Fmt.size(total)) will be moved to the Trash. You can put the items back from there; the space is freed when the Trash is emptied.",
-                                warning: warnings.joined(separator: "\n"), details: details,
+                                warning: warning, details: details,
                                 buttons: [("Move to Trash", .primary), ("Cancel", .secondary)], defaultIndex: 1, cancelIndex: 1)
         }
         return PromptDialog(icon: .danger, heading: "Delete \(Fmt.count(n)) item\(s) permanently?",
                             text: "\(Fmt.size(total)) will be deleted. This bypasses the Trash and cannot be undone.",
-                            warning: warnings.joined(separator: "\n"), details: details,
+                            warning: warning, details: details,
                             buttons: [("Delete permanently", .danger), ("Cancel", .secondary)], defaultIndex: 1, cancelIndex: 1)
+    }
+
+    /// Targets in synced folders, with the service that syncs them (the Trash itself is never synced).
+    func syncedTargets(_ targets: [DeleteTarget]) -> [ObjectIdentifier: String] {
+        var out: [ObjectIdentifier: String] = [:]
+        for t in targets where !t.emptyTrash {
+            if let svc = SyncFolders.service(for: t.path) { out[ObjectIdentifier(t)] = svc }
+        }
+        return out
+    }
+
+    /// Targets on volumes without a Trash, with the reason (moving them to the Trash would fail).
+    func trashlessTargets(_ targets: [DeleteTarget]) -> [ObjectIdentifier: String] {
+        var out: [ObjectIdentifier: String] = [:]
+        var cache: [String: String?] = [:]
+        for t in targets where !t.emptyTrash {
+            if let why = TrashCheck.noTrash(t.path, &cache) { out[ObjectIdentifier(t)] = why }
+        }
+        return out
     }
 
     /// After a delete: what could not be deleted (each "path  -  reason"), all of them.
@@ -199,15 +255,26 @@ extension MainWindowController {
 
     /// Asks, deletes (or moves to the Trash) with the delete strip, then updates the scan. done(nil) when cancelled.
     func confirmAndDelete(_ targets: [DeleteTarget], trash: Bool, _ done: @escaping (DeleteJob?) -> Void) {
-        let scannedRoots = roots.compactMap { $0.node?.fullPath }
+        let scannedRoots = roots.filter { !$0.readOnly }.compactMap { $0.node?.fullPath }
         if targets.contains(where: { t in !t.emptyTrash && !t.contentsOnly && scannedRoots.contains { PathUtil.same($0, t.path) } }) {
             alert("A scanned drive or folder cannot be deleted here", "Select items inside it instead.")
             done(nil)
             return
         }
-        if selfTestDir != nil { runDelete(targets, trash: trash, done); return }
-        deleteConfirmDialog(targets, trash: trash).show(over: window) { i in
-            if i == 0 { self.runDelete(targets, trash: trash, done) } else { done(nil) }
+        let synced = syncedTargets(targets)
+        // Moving to the Trash: items on volumes without a Trash would stay; they are named, and kept or deleted permanently.
+        let kept = trash ? trashlessTargets(targets) : [:]
+        let others = targets.filter { kept[ObjectIdentifier($0)] == nil }
+        if selfTestDir != nil {
+            if others.isEmpty { done(nil); return }
+            runDelete(others, trash: trash, done)
+            return
+        }
+        deleteConfirmDialog(targets, trash: trash, synced: synced, kept: kept).show(over: window) { i in
+            if i != 0 { done(nil); return }
+            if trash && !kept.isEmpty && others.isEmpty { self.runDelete(targets, trash: false, done) }
+            else if trash && !kept.isEmpty { self.runDelete(others, trash: true, done) }
+            else { self.runDelete(targets, trash: trash, done) }
         }
     }
 

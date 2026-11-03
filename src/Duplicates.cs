@@ -199,6 +199,8 @@ namespace DiskSpaceAnalyzer
             if (dupeFinder != null) { dupeFinder.Cancelled = true; return; }
             var scope = Scope();
             if (scope == null) { pDupes.Caption.Text = "Scan a drive or folder first."; return; }
+            var sr = RootOf(scope.Top);
+            if (sr != null && sr.ReadOnly) { pDupes.Caption.Text = "Duplicates are found by reading the files; a saved scan opened from a file can only be browsed."; return; }
             var finder = new DuplicateFinder();
             dupeFinder = finder;
             dupeScope = scope.FullPath;

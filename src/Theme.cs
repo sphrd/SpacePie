@@ -340,6 +340,20 @@ namespace DiskSpaceAnalyzer
             g.SmoothingMode = sm;
         }
 
+        /// <summary>Arrow (back / forward): a horizontal shaft with an open head, pointing left or right.</summary>
+        public static void DrawArrow(Graphics g, Rectangle r, Color c, bool left)
+        {
+            var sm = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            float cx = r.X + r.Width / 2f, cy = r.Y + r.Height / 2f, a = r.Width * 0.40f, d = left ? -1 : 1;
+            using (var pen = new Pen(c, Math.Max(1.6f, 1.8f * Scale)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+            {
+                g.DrawLine(pen, cx - d * a, cy, cx + d * a, cy);
+                g.DrawLines(pen, new[] { new PointF(cx + d * a * 0.15f, cy - a * 0.8f), new PointF(cx + d * a, cy), new PointF(cx + d * a * 0.15f, cy + a * 0.8f) });
+            }
+            g.SmoothingMode = sm;
+        }
+
         // ------------------------------------------------------------------ window manager
 
         [DllImport("dwmapi.dll")]

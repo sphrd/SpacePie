@@ -95,7 +95,7 @@ namespace DiskSpaceAnalyzer
             if (sugHeadline != null && suggestions == null) sugHeadline.Text = "Looking...";
             SetRows(p.List, new List<ListViewItem>(), "Looking for space that can be freed...");
             UpdateSuggestionButtons();
-            var scanned = roots.Where(r => r.Node != null).Select(r => r.Node).ToList();
+            var scanned = roots.Where(r => r.Node != null && !r.ReadOnly).Select(r => r.Node).ToList();
             List<Suggestion> found = null;
             Task.Factory.StartNew(() => { found = FindSuggestions(scanned); })
                 .ContinueWith(t =>

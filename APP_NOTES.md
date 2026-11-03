@@ -290,6 +290,55 @@ patterns (Part 3) are applied through the WinForms mapping below.
   and icon); RowHoverText = full name + path, then "Column: full text" for each other cut cell not already shown. Hover
   screenshots pick a visible row (rows above the scroll position put the cursor outside the window: blank capture).
 
+- 2026-11-03: "look at these repos and compare my DiskSpaceAnalyzer tool to them, and find ways to improve mine and make it
+  better than theirs" (SpaceSight, quado, OpenDiskLens, Radix, c2flux). Chosen by the owner (v2.0.0, both platforms):
+  1 treemap ("doesnt the left pane already show the tree? add it if not" - the tree is a folder tree, the treemap is a chart),
+  2 search everything scanned, 3 scan history "without compromising performance or cluttering logs", 4 save/open scans,
+  5 back/forward + path bar, 6 last opened, 8 Recycle Bin limits, 9 synced folders, 10 unreadable folders, 11 what is this
+  folder, 12 leftover confidence, 15 properties + preview, 17 SHA-256 + PRIVACY.md + SECURITY.md, 19 accuracy test "include
+  the result in readme". Not wanted: compare two folders ("its a different app"); winget/Homebrew wait for a possible repo
+  rename.
+  - Treemap (src\ChartTreemap.cs): PieChart is partial; `Treemap` switches drawing and hit testing; squarified layout of the
+    same slices (true proportions, list order kept for colours), folder slices hold subfolders 2 levels deep (level-1 header
+    row; the folder's own files are an undrawn gap so children keep their share), free space = outlined empty rectangle,
+    info area under the map (hovered item / folder shown) with an "Up" chip (= centre click). Ring / Treemap `Segmented`
+    (FONT_9) is a child of the chart at its top right (`TitleRightMargin`); the choice is a marker file `treemap`.
+  - Files search: "In the selected folder / In everything scanned" (all roots); a name search also lists folders
+    (`FileIndex.Folders`, chart value 0); date filter merged into one box ("Not changed for ..." / "Not opened for ...") so
+    the bar stays two rows. Last opened = max(last access, last write) (`FileRec.Accessed`: FindData access time, MFT
+    $STANDARD_INFORMATION +24); if `NtfsDisableLastAccessUpdate` has bit 0 set the caption says opens are not recorded.
+  - History (History.cs): every full scan appends 56 bytes to `history\<key>.timeline` (max 1,000) and writes a pruned copy
+    (folders >= 4 MB, same .dsa format) to `history\<key>\yyyyMMdd-HHmmss.dsa`: one per day (same day replaces), last 12;
+    archive folders follow the 10-most-recent rule. Done in RememberScan's background task, no log output. Changes page:
+    From / To `ChoiceBox` (SetChoices), `HistoryStrip` (used space for drives, dot per scan, click = compare from that day),
+    comparison generalised over `Side` (DirNode or PrevNode). The archive copy of the scan in memory (within 2 min of
+    `ScanRoot.Scanned`) is "Now", not listed as earlier.
+  - Scan files (SavedScans.cs, Snapshot.cs v2): "DSASCAN1" + the snapshot (v2 adds last-access times and the drive's
+    total/free; v1 still read). Export filter 4, **Open scan...** button, drag and drop, command line. Opened = read-only
+    `ScanRoot` (after the drives): FindRoot/FindScanned skip it (same paths as the live drive!), FromReadOnly blocks delete /
+    add / rescan, Duplicates and Suggestions ignore it, RefreshCapacity keeps the saved capacity; "Close saved scan".
+  - Navigation.cs: Back/Forward (node + path, 100 deep; Alt+Left/Right; WM_APPCOMMAND 1/2 = mouse side buttons), `Breadcrumb`
+    above the Contents caption (caption no longer repeats the path), unreadable `Banner` (count of Denied folders under the
+    shown folder, cached per tree, cleared in ViewsChanged; Show them / Run as administrator).
+  - Known.cs: path rules (environment-expanded), one-folder wildcards and anywhere-names -> What / Verdict / Explain / How;
+    Contents column "What it is" (sort key cat) and the hover box. Texts point at the app's own tabs and Windows settings.
+  - Safety.cs: RecycleLimits (BitBucket\Volume\{GUID} MaxCapacity MB / NukeOnDelete, default 10 % of 40 GB + 5 % above,
+    removable/network/optical = no bin; "contents only" targets use their largest child) -> recycle confirmation keeps those
+    items ("Move the others"), all of them -> offer Delete permanently. SyncFolders (SyncRootManager, OneDrive env/registry,
+    Dropbox info.json, Google Drive label/DriveFS, Syncthing config.xml, iCloudDrive) -> amber note + "synced with X" per line.
+  - Leftover tiers (Apps.cs): Exact (program folder, uninstall entry, full name / folder / key / package name), Same
+    developer (Publisher\Name), Name only (shortened name, Documents) = never pre-checked; the post-uninstall prompt deletes
+    only sure items and lists the rest as "listed, but not deleted".
+  - Preview.cs: SHObjectProperties (Alt+Enter, menu Properties); PreviewForm (Space in Contents, Files, Duplicates, Delete
+    list, Changes, tree): IShellItemImageFactory picture read with GetDIBits top-down 32 bpp (orientation and alpha right),
+    icon only for folders and online-only files (a thumbnail would download them), first 64 KB of text files.
+  - Accuracy (README): app vs `robocopy /L /XJ` vs `dir /s`: System32 identical; Program Files same file count, bytes differ
+    only by 16 file symbolic links (robocopy counts their targets); dir /s and PowerShell follow folder links/junctions and
+    count files twice. CI repeats it (Windows: robocopy, fails on a count mismatch or > 1 %; macOS: du/find, > 10 %).
+  - Gotcha: executables in %TEMP% are blocked on the owner's machine (policy); test builds go to a scratch folder instead.
+  - Self-test: SelfTestV2.cs adds 13 checks (last opened, search everywhere, treemap layout and drawing, navigation, known
+    folders, unreadable banner, Recycle Bin limit, synced folders, scan file round trip + read-only guards, timeline/archive).
+
 ## WinForms mapping of the design language
 
 - Tokens and fonts live only in `Theme.cs`; widgets use those names, no inline hex.

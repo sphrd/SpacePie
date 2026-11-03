@@ -176,6 +176,49 @@ enum Theme {
         c.setStroke(); p.stroke()
     }
 
+    /// Arrow (back / forward, as Theme.DrawArrow in src/Theme.cs): a horizontal shaft with an open head, pointing left or
+    /// right, in the middle of r (a button: drawn at about 60 % of its height). Flipped view.
+    static func drawArrow(_ r: NSRect, _ c: NSColor, left: Bool) {
+        drawArrow(r, c, dx: left ? -1 : 1, dy: 0)
+    }
+
+    /// Arrow pointing along (dx, dy) (one of them 0, the other +-1; flipped view: dy -1 = up).
+    static func drawArrow(_ r: NSRect, _ c: NSColor, dx: CGFloat, dy: CGFloat) {
+        let side = min(r.width, r.height) * (r.width > 22 ? 0.6 : 1)
+        let cx = r.midX, cy = r.midY, a = side * 0.40
+        let nx = -dy, ny = dx                                 // across the shaft
+        let p = NSBezierPath()
+        p.move(to: NSPoint(x: cx - dx * a, y: cy - dy * a))
+        p.line(to: NSPoint(x: cx + dx * a, y: cy + dy * a))
+        p.move(to: NSPoint(x: cx + dx * a * 0.15 + nx * a * 0.8, y: cy + dy * a * 0.15 + ny * a * 0.8))
+        p.line(to: NSPoint(x: cx + dx * a, y: cy + dy * a))
+        p.line(to: NSPoint(x: cx + dx * a * 0.15 - nx * a * 0.8, y: cy + dy * a * 0.15 - ny * a * 0.8))
+        p.lineWidth = max(1.6, side / 10)
+        p.lineCapStyle = .round
+        p.lineJoinStyle = .round
+        c.setStroke(); p.stroke()
+    }
+
+    /// Warning sign: a triangle with rounded corners and an exclamation mark cut out in `cut` (as WarningSignView).
+    static func drawWarningSign(_ b: NSRect, _ color: NSColor, cut: NSColor) {
+        let lw = b.width * 0.14
+        let r = b.insetBy(dx: lw / 2 + 1, dy: lw / 2 + 1)
+        let tri = NSBezierPath()
+        tri.move(to: NSPoint(x: r.midX, y: r.minY))
+        tri.line(to: NSPoint(x: r.maxX, y: r.maxY))
+        tri.line(to: NSPoint(x: r.minX, y: r.maxY))
+        tri.close()
+        tri.lineWidth = lw
+        tri.lineJoinStyle = .round
+        color.setFill(); color.setStroke()
+        tri.fill(); tri.stroke()
+        let bw = b.width * 0.1
+        cut.setFill()
+        roundRect(NSRect(x: b.midX - bw / 2, y: r.minY + r.height * 0.32, width: bw, height: r.height * 0.36), bw / 2).fill()
+        let d = bw * 1.15
+        NSBezierPath(ovalIn: NSRect(x: b.midX - d / 2, y: r.minY + r.height * 0.76, width: d, height: d)).fill()
+    }
+
     static func drawChevron(_ r: NSRect, _ c: NSColor, down: Bool) {
         let cx = r.midX, cy = r.midY, a = r.width * 0.22
         let p = NSBezierPath()

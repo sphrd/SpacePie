@@ -188,6 +188,18 @@ namespace DiskSpaceAnalyzer
                     }
                     about.Close();
                 }
+                // The folder contents as a treemap, and the preview window of its largest file.
+                viewTabs.SelectedIndex = pages.IndexOf(pContents);
+                int mode = chartMode.SelectedIndex, measured = measure.SelectedIndex;
+                if (ShotDemo) measure.SelectedIndex = 0;   // the demo files are sparse: they only look big by file size
+                chartMode.SelectedIndex = 1;
+                await Task.Delay(1500);
+                SaveShot((pages.Count + 6) + "-treemap");
+                chartMode.SelectedIndex = mode;
+                measure.SelectedIndex = measured;
+                var big = contents.Items.Cast<ListViewItem>().Select(x => x.Tag as ItemInfo).FirstOrDefault(x => x != null && x.File != null)
+                    ?? pFiles.List.Items.Cast<ListViewItem>().Select(x => x.Tag as ItemInfo).FirstOrDefault(x => x != null && x.File != null);
+                if (big != null && !ShotDemo) await ShotDialog(new PreviewForm(big, KnownFor(big)), (pages.Count + 7) + "-preview");
                 // Prompts and the delete strip (made-up items, nothing is deleted).
                 Splash.SaveImage(Path.Combine(ShotDir, "0-splash.png"));
                 var sample = Enumerable.Range(1, 40).Select(k => string.Format(@"E:\Projects\web-app-{0}\node_modules{1}{2}", k, "\t", Fmt.Size(180000000L - k * 3100000L))).ToList();
@@ -512,6 +524,7 @@ namespace DiskSpaceAnalyzer
                 // History: the scan was saved for comparison.
                 for (int i = 0; i < 20 && History.Load(dir, out _when) == null; i++) await Task.Delay(250);
                 check(History.Load(dir, out _when) != null, "history: scan saved for the Changes view");
+                await SelfTestV2(check);
 
                 // Partial delete: a file in use stays; the delete list keeps the folder with what is left (bug in v1.7.2).
                 File.WriteAllBytes(P(@"E\x.bin"), new byte[30000]);

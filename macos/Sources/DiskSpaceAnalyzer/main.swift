@@ -3,6 +3,7 @@ import AppKit
 // Disk Space Analyzer for macOS.
 //   DiskSpaceAnalyzer                      opens the window and scans the startup disk
 //   DiskSpaceAnalyzer <folder>             opens the window and scans <folder>
+//   DiskSpaceAnalyzer <scan.dsascan>       opens the window, scans the startup disk and opens the saved scan read-only
 //   DiskSpaceAnalyzer --cli scan <folder>  headless scan, prints totals (same format as the Windows exe)
 //   DiskSpaceAnalyzer --cli screenshot <out-folder> <folder>
 //                                          opens the window, scans, saves a PNG of every view, About, the update window
@@ -146,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let file = sub("File")
         item(file, "Choose Folder...", #selector(chooseFolder(_:)), "o", target: self)
+        item(file, "Open Scan...", #selector(MainWindowController.menuBarOpenScan(_:)), "o", [.command, .shift])
         item(file, "Export...", #selector(MainWindowController.menuBarExport(_:)), "e", [.command, .shift])
         file.addItem(.separator())
         item(file, "Close Window", #selector(NSWindow.performClose(_:)), "w")
@@ -159,9 +161,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item(edit, "Find Files...", #selector(MainWindowController.menuBarFind(_:)), "f")
 
         let folder = sub("Folder")
+        item(folder, "Back", #selector(MainWindowController.menuBarBack(_:)), "[")
+        item(folder, "Forward", #selector(MainWindowController.menuBarForward(_:)), "]")
         item(folder, "Up", #selector(MainWindowController.menuBarUp(_:)), String(UnicodeScalar(NSUpArrowFunctionKey)!))
         item(folder, "Rescan Folder", #selector(MainWindowController.menuBarRescan(_:)), "r")
         item(folder, "Show in Finder", #selector(MainWindowController.menuBarFinder(_:)), "r", [.command, .shift])
+        item(folder, "Quick Look", #selector(MainWindowController.menuBarQuickLook(_:)), "y")
+        item(folder, "Get Info", #selector(MainWindowController.menuBarGetInfo(_:)), "i")
         folder.addItem(.separator())
         item(folder, "Add to Delete List", #selector(MainWindowController.menuBarAddList(_:)), "d")
         item(folder, "Move to Trash...", #selector(MainWindowController.menuBarTrash(_:)))

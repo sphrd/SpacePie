@@ -77,7 +77,7 @@ namespace DiskSpaceAnalyzer
         void AddSelectionToBasket()
         {
             if (busy) return;
-            var sel = GetSelection().Where(i => i.CanDelete).ToList();
+            var sel = GetSelection().Where(i => i.CanDelete && !FromReadOnly(i)).ToList();
             if (sel.Count == 0 || lastView == pBasket.List) return;
             int added = 0;
             foreach (var it in sel)
@@ -135,7 +135,7 @@ namespace DiskSpaceAnalyzer
         async void DeleteSelection(bool recycle)
         {
             if (busy || scanning) return;
-            var sel = GetSelection().Where(i => i.CanDelete).ToList();
+            var sel = GetSelection().Where(i => i.CanDelete && !FromReadOnly(i)).ToList();
             if (sel.Count == 0) return;
             var targets = sel.SelectMany(DeleteTarget.From).ToList();
             var job = await ConfirmAndDelete(targets, recycle);
@@ -151,6 +151,11 @@ namespace DiskSpaceAnalyzer
                 Alert(AlertIcon.Warn, "A scanned drive or folder can't be deleted here", "Select items inside it instead.", null, null, "OK");
                 return null;
             }
+            // The same item twice, or an item inside a folder that is deleted whole (e.g. nested search results): once only.
+            var dup = targets.Where(t => !t.RecycleBin && targets.Any(o => o != t && !o.RecycleBin && (
+                (SamePath(o.Path, t.Path) && targets.IndexOf(o) < targets.IndexOf(t)) ||
+                (o.IsDir && !o.ContentsOnly && !SamePath(o.Path, t.Path) && IsWithin(t.Path, o.Path))))).ToList();
+            targets.RemoveAll(dup.Contains);
             long total = targets.Sum(t => t.Size);
             string n = string.Format("{0:N0} item{1}", targets.Count, targets.Count == 1 ? "" : "s");
             string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
@@ -158,17 +163,76 @@ namespace DiskSpaceAnalyzer
             string pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
             string note = targets.Any(t => !t.ContentsOnly && !t.RecycleBin && (IsWithin(t.Path, win) || IsWithin(t.Path, pf) || IsWithin(t.Path, pf86)))
                 ? "This includes Windows or Program Files content. Deleting it can break Windows or installed programs." : null;
+            // Synced folders: deleting here deletes in the cloud and on the other devices too.
+            var synced = new Dictionary<DeleteTarget, string>();
+            foreach (var t in targets)
+            {
+                string svc = t.RecycleBin ? null : SyncFolders.ServiceFor(t.Path);
+                if (svc != null) synced[t] = svc;
+            }
+            if (synced.Count > 0)
+            {
+                string services = string.Join(" and ", synced.Values.Distinct());
+                note = JoinNotes(note, targets.Count == 1
+                    ? "It is in a folder synced with " + services + ". Deleting it here also deletes it in the cloud and on your other devices."
+                    : string.Format("{0} in folders synced with {1}. Deleting them here also deletes them in the cloud and on your other devices.",
+                        synced.Count == targets.Count ? "They are all" : string.Format("{0:N0} of them {1}", synced.Count, synced.Count == 1 ? "is" : "are"), services));
+            }
+            // Moving to the Recycle Bin: Windows deletes some items permanently (too large for the bin, bin turned off, no bin).
+            var permanent = new Dictionary<DeleteTarget, string>();
+            if (recycle)
+            {
+                var bins = new Dictionary<string, RecycleLimits.Bin>(StringComparer.OrdinalIgnoreCase);
+                foreach (var t in targets)
+                {
+                    if (t.RecycleBin) continue;
+                    string why = RecycleLimits.WouldDeletePermanently(t.Path, LargestRecycledItem(t), bins);
+                    if (why != null) permanent[t] = why;
+                }
+            }
+            Func<DeleteTarget, string> extra = t =>
+            {
+                string s = "", w, svc;
+                if (permanent.TryGetValue(t, out w)) s += "  -  kept: " + w;
+                if (synced.TryGetValue(t, out svc)) s += "  -  synced with " + svc;
+                return s;
+            };
             if (SelfTestDir == null)
             {
-                string pick = recycle
-                    ? Alert(AlertIcon.Warn, "Move " + n + " to the Recycle Bin?",
-                        Fmt.Size(total) + " go to the Recycle Bin. You can restore them from there; the space is freed when the bin is emptied.",
-                        note, TargetLines(targets), "Move to Recycle Bin", "Cancel")
-                    : Alert(AlertIcon.Danger, "Delete " + n + " permanently?",
-                        Fmt.Size(total) + " will be deleted. This bypasses the Recycle Bin and cannot be undone.",
-                        note, TargetLines(targets), "Delete permanently", "Cancel");
-                if (pick != (recycle ? "Move to Recycle Bin" : "Delete permanently")) return null;
+                string pick;
+                if (recycle && permanent.Count == targets.Count)
+                {
+                    pick = Alert(AlertIcon.Danger, (targets.Count == 1 ? "This item" : "These items") + " can't go to the Recycle Bin",
+                        "Windows would delete " + (targets.Count == 1 ? "it" : "them") + " permanently: " + string.Join("; ", permanent.Values.Distinct()) + ". Nothing has been deleted.",
+                        note, TargetLines(targets, extra), "Delete permanently", "Cancel");
+                    if (pick != "Delete permanently") return null;
+                    recycle = false;
+                }
+                else if (recycle && permanent.Count > 0)
+                {
+                    long keep = permanent.Keys.Sum(t => t.Size);
+                    pick = Alert(AlertIcon.Warn, "Move " + n + " to the Recycle Bin?",
+                        string.Format("{0:N0} of them ({1}) can't go to the Recycle Bin: Windows would delete {2} permanently ({3}). {4} kept; the other {5} go to the Recycle Bin.",
+                            permanent.Count, Fmt.Size(keep), permanent.Count == 1 ? "it" : "them", string.Join("; ", permanent.Values.Distinct()),
+                            permanent.Count == 1 ? "It is" : "They are", Fmt.Size(total - keep)),
+                        note, TargetLines(targets, extra), "Move the others", "Cancel");
+                    if (pick != "Move the others") return null;
+                    targets.RemoveAll(t => permanent.ContainsKey(t));   // in place: callers remeasure only what was attempted
+                    total -= keep;
+                }
+                else
+                {
+                    pick = recycle
+                        ? Alert(AlertIcon.Warn, "Move " + n + " to the Recycle Bin?",
+                            Fmt.Size(total) + " go to the Recycle Bin. You can restore them from there; the space is freed when the bin is emptied.",
+                            note, TargetLines(targets, extra), "Move to Recycle Bin", "Cancel")
+                        : Alert(AlertIcon.Danger, "Delete " + n + " permanently?",
+                            Fmt.Size(total) + " will be deleted. This bypasses the Recycle Bin and cannot be undone.",
+                            note, TargetLines(targets, extra), "Delete permanently", "Cancel");
+                    if (pick != (recycle ? "Move to Recycle Bin" : "Delete permanently")) return null;
+                }
             }
+            else if (recycle && permanent.Count > 0) targets.RemoveAll(t => permanent.ContainsKey(t));
 
             DirNode target = current;
             foreach (var t in targets)
@@ -200,10 +264,33 @@ namespace DiskSpaceAnalyzer
             return job;
         }
 
-        /// <summary>One line per target for the confirmation's details box: path, then (after a tab) its size.</summary>
-        static List<string> TargetLines(IEnumerable<DeleteTarget> targets)
+        /// <summary>One line per target for the confirmation's details box: path, then (after a tab) its size and any remark.</summary>
+        static List<string> TargetLines(IEnumerable<DeleteTarget> targets, Func<DeleteTarget, string> remark = null)
         {
-            return targets.Select(t => (t.RecycleBin ? "Empty the Recycle Bin" : t.Path + (t.ContentsOnly ? "  (its contents)" : "")) + "\t" + Fmt.Size(t.Size)).ToList();
+            return targets.Select(t => (t.RecycleBin ? "Empty the Recycle Bin" : t.Path + (t.ContentsOnly ? "  (its contents)" : "")) + "\t" + Fmt.Size(t.Size)
+                + (remark != null ? remark(t) : "")).ToList();
+        }
+
+        static string JoinNotes(string a, string b)
+        {
+            if (string.IsNullOrEmpty(a)) return b;
+            if (string.IsNullOrEmpty(b)) return a;
+            return a + "\n" + b;
+        }
+
+        /// <summary>
+        /// The largest single item Windows will put in the Recycle Bin for a target: the item itself, or for "contents only"
+        /// targets (each child goes separately) the largest child. Measured as file size, which is what the bin counts.
+        /// </summary>
+        long LargestRecycledItem(DeleteTarget t)
+        {
+            var dn = t.IsDir ? (t.Dir != null && IsAttached(t.Dir) ? t.Dir : FindScanned(t.Path, true)) : null;
+            if (!t.ContentsOnly) return dn != null ? dn.Bytes : t.File != null ? t.File.Bytes : t.Size;
+            if (dn == null) return 0;
+            long max = 0;
+            if (dn.Children != null) foreach (var c in dn.Children) max = Math.Max(max, c.Bytes);
+            if (dn.FileList != null) foreach (var f in dn.FileList) max = Math.Max(max, f.Bytes);
+            return max;
         }
 
         /// <summary>Themed report of what could not be deleted: every item with the reason, in a scrollable box.</summary>
@@ -403,7 +490,7 @@ namespace DiskSpaceAnalyzer
             if (string.IsNullOrEmpty(path)) return null;
             foreach (var r in roots)
             {
-                if (r.Node == null || !IsWithin(path, r.Node.FullPath.TrimEnd('\\'))) continue;
+                if (r.Node == null || r.ReadOnly || !IsWithin(path, r.Node.FullPath.TrimEnd('\\'))) continue;
                 var n = FindByPath(r.Node, path);
                 if (n != null && (!exact || SamePath(n.FullPath, path))) return n;
             }

@@ -34,14 +34,15 @@ namespace DiskSpaceAnalyzer
 
         // Files view
         SearchBox fileSearch;
-        ChoiceBox fileType, fileMinSize, fileAge;
+        ChoiceBox fileScope, fileType, fileMinSize, fileAge;
         int filesGen;
         // Types view
         ChoiceBox typeGroup;
         int typesGen;
 
         static readonly long[] MinSizes = { 0, 1L << 20, 10L << 20, 100L << 20, 1L << 30 };
-        static readonly int[] AgeMonths = { 0, 3, 6, 12, 24, 60 };
+        // Date filter: not changed for (months), then not opened for (months, negative).
+        static readonly int[] AgeMonths = { 0, 3, 6, 12, 24, 60, -3, -6, -12, -24 };
 
         void BuildViews(RoundedPanel listPanel)
         {
@@ -49,21 +50,23 @@ namespace DiskSpaceAnalyzer
             pContents.FollowsFolder = true;
             pContents.Fill = () => { if (current != null) ShowContents(current); };
 
-            // Files: the whole index under the selected folder, filtered; largest first.
-            fileSearch = new SearchBox("Search names  (e.g. *.iso, invoice)");
+            // Files: the whole index under the selected folder (or every scanned drive), filtered; largest first.
+            fileSearch = new SearchBox("Search names  (e.g. *.iso, invoice, node_modules)");
             fileSearch.TextChangedDelayed += (s, e) => FillFiles();
+            fileScope = new ChoiceBox("", "In the selected folder", "In everything scanned");
+            tips.SetToolTip(fileScope, "Search the folder selected in the tree, or every scanned drive and folder at once");
             var types = new List<string> { "Any type" };
             types.AddRange(FileTypes.Categories);
             fileType = new ChoiceBox("", types.ToArray());
             fileMinSize = new ChoiceBox("", "Any size", "1 MB or more", "10 MB or more", "100 MB or more", "1 GB or more");
-            fileAge = new ChoiceBox("", "Any date", "Older than 3 months", "Older than 6 months", "Older than 1 year", "Older than 2 years", "Older than 5 years");
-            tips.SetToolTip(fileAge, "Files not changed (modified) for at least this long");
-            foreach (var c in new[] { fileType, fileMinSize, fileAge }) c.SelectedIndexChanged += (s, e) => FillFiles();
-            tips.SetToolTip(fileAge, "Files not changed (modified) for at least this long");
-            tips.SetToolTip(fileSearch.Box, "Part of a name, or a pattern with * and ?. Several patterns: separate them with ; (Ctrl+F)");
-            var files = NewList(new[] { "Name", "Size", "% of folder", "Folder", "Type", "Modified" },
-                new[] { "name", "size", "size", "folder", "cat", "mod" }, new[] { 260, 90, 150, 360, 110, 140 }, 2);
-            pFiles = AddPage("Files", files, MakeBar(fileSearch, fileType, fileMinSize, fileAge));
+            fileAge = new ChoiceBox("", "Any date", "Not changed for 3 months", "Not changed for 6 months", "Not changed for 1 year", "Not changed for 2 years",
+                "Not changed for 5 years", "Not opened for 3 months", "Not opened for 6 months", "Not opened for 1 year", "Not opened for 2 years");
+            foreach (var c in new[] { fileScope, fileType, fileMinSize, fileAge }) c.SelectedIndexChanged += (s, e) => FillFiles();
+            tips.SetToolTip(fileAge, "Files not changed (modified), or not opened (nor changed), for at least this long. \"Opened\" uses the last-access time Windows records");
+            tips.SetToolTip(fileSearch.Box, "Part of a name, or a pattern with * and ?. Several patterns: separate them with ; (Ctrl+F). Folders with a matching name are listed too.");
+            var files = NewList(new[] { "Name", "Size", "% of folder", "Folder", "Type", "Modified", "Last opened" },
+                new[] { "name", "size", "size", "folder", "cat", "mod", "used" }, new[] { 260, 90, 150, 360, 110, 140, 140 }, 2);
+            pFiles = AddPage("Files", files, MakeBar(fileSearch, fileScope, fileType, fileMinSize, fileAge));
             pFiles.FollowsFolder = true;
             pFiles.ChartScope = "of folder";
             pFiles.Fill = FillFiles;
@@ -256,6 +259,7 @@ namespace DiskSpaceAnalyzer
         {
             if (pages.Count == 0) return;
             suggestionsDirty = true;
+            deniedCache.Clear();
             foreach (var p in pages) if (p != pContents) p.Stale = true;
             UpdateBasketTitle();
             var a = ActivePage;
@@ -308,10 +312,14 @@ namespace DiskSpaceAnalyzer
             string head = HoverText(info);
             var lines = new List<string>();
             if (!string.IsNullOrEmpty(head)) lines.AddRange(head.Split('\n'));
+            // A well-known folder or file: what it is, whether it can go, and what manages it.
+            var known = KnownFor(info);
+            if (known != null) { lines.Add(""); lines.AddRange(known.Long.Split('\n')); }
             var extra = new List<string>();
             foreach (var cell in list.CutCells(row))
             {
                 string t = cell.Value;
+                if (known != null && t == known.Short) continue;
                 if (lines.Any(l => l == t || l.Contains(t))) continue;   // already shown in full (name, path)
                 extra.Add(string.IsNullOrEmpty(cell.Key) ? t : cell.Key + ": " + t);
             }
@@ -424,16 +432,38 @@ namespace DiskSpaceAnalyzer
             if (pats.Length > 0) f.Patterns = pats;
             if (fileType.SelectedIndex > 0) f.Category = FileTypes.Categories[fileType.SelectedIndex - 1];
             f.MinSize = MinSizes[fileMinSize.SelectedIndex];
-            if (AgeMonths[fileAge.SelectedIndex] > 0) f.ModifiedBefore = DateTime.Now.AddMonths(-AgeMonths[fileAge.SelectedIndex]).ToFileTime();
+            int months = AgeMonths[fileAge.SelectedIndex];
+            if (months > 0) f.ModifiedBefore = DateTime.Now.AddMonths(-months).ToFileTime();
+            if (months < 0) f.UsedBefore = DateTime.Now.AddMonths(months).ToFileTime();
             return f;
+        }
+
+        /// <summary>
+        /// Whether Windows records when files are opened (last-access time). Turned off by an administrator, or by Windows
+        /// itself on some large volumes ("system managed"), the time only moves when a file changes.
+        /// </summary>
+        static bool LastAccessRecorded()
+        {
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Control\FileSystem"))
+                {
+                    var v = k != null ? k.GetValue("NtfsDisableLastAccessUpdate") : null;
+                    return !(v is int) || ((int)v & 1) == 0;
+                }
+            }
+            catch (Exception) { return true; }
         }
 
         void FillFiles()
         {
             var p = pFiles;
             var scope = Scope();
+            bool everywhere = fileScope.SelectedIndex == 1;
+            var scopes = everywhere ? roots.Where(r => r.Node != null).Select(r => r.Node).ToList() : scope != null ? new List<DirNode> { scope } : new List<DirNode>();
+            string where = everywhere ? (scopes.Count == 1 ? scopes[0].FullPath : string.Format("{0:N0} scanned drives and folders", scopes.Count)) : scope != null ? scope.FullPath : "";
             p.ChartTitle = "Files";
-            if (scope == null)
+            if (scopes.Count == 0)
             {
                 p.Caption.Text = "Nothing scanned yet.";
                 p.ChartSub = "";
@@ -443,24 +473,39 @@ namespace DiskSpaceAnalyzer
                 return;
             }
             var filter = CurrentFileFilter();
+            // Folders have no type or dates of their own here, so only a name search (and the size) finds them.
+            bool withFolders = filter.Patterns != null && filter.Category == null && filter.ModifiedBefore <= 0 && filter.UsedBefore <= 0;
             int gen = ++filesGen;
-            p.Caption.Text = "Searching " + scope.FullPath + "...";
-            long count = 0, size = 0;
+            p.Caption.Text = "Searching " + where + "...";
+            long count = 0, size = 0, dirCount = 0;
             List<FileEntry> found = null;
-            Task.Factory.StartNew(() => { found = FileIndex.Largest(scope, TopCount, filter, out count, out size); })
+            List<DirNode> dirs = null;
+            Task.Factory.StartNew(() =>
+            {
+                found = FileIndex.Largest(scopes, TopCount, filter, out count, out size);
+                dirs = withFolders ? FileIndex.Folders(scopes, TopCount, filter, out dirCount) : new List<DirNode>();
+            })
                 .ContinueWith(t =>
                 {
                     if (gen != filesGen || IsDisposed) return;
                     if (t.IsFaulted) { p.Stale = true; p.Caption.Text = "The scan changed while searching - search again."; return; }
                     var rows = new List<ListViewItem>();
-                    long folder = Math.Max(1, scope.Size), shown = 0;
+                    long folder = Math.Max(1, scopes.Sum(s => s.Size)), shown = 0;
+                    foreach (var d in dirs)
+                    {
+                        var it = ItemInfo.ForDir(d, folder);
+                        it.Folder = d.Parent != null ? d.Parent.FullPath : "";
+                        it.Category = "Folder";
+                        it.ChartValue = 0;   // a folder's size also holds matching files: the chart shows the files only
+                        rows.Add(Row(it, it.Name, Fmt.Size(it.Size), it.Percent.ToString("0.0") + " %", it.Folder, it.Category, Fmt.Date(it.Modified), ""));
+                    }
                     foreach (var fe in found)
                     {
                         var it = ItemInfo.ForFile(fe, folder);
                         it.Folder = fe.Dir.FullPath;
                         it.Category = FileTypes.CategoryOf(FileIndex.Extension(fe.Name));
                         shown += fe.Size;
-                        rows.Add(Row(it, it.Name, Fmt.Size(it.Size), it.Percent.ToString("0.0") + " %", it.Folder, it.Category, Fmt.Date(it.Modified)));
+                        rows.Add(Row(it, it.Name, Fmt.Size(it.Size), it.Percent.ToString("0.0") + " %", it.Folder, it.Category, Fmt.Date(it.Modified), Fmt.Date(it.Used)));
                     }
                     if (count > found.Count)
                     {
@@ -469,15 +514,17 @@ namespace DiskSpaceAnalyzer
                             IsSummary = true, Name = string.Format("[{0:N0} smaller matching files not listed]", count - found.Count),
                             Size = size - shown, Files = count - found.Count, Percent = 100.0 * (size - shown) / folder
                         };
-                        rows.Add(Row(rest, rest.Name, Fmt.Size(rest.Size), rest.Percent.ToString("0.0") + " %", "", "", ""));
+                        rows.Add(Row(rest, rest.Name, Fmt.Size(rest.Size), rest.Percent.ToString("0.0") + " %", "", "", "", ""));
                     }
                     rows.Sort((a, b) => p.List.Sorter.Compare(a, b));
                     bool filtered = !filter.IsEmpty;
-                    SetRows(p.List, rows, filtered ? "No files match the filters in " + scope.FullPath + "." : "No files in " + scope.FullPath + ".");
-                    p.Caption.Text = string.Format("{0:N0} {1}files in {2}, {3}{4}", count, filtered ? "matching " : "", Fmt.Shorten(scope.FullPath, 70),
-                        Fmt.Size(size), count > found.Count ? string.Format("  -  showing the largest {0:N0}", found.Count) : "");
+                    SetRows(p.List, rows, filtered ? "Nothing matches the filters in " + where + "." : "No files in " + where + ".");
+                    string folders = dirCount > 0 ? string.Format(" and {0:N0} folder{1}", dirCount, dirCount == 1 ? "" : "s") : "";
+                    p.Caption.Text = string.Format("{0:N0} {1}files{2} in {3}, {4}{5}{6}", count, filtered ? "matching " : "", folders, Fmt.Shorten(where, 70),
+                        Fmt.Size(size), count > found.Count ? string.Format("  -  showing the largest {0:N0}", found.Count) : "",
+                        filter.UsedBefore > 0 && !LastAccessRecorded() ? "  -  Windows on this PC doesn't record when files are opened, so \"not opened\" uses the last change" : "");
                     p.ChartTitle = filtered ? "Matching files" : "Largest files";
-                    p.ChartSub = scope.FullPath;
+                    p.ChartSub = where;
                     p.ChartTotal = 0;
                     p.ChartScope = "of the matches";
                     p.Empty = filtered ? "No files match." : "No files.";
