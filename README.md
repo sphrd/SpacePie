@@ -253,6 +253,17 @@ Measured on a Windows 11 laptop (not as administrator, files already in the cach
   `dir /s` also follows folder links and counts the files behind them a second
   time; PowerShell's `Get-ChildItem -Recurse` follows a junction to Common Files
   and lists 121,399 files.
+- On GitHub's build machines (checked at every build):
+
+  | Folder | Disk Space Analyzer | Reference |
+  |---|---|---|
+  | macOS `/Applications` | 726,361 files, 37,434,699,776 bytes on disk, 5.4 s | `du`: 37,434,699,776 bytes; `find`: 726,361 files |
+  | macOS `/usr/share` | 15,380 files, 231,841,792 bytes on disk, 0.12 s | `du`: 231,841,792 bytes; `find`: 15,380 files |
+  | Windows `C:\Program Files` | 266,696 files, 64,654,026,220 bytes | `robocopy`: 266,696 files, 64,658,386,860 bytes |
+  | Windows `C:\Program Files (x86)` | 318,319 files, 30,620,660,673 bytes | `robocopy`: 318,319 files, 30,620,775,939 bytes |
+
+  macOS matches `du` and `find` exactly; on Windows the file counts match and the
+  sizes differ by less than 0.01 % (file symbolic links, as above).
 - A whole drive as administrator, from the master file table: about 1.2 million
   files in about 10 seconds on GitHub's Windows runner (folder by folder: over 7
   minutes there), with the size on disk within 0.5 % of the drive's used space.
