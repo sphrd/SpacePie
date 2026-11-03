@@ -714,3 +714,6 @@ patterns (Part 3) are applied through the WinForms mapping below.
   last opened; what-it-is labels; unreadable folders banner; Recycle Bin limit and synced-folder warnings; leftover
   confidence tiers; preview and properties; PRIVACY.md / SECURITY.md; SHA-256 in the release notes; accuracy checks in CI.
 - v2.0.1 (2026-11-03): chart switch "Pie / Treemap" (was Ring); the old-name compatibility of 2.0.0 removed (no users yet).
+- v2.1.0 (2026-11-03): views bar on the left (icon + name, scrolls) instead of tabs and the folder tree; Contents as a tree-list
+  with This PC / This Mac above the drives (only drives count their used space); Delete list button next to Delete
+  permanently; slim closable unreadable-folders line; full text on hover for everything cut off; website refresh.
