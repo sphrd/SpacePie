@@ -102,18 +102,11 @@ jobs:
           name: SpacePie
           path: SpacePie.exe
 
-      - name: Copy under the 1.x name (updates of Disk Space Analyzer 1.x look for this asset name)
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: pwsh
-        run: Copy-Item .\SpacePie.exe .\DiskSpaceAnalyzer.exe
-
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            SpacePie.exe
-            DiskSpaceAnalyzer.exe
+          files: SpacePie.exe
           append_body: true
           body: |
 
@@ -211,19 +204,11 @@ jobs:
             SpacePie-macOS.dmg
             ${{ runner.temp }}/shots/*.png
 
-      - name: Copy under the 1.x name (updates of Disk Space Analyzer 1.x look for this asset name)
-        if: startsWith(github.ref, 'refs/tags/')
-        run: cp SpacePie-macOS.dmg DiskSpaceAnalyzer-macOS.dmg
-
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            SpacePie-macOS.dmg
-            DiskSpaceAnalyzer-macOS.dmg
+          files: SpacePie-macOS.dmg
           append_body: true
           body: |
             `SpacePie-macOS.dmg`: `${{ steps.hash.outputs.sha }}` (check with `shasum -a 256 SpacePie-macOS.dmg`)
-
-            `DiskSpaceAnalyzer.exe` and `DiskSpaceAnalyzer-macOS.dmg` are the same files under the app's former name, so copies of Disk Space Analyzer 1.x can update themselves.

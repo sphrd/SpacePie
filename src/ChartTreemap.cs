@@ -36,7 +36,7 @@ namespace SpacePie
         /// <summary>Rectangles laid out at the last paint (self-test).</summary>
         public int TileCount { get { return tiles.Count; } }
 
-        /// <summary>Right margin of the title lines (room for the Ring / Treemap switch placed over the chart).</summary>
+        /// <summary>Right margin of the title lines (room for the Pie / Treemap switch placed over the chart).</summary>
         public int TitleRightMargin;
 
         /// <summary>Rectangles instead of rings.</summary>

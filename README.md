@@ -5,12 +5,11 @@
 <h1 align="center">SpacePie</h1>
 
 <p align="center">The fastest free disk space analyzer and cleaner for <b>Windows</b> and <b>macOS</b>.<br>
-Open source, a single small app, nothing to install.<br>
-<sub>Formerly <i>Disk Space Analyzer</i>.</sub></p>
+Open source, a single small app, nothing to install.</p>
 
-<p align="center"><a href="../../releases/latest"><b>Download the latest release</b></a></p>
+<p align="center"><a href="../../releases/latest"><b>Download the latest release</b></a> &middot; <a href="https://sphrd.github.io/SpacePie/">Website</a></p>
 
-![SpacePie: drive tree, folder contents and ring chart (demo data)](assets/screenshot.png)
+![SpacePie: drive tree, folder contents and pie chart (demo data)](assets/screenshot.png)
 
 It starts analyzing your system drive the moment it opens. See where your space
 went, find big, old and duplicate files, follow cleanup suggestions, uninstall
@@ -48,7 +47,7 @@ to the Recycle Bin / Trash or permanently.
 **Seeing where the space went** (tabs above the list; the chart always shows the
 open list, and hovering a slice highlights its row and the other way round)
 
-- **Ring or treemap:** the chart pane shows the open list as a ring chart or as a
+- **Pie or treemap:** the chart pane shows the open list as a pie chart or as a
   treemap (rectangles sized by space, folders with their subfolders inside), one
   click to switch; the choice is remembered.
 - **Back, Forward and a path bar:** go back to the folders you opened (also with
@@ -61,7 +60,7 @@ open list, and hovering a slice highlights its row and the other way round)
   says how many and lists them, instead of quietly leaving them out of the totals.
 
 - **Contents:** the selected folder's subfolders and files with size, share,
-  change since the last scan, counts and dates. The ring chart shows the folder
+  change since the last scan, counts and dates. The pie chart shows the folder
   and, in two outer rings, its subfolders. Click a part to open it; click the
   centre (the folder's name) to go back up. For a drive it also shows free space.
 - **The chart, in every tab:** every item of at least 2 % of the total (7.2° of
@@ -157,8 +156,7 @@ open list, and hovering a slice highlights its row and the other way round)
   Alt+Enter opens the Windows Properties dialog (Get Info, ⌘I, on macOS).
 - **Save a scan:** **Export** a folder as an HTML report, as CSV, or as a scan
   file (`.spacepie`) that **Open scan...** shows again later, read-only, next to the
-  drives: to keep a record, compare later, or send it to someone (scan files from
-  version 1.x, `.dsascan`, open too).
+  drives: to keep a record, compare later, or send it to someone.
 - **Updates itself:** it checks for a new version at startup and installs it in
   a click.
 - **About** lists the keyboard shortcuts and how to get the fastest, most
@@ -192,14 +190,6 @@ or later.
   **System Settings > Privacy & Security > Full Disk Access**, then reopen the
   app. Without it, macOS asks separately for every protected folder (Desktop,
   Documents, Downloads, iCloud Drive...) and hides some sizes.
-
-### Updating from Disk Space Analyzer
-
-SpacePie is the new name of Disk Space Analyzer. Version 1.x offers the update at
-startup (or use **Check for updates**) and installs it in place; saved scans,
-history and settings move over on the first start. On macOS, turn on Full Disk
-Access for **SpacePie** afterwards (the old **Disk Space Analyzer** entry there
-can be removed).
 
 ## Using it
 

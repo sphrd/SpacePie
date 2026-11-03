@@ -120,16 +120,10 @@ namespace SpacePie
                 bool guarded = ro != null && ro.Node.Children != null && FromReadOnly(ItemInfo.ForDir(ro.Node.Children[0], 0));
                 CloseSavedScan(ro);
                 bool closed = !roots.Any(r => r.ReadOnly);
-                // A scan file saved by Disk Space Analyzer 1.x (.dsascan, same format) is still recognized and read.
-                string legacyFile = Path.ChangeExtension(file, Snapshot.LegacyScanFileExtension);
-                bool legacy = false;
-                try { File.Copy(file, legacyFile, true); legacy = IsScanFile(legacyFile) && Snapshot.LoadFrom(legacyFile) != null; }
-                catch (Exception) { }
                 try { File.Delete(file); } catch (Exception) { }
-                try { File.Delete(legacyFile); } catch (Exception) { }
-                check(same && separate && guarded && closed && legacy, string.Format(
-                    "scan file: saved and read back identical ({0}), opened read-only beside the live scan ({1}), its items can't be deleted ({2}), closed ({3}), 1.x .dsascan still opens ({4})",
-                    same, separate, guarded, closed, legacy));
+                check(same && separate && guarded && closed, string.Format(
+                    "scan file: saved and read back identical ({0}), opened read-only beside the live scan ({1}), its items can't be deleted ({2}), closed ({3})",
+                    same, separate, guarded, closed));
             }
 
             // History: every scan adds a timeline point; one small copy is kept per day for comparisons.

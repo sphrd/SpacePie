@@ -937,7 +937,7 @@ final class ShotRun {
             if let v = self.fda?.window?.contentView { self.save(v, "\(w.pages.count + 5)-full-disk-access") }
             self.fda?.close()
         }
-        // The folder contents as a treemap (the Ring / Treemap choice is put back afterwards).
+        // The folder contents as a treemap (the Pie / Treemap choice is put back afterwards).
         var chartMode = 0
         steps.then {
             w.viewTabs.selectedIndex = contentsIndex

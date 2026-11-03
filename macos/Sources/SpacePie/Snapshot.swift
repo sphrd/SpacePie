@@ -21,7 +21,7 @@ struct SnapshotInfo {
 /// version is deleted. Layout: magic, version (both u32, uncompressed), then LZFSE: header, then the folders in pre-order
 /// (name, modified, flags, files, number of children); numbers are varints. Version 2 adds the drive's capacity (total,
 /// free) to the header and each file's last-access time; version 1 files are still read. A scan file the user saves
-/// (Export > Scan file, *.spacepie; 1.x: *.dsascan) is "DSASCAN1" followed by exactly such a snapshot.
+/// (Export > Scan file, *.spacepie) is "DSASCAN1" followed by exactly such a snapshot.
 enum Snapshot {
     static let magic: UInt32 = 0x53415344      // "DSAS"
     static let version: UInt32 = 2             // 2: last-access times and the drive's capacity
@@ -29,8 +29,6 @@ enum Snapshot {
     static var folderOverride: String?         // self-test
     static let scanFileMagic: [UInt8] = Array("DSASCAN1".utf8)
     static let scanFileExtension = "spacepie"
-    /// Scan files saved by versions 1.x (Disk Space Analyzer): the same format, still opened.
-    static let legacyScanFileExtension = "dsascan"
 
     static var folder: String {
         if let f = folderOverride { return f }

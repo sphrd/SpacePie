@@ -59,7 +59,7 @@ final class PieChart: NSView {
     private var hoverUp = false
     private var mapRect = NSRect.zero
     private var upRect = NSRect.zero
-    /// Right margin of the title lines (room for the Ring / Treemap switch placed over the chart).
+    /// Right margin of the title lines (room for the Pie / Treemap switch placed over the chart).
     var titleRightMargin: CGFloat = 0 { didSet { if oldValue != titleRightMargin { needsDisplay = true } } }
 
     /// Rectangles instead of rings.

@@ -58,8 +58,6 @@ namespace SpacePie
         /// <summary>A scan file saved by the user (Save scan) starts with this, then the snapshot.</summary>
         static readonly byte[] ScanFileMagic = Encoding.ASCII.GetBytes("DSASCAN1");
         public const string ScanFileExtension = ".spacepie";
-        /// <summary>Scan files saved by versions 1.x (Disk Space Analyzer): the same format, still opened.</summary>
-        public const string LegacyScanFileExtension = ".dsascan";
 
         /// <summary>Saves a scan as a file the user can keep, send and open later (read-only).</summary>
         public static void SaveTo(string file, string root, DirNode node, DateTime scanned, long total, long free)

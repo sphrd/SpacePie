@@ -498,34 +498,6 @@ namespace SpacePie
                         finally { string o2; Elevation.Schtasks("/delete /tn \"SpacePie selftest\" /f", out o2); Elevation.TaskName = Elevation.DefaultTaskName; }
                     }
                     check(def && handed && realOk, "always as administrator: task runs this exe elevated on demand only; arguments handed over; " + real);
-                    // Renamed from Disk Space Analyzer: a task still under the 1.x name keeps working and, once the app runs
-                    // elevated, is replaced by one under the new name. Only where the option is not set up for real (CI).
-                    if (Elevation.IsAdmin && !Elevation.MarkedOn && Elevation.TaskTarget() == null)
-                    {
-                        const string legacy = "Disk Space Analyzer (as administrator)";
-                        string lx = Path.Combine(Path.GetTempPath(), "spacepie-legacy-" + Guid.NewGuid().ToString("N") + ".xml");
-                        string marker = AppData.Path("always-admin"), o3;
-                        try
-                        {
-                            File.WriteAllText(lx, xml, System.Text.Encoding.Unicode);
-                            bool made = Elevation.Schtasks("/create /tn \"" + legacy + "\" /xml \"" + lx + "\" /f", out o3) == 0;
-                            File.WriteAllText(marker, exe);
-                            bool seen = Elevation.IsOnForThisCopy();
-                            Elevation.MigrateLegacyTask();
-                            bool legacyGone = Elevation.Schtasks("/query /tn \"" + legacy + "\"", out o3) != 0;
-                            bool renamed = Elevation.Schtasks("/query /tn \"" + Elevation.DefaultTaskName + "\"", out o3) == 0 && Elevation.IsOnForThisCopy();
-                            check(made && seen && legacyGone && renamed, string.Format(
-                                "always as administrator: a task under the 1.x name is used, then replaced by \"{0}\" (made {1}, used {2}, old removed {3}, new {4})",
-                                Elevation.DefaultTaskName, made, seen, legacyGone, renamed));
-                        }
-                        finally
-                        {
-                            Elevation.Schtasks("/delete /tn \"" + legacy + "\" /f", out o3);
-                            Elevation.Schtasks("/delete /tn \"" + Elevation.DefaultTaskName + "\" /f", out o3);
-                            try { File.Delete(marker); } catch (Exception) { }
-                            try { File.Delete(lx); } catch (Exception) { }
-                        }
-                    }
                 }
                 // Prompts are the themed dialog: warning sign, the full list in a scrollable box, a red primary button.
                 using (var dlg = new AlertForm(AlertIcon.Danger, "Delete 30 items permanently?", "Test", null,

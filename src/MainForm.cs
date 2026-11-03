@@ -260,8 +260,8 @@ namespace SpacePie
             chart.HoverChanged += i => ActivePage.List.SetHighlight(i >= 0 && i < chart.Slices.Count ? chart.Slices[i].Rows : null);
             var chartPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill };
             chartPanel.Controls.Add(chart);
-            // Ring or treemap, top right of the chart pane; the choice is remembered (a marker file).
-            chartMode = new Segmented("Ring", "Treemap") { Font = Theme.FONT_9 };
+            // Pie or treemap, top right of the chart pane; the choice is remembered (a marker file).
+            chartMode = new Segmented("Pie", "Treemap") { Font = Theme.FONT_9 };
             chart.Treemap = File.Exists(TreemapMarker);
             chartMode.SelectedIndex = chart.Treemap ? 1 : 0;
             chartMode.SelectedIndexChanged += (s, e) =>

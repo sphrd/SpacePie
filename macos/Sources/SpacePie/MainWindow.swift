@@ -229,8 +229,8 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
     let viewTabs = TabStrip(["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes", "Delete list"])
     let chartPanel = ContainerPanel()
     let chart = PieChart()
-    /// Ring or treemap, top right of the chart pane; the choice is remembered (UserDefaults).
-    let chartMode = Segmented(["Ring", "Treemap"])
+    /// Pie or treemap, top right of the chart pane; the choice is remembered (UserDefaults).
+    let chartMode = Segmented(["Pie", "Treemap"])
     static let treemapKey = "ChartTreemap"
     let statusLabel = NSTextField(labelWithString: "Choose a drive or folder and press Scan.")
     let liveLabel = NSTextField(labelWithString: "")
@@ -482,7 +482,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
 
         // Chart
         chartPanel.addSubview(chart)
-        // Ring or treemap, top right of the chart pane (the title leaves room for it); the choice is remembered.
+        // Pie or treemap, top right of the chart pane (the title leaves room for it); the choice is remembered.
         chartMode.font = Theme.font9
         chartMode.backFill = T.SURFACE
         chartMode.tip = "Show the open list as a ring chart or as a treemap (rectangles sized by space)"
@@ -557,7 +557,7 @@ final class MainWindowController: NSWindowController, NSOutlineViewDataSource, N
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(volumesChanged), name: NSWorkspace.didUnmountNotification, object: nil)
 
         buildNavigation()
-        // A scan file (.spacepie, 1.x: .dsascan) dropped on the window opens read-only; a folder dropped on it is scanned.
+        // A scan file (.spacepie) dropped on the window opens read-only; a folder dropped on it is scanned.
         root.canDrop = { [unowned self] u in
             !self.busy && (MainWindowController.isScanFile(u.path) || (!self.scanning && PathUtil.isDir(u.path)))
         }

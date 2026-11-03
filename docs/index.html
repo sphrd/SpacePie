@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SpacePie: fast, free disk space analyzer and cleaner for Windows and macOS</title>
+<meta name="description" content="SpacePie is a fast, free and open-source disk space analyzer and cleaner for Windows and macOS. See where your space went, find big, old and duplicate files, uninstall apps completely and free space safely. One small app, nothing to install.">
+<link rel="canonical" href="https://sphrd.github.io/SpacePie/">
+<link rel="icon" href="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SpacePie: fast, free disk space analyzer and cleaner">
+<meta property="og:description" content="Open-source disk space analyzer and cleaner for Windows and macOS. One small app, nothing to install.">
+<meta property="og:url" content="https://sphrd.github.io/SpacePie/">
+<meta property="og:image" content="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "SpacePie",
+  "description": "Fast, free and open-source disk space analyzer and cleaner for Windows and macOS.",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "Windows 10, Windows 11, macOS 11 or later",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "license": "https://opensource.org/licenses/MIT",
+  "url": "https://sphrd.github.io/SpacePie/",
+  "downloadUrl": "https://github.com/sphrd/SpacePie/releases/latest",
+  "image": "https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png",
+  "screenshot": "https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png",
+  "author": { "@type": "Person", "name": "sphrd", "url": "https://github.com/sphrd" }
+}
+</script>
+<style>
+  :root { --bg: #222831; --surface: #2d333d; --border: #3a414c; --fg: #ffffff; --muted: #aab4c0; --accent: #4da3ff; --accent-active: #7bbcff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--accent-active); }
+  main { max-width: 1040px; margin: 0 auto; padding: 48px 24px 64px; }
+  header { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
+  .logo { width: 128px; height: 128px; }
+  h1 { font-size: 44px; line-height: 1.1; margin: 0 0 8px; }
+  .tagline { color: var(--muted); font-size: 20px; margin: 0; }
+  .bar { width: 56px; height: 4px; border-radius: 2px; background: var(--accent); margin: 16px 0 0; }
+  .buttons { display: flex; gap: 12px; flex-wrap: wrap; margin: 32px 0 8px; }
+  .btn { display: inline-block; padding: 10px 22px; border-radius: 8px; background: var(--border); color: var(--fg); font-weight: 600; }
+  .btn:hover { background: #4a525e; color: var(--fg); }
+  .btn.primary { background: var(--accent); color: var(--bg); }
+  .btn.primary:hover { background: var(--accent-active); color: var(--bg); }
+  .note { color: var(--muted); font-size: 14px; margin: 0; }
+  img.shot { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); margin: 32px 0 8px; }
+  h2 { font-size: 26px; margin: 48px 0 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .shots figure { margin: 0; }
+  .shots img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); }
+  .shots figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; }
+  footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--border); margin-top: 56px; padding-top: 20px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img class="logo" src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png" alt="SpacePie logo" width="128" height="128">
+    <div>
+      <h1>SpacePie</h1>
+      <p class="tagline">The fastest free disk space analyzer and cleaner for Windows and macOS.</p>
+      <div class="bar"></div>
+    </div>
+  </header>
+
+  <div class="buttons">
+    <a class="btn primary" href="https://github.com/sphrd/SpacePie/releases/latest/download/SpacePie.exe">Download for Windows</a>
+    <a class="btn primary" href="https://github.com/sphrd/SpacePie/releases/latest/download/SpacePie-macOS.dmg">Download for macOS</a>
+    <a class="btn" href="https://github.com/sphrd/SpacePie">Source code on GitHub</a>
+  </div>
+  <p class="note">Free and open source (MIT licence). One small app, nothing to install. Windows 10 and 11; macOS 11 or later on Apple silicon and Intel.</p>
+
+  <img class="shot" src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" alt="SpacePie: drive tree, folder contents and a pie chart of where the space went" width="1600" height="867">
+
+  <h2>See where your disk space went</h2>
+  <p>SpacePie starts analyzing your system drive the moment it opens. Find the folders and files that take the most space, big, old and duplicate files, and what every installed app really takes, then free the space: to the Recycle Bin / Trash or permanently.</p>
+
+  <div class="grid">
+    <div class="card"><h3>A whole drive in seconds</h3><p>As administrator on Windows it reads the NTFS master file table directly: over a million files in about ten seconds. Otherwise, and on macOS, it scans folders in parallel.</p></div>
+    <div class="card"><h3>Pie chart or treemap</h3><p>The chart follows the list you are looking at, with subfolders in outer rings or nested rectangles. Click a part to open it.</p></div>
+    <div class="card"><h3>Cleanup suggestions</h3><p>Caches, temporary files, old installers, build folders and more, with how much each frees. Safe items start checked; items to review first start unchecked.</p></div>
+    <div class="card"><h3>Uninstall apps completely</h3><p>Every installed app with its real size; expand it to see its settings, caches and other files, and remove them together.</p></div>
+    <div class="card"><h3>Duplicate files</h3><p>Find identical files by content and free the extra copies, or replace them with links so every file stays where it is.</p></div>
+    <div class="card"><h3>History and search</h3><p>Compare any two scans to see what grew, and search everything scanned by name and age.</p></div>
+    <div class="card"><h3>Instant restart</h3><p>Scans are saved when you close the app and brought up to date from the change journal (Windows) or the event history (macOS) the next time.</p></div>
+    <div class="card"><h3>Private and checked</h3><p>No account, no telemetry. Totals are checked against the operating system's own tools on every build.</p></div>
+  </div>
+
+  <h2>Screenshots</h2>
+  <div class="shots">
+    <figure><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-treemap.png" alt="SpacePie treemap of a drive" loading="lazy"><figcaption>Treemap of a drive</figcaption></figure>
+    <figure><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" alt="SpacePie cleanup suggestions" loading="lazy"><figcaption>Cleanup suggestions</figcaption></figure>
+    <figure><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" alt="SpacePie installed apps with their sizes" loading="lazy"><figcaption>Installed apps and their files</figcaption></figure>
+    <figure><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" alt="SpacePie duplicate files" loading="lazy"><figcaption>Duplicate files</figcaption></figure>
+  </div>
+
+  <footer>
+    SpacePie by <a href="https://github.com/sphrd">sphrd</a> &middot; MIT licence &middot;
+    <a href="https://github.com/sphrd/SpacePie/releases">Releases</a> &middot;
+    <a href="https://github.com/sphrd/SpacePie/blob/main/PRIVACY.md">Privacy</a> &middot;
+    <a href="https://github.com/sphrd/SpacePie/blob/main/SECURITY.md">Security</a>
+  </footer>
+</main>
+</body>
+</html>

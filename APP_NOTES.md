@@ -1,4 +1,4 @@
-# APP_NOTES — SpacePie (formerly Disk Space Analyzer)
+# APP_NOTES — SpacePie
 
 Project notes for the App Engineer agent (`app-engineer.agent.md` from `sphrd/Agents`, stack-agnostic version).
 This project is C# WinForms on the in-box .NET Framework 4.x; the design language (Part 2) and interaction
@@ -22,7 +22,7 @@ patterns (Part 3) are applied through the WinForms mapping below.
 | macOS build | `macos/build.sh` -> universal `SpacePie.app` (arm64 + x86_64), ad-hoc signed, packed into `SpacePie-macOS.dmg` at the repo root; version from `src/Program.cs`, icon from `assets/app-1024.png` |
 | Build script | `build.ps1` -> compiles into `bin/`, moves `SpacePie.exe` to the repo root (git-ignored), deletes `bin/` |
 | Version | `src/Program.cs` (`AssemblyVersion` / `AssemblyFileVersion`), `src/app.manifest` |
-| Data folder (and the move from the 1.x folder on first start) | `src/AppData.cs`, `macos/Sources/SpacePie/AppData.swift` |
+| Data folder | `src/AppData.cs`, `macos/Sources/SpacePie/AppData.swift` |
 
 ## App identity
 
@@ -31,11 +31,8 @@ patterns (Part 3) are applied through the WinForms mapping below.
 - Files: `SpacePie.exe`, `SpacePie-macOS.dmg` with `SpacePie.app` (executable `SpacePie`); scan files `.spacepie`.
 - AppUserModelID: `sphrd.SpacePie`. macOS bundle id: `com.sphrd.SpacePie`. Scheduled task: `SpacePie (as administrator)`.
 - Data: `%LOCALAPPDATA%\SpacePie`, `~/Library/Application Support/SpacePie`.
-- **1.x compatibility (keep through 2.x):** releases also attach `DiskSpaceAnalyzer.exe` / `DiskSpaceAnalyzer-macOS.dmg`
-  (same files; 1.x updaters ask `sphrd/DiskSpaceAnalyzer`, which GitHub redirects, for those asset names); the data folder
-  `DiskSpaceAnalyzer` is moved on first start; the task `Disk Space Analyzer (as administrator)` is still run and is
-  replaced by the new one at the next elevated start; `.dsascan` files still open (same "DSASCAN1" format). Internal
-  names stay as they are: the history archive `.dsa`, the scan-file magic, self-test fixtures "DSA ...".
+- No compatibility with the 1.x names (there were no users): no old asset names, data folder, task or `.dsascan`.
+  Internal names stay as they are: the history archive `.dsa`, the scan-file magic "DSASCAN1", self-test fixtures "DSA ...".
 - Icon concept: **a pie chart shaped like Pac-Man facing left = disk usage analyzer that frees space.** No tile
   (transparent background) everywhere: exe/window/taskbar icon, README logo, social preview and the in-app logo.
   One circle split by colour, shading dark -> light from top left via the right half to bottom left: upper-left
@@ -362,10 +359,12 @@ patterns (Part 3) are applied through the WinForms mapping below.
   not indexed it (traffic: 9 views, github.com and qwant only), and "Disk Space Analyzer" is a generic term shared by 110
   repos and commercial tools. Names checked: DiskLens (Microsoft Store app + GitHub analyzer of that name), DiskPie (two
   GitHub disk visualizers) taken; SpacePie free in this field. Renamed to **SpacePie** in v2.0.0 (repo renamed on GitHub,
-  history, tags, releases and stars kept, old URLs redirect). Compatibility: see App identity. Checked: the move of the real
-  `%LOCALAPPDATA%\DiskSpaceAnalyzer` (8 files) on first start; the self-test opens a `.dsascan` copy; on the elevated CI
-  runner the self-test creates a task under the 1.x name and checks it is used and then replaced. Next: GitHub Pages site +
-  Google Search Console, profile README, winget, listings.
+  history, tags, releases and stars kept, old URLs redirect). v2.0.0 still carried 1.x compatibility (old asset names, data
+  folder move, old admin task, .dsascan) and "formerly" texts.
+- 2026-11-03: "why folder name here is still DiskSpaceAnalyzer? change that as well. why the chart is called Ring? it
+  should be called Pie, thats the name of the app. then continue with the release and the rest of the tasks for Google.
+  remove formerly and updating from, there ar eno users yet." -> local folder renamed to SpacePie; chart switch Pie /
+  Treemap; all 1.x compatibility and "formerly" texts removed (v2.0.1); GitHub Pages site with sitemap for Search Console.
 
 ## WinForms mapping of the design language
 
@@ -674,7 +673,8 @@ patterns (Part 3) are applied through the WinForms mapping below.
 - v1.9.1 (2026-11-02): scanning animation tuned by the owner: the trailing line in the logo's mouth is thicker (R/15),
   sits further inside the mouth (centre 0.8 R cos 30°, oval 0.09 R x 0.3 R) and loops once a second; the loop and the
   logo -> chart morph repaint every 10 ms.
-- v2.0.0 (2026-11-03): renamed to SpacePie (1.x updates, data, admin task and scan files carried over); treemap; search
+- v2.0.0 (2026-11-03): renamed to SpacePie; treemap; search
   everything scanned; scan history timeline and compare any two scans; save / open scan files; back/forward and path bar;
   last opened; what-it-is labels; unreadable folders banner; Recycle Bin limit and synced-folder warnings; leftover
   confidence tiers; preview and properties; PRIVACY.md / SECURITY.md; SHA-256 in the release notes; accuracy checks in CI.
+- v2.0.1 (2026-11-03): chart switch "Pie / Treemap" (was Ring); the old-name compatibility of 2.0.0 removed (no users yet).

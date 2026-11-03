@@ -17,8 +17,6 @@ namespace SpacePie
     internal static class Elevation
     {
         public const string DefaultTaskName = "SpacePie (as administrator)";
-        /// <summary>The task's name in versions 1.x (Disk Space Analyzer): still run, and replaced at the next elevated start.</summary>
-        const string LegacyTaskName = "Disk Space Analyzer (as administrator)";
         internal static string TaskName = DefaultTaskName;
 
         static string DataDir { get { return AppData.Dir; } }
@@ -33,12 +31,10 @@ namespace SpacePie
         /// <summary>The option is on (marker present); cheap, no process started.</summary>
         public static bool MarkedOn { get { return File.Exists(MarkerFile); } }
 
-        /// <summary>Name of the existing task (ours, else the 1.x one), with its definition; null when there is none.</summary>
+        /// <summary>Name of the existing task, with its definition; null when there is none.</summary>
         static string ExistingTask(out string xml)
         {
-            if (Schtasks("/query /tn \"" + TaskName + "\" /xml", out xml) == 0) return TaskName;
-            if (TaskName == DefaultTaskName && Schtasks("/query /tn \"" + LegacyTaskName + "\" /xml", out xml) == 0) return LegacyTaskName;
-            return null;
+            return Schtasks("/query /tn \"" + TaskName + "\" /xml", out xml) == 0 ? TaskName : null;
         }
 
         /// <summary>The exe the task starts, or null when there is no task.</summary>
@@ -75,21 +71,6 @@ namespace SpacePie
             return path != null && string.Equals(Path.GetFullPath(path), Path.GetFullPath(ExePath), StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>
-        /// Running elevated with the option on and the 1.x task still in place: replace it by one under the new name (no
-        /// prompt needed, the process is already elevated). Run in the background; failures leave the old task working.
-        /// </summary>
-        public static void MigrateLegacyTask()
-        {
-            try
-            {
-                if (!IsAdmin || !MarkedOn || TaskName != DefaultTaskName) return;
-                string xml, output;
-                if (Schtasks("/query /tn \"" + LegacyTaskName + "\" /xml", out xml) != 0 || !IsThisExe(ParseCommand(xml))) return;
-                if (Enable() == null) Schtasks("/delete /tn \"" + LegacyTaskName + "\" /f", out output);
-            }
-            catch (Exception) { }
-        }
 
         static string ExePath { get { return System.Windows.Forms.Application.ExecutablePath; } }
 
@@ -135,12 +116,7 @@ namespace SpacePie
             if (!IsAdmin) return "needs administrator rights";
             string output;
             int code = Schtasks("/delete /tn \"" + TaskName + "\" /f", out output);
-            if (TaskName == DefaultTaskName)
-            {
-                string legacy;
-                Schtasks("/delete /tn \"" + LegacyTaskName + "\" /f", out legacy);
-                try { File.Delete(MarkerFile); } catch (Exception) { }
-            }
+            if (TaskName == DefaultTaskName) try { File.Delete(MarkerFile); } catch (Exception) { }
             return code == 0 || TaskTarget() == null ? null : FirstLine(output);
         }
 

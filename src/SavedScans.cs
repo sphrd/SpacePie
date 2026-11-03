@@ -6,8 +6,7 @@ using System.Windows.Forms;
 namespace SpacePie
 {
     /// <summary>
-    /// Scan files: a whole scan (every folder and file with sizes and dates, compressed) saved as a .spacepie file (1.x:
-    /// .dsascan, still opened), to keep
+    /// Scan files: a whole scan (every folder and file with sizes and dates, compressed) saved as a .spacepie file, to keep
     /// it, compare later or send it to someone. Opened again it shows as a read-only entry in the tree, below the drives:
     /// every view works on it, but nothing is rescanned, watched or deleted.
     /// </summary>
@@ -31,8 +30,7 @@ namespace SpacePie
             using (var dlg = new OpenFileDialog
             {
                 Title = "Open a saved scan",
-                Filter = "SpacePie scan (*" + Snapshot.ScanFileExtension + ";*" + Snapshot.LegacyScanFileExtension + ")|*" +
-                         Snapshot.ScanFileExtension + ";*" + Snapshot.LegacyScanFileExtension,
+                Filter = "SpacePie scan (*" + Snapshot.ScanFileExtension + ")|*" + Snapshot.ScanFileExtension,
                 CheckFileExists = true
             })
             {
@@ -43,8 +41,7 @@ namespace SpacePie
 
         static bool IsScanFile(string path)
         {
-            return path != null && File.Exists(path) && (path.EndsWith(Snapshot.ScanFileExtension, StringComparison.OrdinalIgnoreCase) ||
-                                                         path.EndsWith(Snapshot.LegacyScanFileExtension, StringComparison.OrdinalIgnoreCase));
+            return path != null && path.EndsWith(Snapshot.ScanFileExtension, StringComparison.OrdinalIgnoreCase) && File.Exists(path);
         }
 
         async void OpenScanFile(string file)

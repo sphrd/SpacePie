@@ -22,8 +22,7 @@ downloaded.
 
 ## What it keeps on your computer
 
-Windows: `%LOCALAPPDATA%\SpacePie`. macOS: `~/Library/Application Support/SpacePie`. (Version 1.x, then called Disk
-Space Analyzer, used `DiskSpaceAnalyzer` folders; SpacePie moves them on its first start.)
+Windows: `%LOCALAPPDATA%\SpacePie`. macOS: `~/Library/Application Support/SpacePie`.
 
 | What | Why | How much |
 |---|---|---|
