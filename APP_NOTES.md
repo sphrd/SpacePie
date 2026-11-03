@@ -365,6 +365,13 @@ patterns (Part 3) are applied through the WinForms mapping below.
   should be called Pie, thats the name of the app. then continue with the release and the rest of the tasks for Google.
   remove formerly and updating from, there ar eno users yet." -> local folder renamed to SpacePie; chart switch Pie /
   Treemap; all 1.x compatibility and "formerly" texts removed (v2.0.1); GitHub Pages site with sitemap for Search Console.
+  Done: Pages from `main /docs` (https://sphrd.github.io/SpacePie/, sitemap.xml; a project site's robots.txt is ignored, so
+  none), repo homepage = the site, public profile repo `sphrd/sphrd` with a README linking SpacePie, winget PR
+  microsoft/winget-pkgs#469632 (portable, neutral, manifest 1.12.0; `winget validate` passed; local install test needs admin).
+  Owner to do: Search Console verification (HTML tag -> `docs/index.html` head), sitemap + Request indexing; profile
+  bio/website (needs `gh auth refresh -s user`); the CLA comment on the winget PR. Gotcha: VS Code (and its browser
+  preview of docs/index.html) keeps the project folder open, so the local folder can only be renamed from VS Code's own
+  Explorer or with VS Code closed.
 
 ## WinForms mapping of the design language
 
