@@ -485,6 +485,11 @@ patterns (Part 3) are applied through the WinForms mapping below.
     (owned by you), belongs to <owner>, needs Full Disk Access; sorted by reason.
   - Chart hover: the hovered slice / ring section and, recursively, its subfolders' sections in the outer rings grow 4 px
     and lighten (`ChartArc.parent`, `arcLit` / `ArcLit`), drawn last.
+  - "345 folders could not be read ... why is this still happening": with Full Disk Access these are folders System Integrity
+    Protection keeps from every process (even `stat` gives EPERM: /Library/Caches/com.apple.aned, /private/var/db/CoreDuet,
+    other accounts' /private/var/folders), not fixable by the app. Reasons: EPERM or owned by you -> "protected by macOS",
+    else "belongs to <owner>", or "needs Full Disk Access"; with access granted and nothing fixable the dialog is
+    information ("N folders are closed to every app ... Nothing needs fixing") and the banner says "closed by macOS".
 
 ## WinForms mapping of the design language
 

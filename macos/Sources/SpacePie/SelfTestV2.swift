@@ -220,7 +220,7 @@ extension SelfTestRun {
             w.deniedCache.removeAll()
             w.updateUnreadBanner(top)
             let msg = w.unreadBanner.message
-            let shown = !w.unreadBanner.isHidden && msg.hasPrefix("1 folder in this scan could not be read")
+            let shown = !w.unreadBanner.isHidden && (msg.hasPrefix("1 folder in this scan could not be read") || msg.hasPrefix("1 folder in this scan is closed by macOS"))
             // Closed with x: it stays hidden for this scan.
             w.current = top
             w.unreadBanner.close()
