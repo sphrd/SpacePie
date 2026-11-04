@@ -436,6 +436,13 @@ patterns (Part 3) are applied through the WinForms mapping below.
   - The self-test's history now stays next to its scratch folder (`History.folderOverride`); it used to write into the
     real app data. Screenshots: README/site Suggestions and Apps pictures were from v1.8.1 (tab strip, tree pane);
     replaced from the CI macOS run (clean runner, no owner data).
+  - Gotcha: the screenshot run closed the delete-errors prompt with `finish(0)`, which became **Delete as administrator...**;
+    `autoAccept` was never set in screenshot mode, so a password prompt was started and left behind when the run quit
+    (and blocked the next runs). Now the run presses the prompt's cancel button and `shotMode` blocks the prompt.
+  - Gotcha: the offscreen render (`cacheDisplay`) draws the path field's last text selection although the real window
+    does not; `ShotRun.save` makes the field non-selectable while capturing.
+  - Toolbar action row: its buttons flow onto another row when they do not fit (seen in the CI's 150 % Windows shot:
+    Delete permanently was outside the window); the zoom self-tests also check that no button leaves the window.
 
 ## WinForms mapping of the design language
 

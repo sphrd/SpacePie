@@ -277,7 +277,7 @@ extension MainWindowController {
     /// the result (nil when there was nothing to do, or in the self-test and screenshot runs, which never prompt).
     func removeAsAdmin(_ paths: [String], trash: Bool, what: String, _ then: @escaping (AdminRemove.Result?) -> Void) {
         let todo = paths.filter { PathUtil.exists($0) }
-        if todo.isEmpty || selfTestDir != nil || autoAccept { then(nil); return }
+        if todo.isEmpty || selfTestDir != nil || autoAccept || shotMode { then(nil); return }
         let n = todo.count
         statusLabel.stringValue = "Asking for an administrator password to \(trash ? "move" : "delete") \(Fmt.count(n)) item\(n == 1 ? "" : "s")..."
         let reason = "SpacePie needs an administrator password to \(trash ? "move \(what) to the Trash" : "delete \(what)")."

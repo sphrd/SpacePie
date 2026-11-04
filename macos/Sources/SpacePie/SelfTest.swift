@@ -717,7 +717,12 @@ final class ShotRun {
     func save(_ view: NSView, _ name: String) {
         let path = dir + "/" + name + ".png"
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
+        // The offscreen render draws the path field's last selection (the real window does not): not while capturing.
+        let field = app.main?.pathField
+        let selectable = field?.isSelectable ?? true
+        field?.isSelectable = false
         view.cacheDisplay(in: view.bounds, to: rep)
+        field?.isSelectable = selectable
         try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
         print("saved \(path)")
     }
@@ -770,7 +775,7 @@ final class ShotRun {
         let suggestIndex = w.pages.firstIndex { $0 === w.pSuggest } ?? 1
         steps.waitUntil(90) { w.suggestions != nil && !w.suggestFinding }
         // The pictures show the lists, not the path field's text selected.
-        steps.then { w.window?.makeFirstResponder(w.contents) }
+        steps.then { w.clearPathSelection() }
         steps.then { w.pageIndex = suggestIndex }
         steps.wait(1.5)
         steps.then { self.shot("0-suggestions-start") }
@@ -1055,7 +1060,7 @@ final class ShotRun {
             if let d = PromptDialog.open.last, let v = d.window?.contentView {
                 self.save(v, "delete-errors")
                 print("delete-errors: \"\(d.heading)\" \(d.detailLines.count) lines")
-                d.finish(0)
+                d.finish(d.cancelIndex)   // Close (never "Delete as administrator...")
             } else { print("delete-errors: no prompt shown") }
             for s in ["logs", "data"] { chmod(demo + "/locked/" + s, 0o755) }
             try? FileManager.default.removeItem(atPath: demo)

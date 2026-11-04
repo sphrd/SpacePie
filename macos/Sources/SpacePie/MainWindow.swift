@@ -196,6 +196,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     var appsReadMs = 0, appsAfterScanMs = 0   // the last reading: bundles and icons; sizes after the scan
     var appsWorking = false               // looking for an app's files before uninstalling it
     var autoAccept = false                // screenshot run: no confirmations
+    var shotMode = false                  // --cli screenshot: never asks for an administrator password
     // System view
     lazy var btnSysRefresh = RoundButton(refresh: { [unowned self] in self.loadSystem() })
     lazy var btnSysSuggest = RoundButton("Show suggestions", .secondary) { [unowned self] in self.showSuggestionsTab() }
@@ -436,6 +437,14 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         updateLiveLabel()
     }
 
+    /// The path field without a selected text and without the focus (the lists have it): a field keeps showing its
+    /// last selection after editing ends.
+    func clearPathSelection() {
+        if window?.firstResponder !== pathField.currentEditor() { window?.makeFirstResponder(pathField) }
+        pathField.currentEditor()?.selectedRange = NSRange(location: 0, length: 0)
+        window?.makeFirstResponder(contents)
+    }
+
     /// The Full Disk Access button is only shown while access is missing (scans check it themselves each time).
     @objc func updateAccessButton() {
         let granted = FullDiskAccess.granted
@@ -655,8 +664,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             alert("Folder not found", path); return
         }
         pathField.stringValue = path
-        pathField.currentEditor()?.selectedRange = NSRange(location: path.count, length: 0)
-        window?.makeFirstResponder(contents)
+        clearPathSelection()
         var r = findRoot(path)
         if r == nil { let n = ScanRoot(path: path); refreshCapacity(n); roots.append(n); sortRoots(); r = n }
         let target = r!

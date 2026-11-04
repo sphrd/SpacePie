@@ -63,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         splash?.step("Building the main window")
         main = MainWindowController()
         main.selfTestDir = selfTestDir
+        main.shotMode = screenshotDir != nil
         // Normal start: the last scan shows at once and is brought up to date (not in the --cli modes).
         main.fastStart = screenshotDir == nil && selfTestDir == nil
         splash?.step("Opening the window")
