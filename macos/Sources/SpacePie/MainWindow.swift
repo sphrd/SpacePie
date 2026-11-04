@@ -244,6 +244,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     var unreadAccess: RoundButton?
     /// Scanned trees whose unreadable-folders banner was closed (shown again after the next scan: a new tree).
     var unreadClosed: [DirNode] = []
+    var unreadCanGrant: Bool?             // self-test: whether giving access would open the folders (nil = ask the system)
     var deniedCache: [ObjectIdentifier: (top: DirNode, list: [DirNode])] = [:]
     var mouseMonitor: Any?
     // Changes: compare any two scans (History.swift)

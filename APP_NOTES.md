@@ -490,6 +490,9 @@ patterns (Part 3) are applied through the WinForms mapping below.
     other accounts' /private/var/folders), not fixable by the app. Reasons: EPERM or owned by you -> "protected by macOS",
     else "belongs to <owner>", or "needs Full Disk Access"; with access granted and nothing fixable the dialog is
     information ("N folders are closed to every app ... Nothing needs fixing") and the banner says "closed by macOS".
+    Then: "so there should be no dialog even in that case" -> no banner and no dialog at all unless giving access would open
+    folders (`unreadFixable`: no Full Disk Access / Windows `UnreadFixable`: not administrator); self-test hooks
+    `unreadCanGrant` / `UnreadCanElevate`.
 
 ## WinForms mapping of the design language
 

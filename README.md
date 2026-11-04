@@ -69,7 +69,10 @@ little and lights up together with all its subfolders in the outer rings)
   where to clean them up properly; hover for the full explanation.
 - **Nothing hidden:** when folders could not be read (no permission), a slim
   line above the list says how many (and lists them), instead of quietly leaving
-  them out of the totals, and offers to run as administrator. Close it with ×.
+  them out of the totals, and offers to run as administrator (macOS: Full Disk
+  Access). Close it with ×. Once the app has that access, folders the system
+  closes to every app (protected system folders, other accounts) are not
+  mentioned: there is nothing to do about them.
 
 - **Contents:** the open folder's subfolders and files with size, share of the
   parent, change since the last scan, counts and dates, as a tree-list: click the

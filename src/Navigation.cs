@@ -157,19 +157,28 @@ namespace SpacePie
             var denied = DeniedUnder(d.Top);
             var here = denied.Where(n => n.IsUnder(d)).ToList();
             if (here.Count == 0 || (r != null && r.ReadOnly) || unreadClosed.Contains(d.Top)) { unreadBanner.Message = null; return; }
-            unreadAdmin.Visible = !isAdmin;
-            unreadBanner.Message = string.Format("{0:N0} folder{1} {2} could not be read (access denied); {3} size{4} {5} not in these totals.{6}",
+            // As administrator the folders still closed are closed to every program (SYSTEM-only, other accounts): nothing
+            // the user can do, so nothing is shown.
+            if (!UnreadFixable) { unreadBanner.Message = null; return; }
+            unreadAdmin.Visible = true;
+            unreadBanner.Message = string.Format("{0:N0} folder{1} {2} could not be read (access denied); {3} size{4} {5} not in these totals. Run as administrator to read them.",
                 here.Count, here.Count == 1 ? "" : "s", d.Parent == null ? "in this scan" : "in here", here.Count == 1 ? "its" : "their",
-                here.Count == 1 ? "" : "s", here.Count == 1 ? "is" : "are", isAdmin ? "" : " Run as administrator to read them.");
+                here.Count == 1 ? "" : "s", here.Count == 1 ? "is" : "are");
             unreadBanner.PerformLayout();
         }
+
+        /// <summary>Self-test: whether running as administrator would open the folders (null = ask the system).</summary>
+        internal bool? UnreadCanElevate;
+
+        /// <summary>Running as administrator would open (most of) the folders that could not be read.</summary>
+        bool UnreadFixable { get { return UnreadCanElevate ?? !isAdmin; } }
 
         void ShowUnreadable()
         {
             var d = current;
             if (d == null || !IsAttached(d)) return;
             var here = DeniedUnder(d.Top).Where(n => n.IsUnder(d)).ToList();
-            if (here.Count == 0) return;
+            if (here.Count == 0 || !UnreadFixable) return;
             var lines = here.Take(2000).Select(n => n.FullPath + "\taccess denied").ToList();
             if (here.Count > lines.Count) lines.Add(string.Format("... and {0:N0} more", here.Count - lines.Count));
             Alert(AlertIcon.Warn, string.Format("{0:N0} folder{1} could not be read", here.Count, here.Count == 1 ? "" : "s"),

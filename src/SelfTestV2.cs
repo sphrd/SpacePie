@@ -170,12 +170,18 @@ namespace SpacePie
                 var fake = new DirNode { Name = "locked", Parent = top, Denied = true };
                 top.Children.Add(fake);
                 deniedCache.Clear();
+                // Shown only while running as administrator would open it; as administrator nothing is shown.
+                UnreadCanElevate = false;
                 UpdateUnreadBanner(top);
-                bool shown = unreadBanner.Visible && unreadBanner.Message.StartsWith("1 folder");
+                bool quiet = !unreadBanner.Visible;
+                UnreadCanElevate = true;
+                UpdateUnreadBanner(top);
+                bool shown = quiet && unreadBanner.Visible && unreadBanner.Message.StartsWith("1 folder");
                 top.Children.Remove(fake);
                 deniedCache.Clear();
                 UpdateUnreadBanner(top);
-                check(shown && !unreadBanner.Visible, "unreadable: the banner counts folders that could not be read, and hides when there are none");
+                UnreadCanElevate = null;
+                check(shown && !unreadBanner.Visible, "unreadable: the banner counts folders that could not be read, only when running as administrator would open them, and hides when there are none");
             }
 
             // Recycle Bin limits and synced folders are known before deleting.

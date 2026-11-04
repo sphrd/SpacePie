@@ -163,18 +163,20 @@ extension MainWindowController {
         if unreadClosed.contains(where: { $0 === d.top }) { unreadBanner.message = ""; return }
         let here = deniedUnder(d.top).filter { $0.isUnder(d) }
         if here.isEmpty { unreadBanner.message = ""; return }
+        // With Full Disk Access the folders still closed are closed to every app (System Integrity Protection, other
+        // accounts): nothing the user can do, so nothing is shown (owner: "there should be no dialog even in that case").
+        if !unreadFixable(here) { unreadBanner.message = ""; return }
         let one = here.count == 1
-        let granted = FullDiskAccess.granted
-        unreadAccess?.isHidden = granted
+        unreadAccess?.isHidden = false
         unreadBanner.needsLayout = true
-        let whereText = d.parent == nil ? "in this scan" : "in here"
-        let sizes = "\(one ? "its" : "their") size\(one ? "" : "s") \(one ? "is" : "are") not in these totals."
-        if granted && !here.contains(where: { !$0.denied }) {
-            unreadBanner.message = "\(Fmt.count(here.count)) folder\(one ? "" : "s") \(whereText) \(one ? "is" : "are") closed by macOS to every app (protected system folders, other accounts); " + sizes
-        } else {
-            unreadBanner.message = "\(Fmt.count(here.count)) folder\(one ? "" : "s") \(whereText) could not be read (access denied); " + sizes
-                + (granted ? "" : " Give the app Full Disk Access to read them.")
-        }
+        unreadBanner.message = "\(Fmt.count(here.count)) folder\(one ? "" : "s") \(d.parent == nil ? "in this scan" : "in here") could not be read (access denied); "
+            + "\(one ? "its" : "their") size\(one ? "" : "s") \(one ? "is" : "are") not in these totals. Give the app Full Disk Access to read them."
+    }
+
+    /// Giving the app Full Disk Access would open (most of) these folders.
+    func unreadFixable(_ here: [DirNode]) -> Bool {
+        if let f = unreadCanGrant { return f }
+        return !FullDiskAccess.granted || here.contains { !$0.denied }
     }
 
     static let sipReason = "protected by macOS"
@@ -182,7 +184,7 @@ extension MainWindowController {
     func showUnreadable() {
         guard let d = current, isAttached(d) else { return }
         let here = deniedUnder(d.top).filter { $0.isUnder(d) }
-        if here.isEmpty { return }
+        if here.isEmpty || !unreadFixable(here) { return }
         // Why each one stays closed, grouped by that reason: protected by macOS (System Integrity Protection: even
         // looking at the folder is refused, or it is yours and still closed, e.g. app containers), belonging to another
         // account (root, a service, another user), or needing Full Disk Access.
@@ -204,25 +206,11 @@ extension MainWindowController {
         }
         var lines: [String] = listed.map { $0.path + "   " + $0.why }
         if here.count > lines.count { lines.append("... and \(Fmt.count(here.count - lines.count)) more") }
-        let granted = FullDiskAccess.granted
-        let fixable = listed.contains { $0.why == "needs Full Disk Access" }
-        let one = here.count == 1
-        let d2: PromptDialog
-        if granted && !fixable {
-            // Nothing the user can do: say so plainly instead of warning.
-            d2 = PromptDialog(icon: .info, heading: "\(Fmt.count(here.count)) folder\(one ? " is" : "s are") closed to every app",
-                              text: "macOS keeps \(one ? "it" : "them") closed to all apps, even with Full Disk Access and as administrator: "
-                                  + "System Integrity Protection guards macOS's own databases and caches, and other accounts' folders are private. "
-                                  + "What is inside is not counted; it is usually small.",
-                              warning: "Nothing needs fixing: this is how macOS keeps \(one ? "it" : "them") safe.",
-                              details: lines, buttons: [("OK", .primary)], defaultIndex: 0, cancelIndex: 0)
-        } else {
-            d2 = PromptDialog(icon: .warn, heading: "\(Fmt.count(here.count)) folder\(one ? "" : "s") could not be read",
+        let d2 = PromptDialog(icon: .warn, heading: "\(Fmt.count(here.count)) folder\(here.count == 1 ? "" : "s") could not be read",
                               text: "macOS refused access, so what is inside them is not counted. Some belong to macOS or to other users.",
-                              warning: granted ? "Some folders stay closed even with Full Disk Access (other users' folders, folders macOS protects)."
-                                  : "Give the app Full Disk Access (button in the toolbar, or here) to read most of them, then scan again.",
+                              warning: "Give the app Full Disk Access (button in the toolbar, or here) to read most of them, then scan again. "
+                                  + "Folders protected by macOS stay closed to every app.",
                               details: lines, buttons: [("OK", .primary)], defaultIndex: 0, cancelIndex: 0)
-        }
         d2.show(over: window) { _ in }
     }
 }

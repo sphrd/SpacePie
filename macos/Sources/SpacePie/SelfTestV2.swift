@@ -218,9 +218,14 @@ extension SelfTestRun {
             fake.denied = true
             top.children.append(fake)
             w.deniedCache.removeAll()
+            // Shown only while giving access would open it; with access every folder still closed is closed to all apps.
+            w.unreadCanGrant = false
+            w.updateUnreadBanner(top)
+            let quietWhenUnfixable = w.unreadBanner.isHidden
+            w.unreadCanGrant = true
             w.updateUnreadBanner(top)
             let msg = w.unreadBanner.message
-            let shown = !w.unreadBanner.isHidden && (msg.hasPrefix("1 folder in this scan could not be read") || msg.hasPrefix("1 folder in this scan is closed by macOS"))
+            let shown = quietWhenUnfixable && !w.unreadBanner.isHidden && msg.hasPrefix("1 folder in this scan could not be read")
             // Closed with x: it stays hidden for this scan.
             w.current = top
             w.unreadBanner.close()
@@ -231,6 +236,7 @@ extension SelfTestRun {
             fake.parent = nil
             w.deniedCache.removeAll()
             w.updateUnreadBanner(top)
+            w.unreadCanGrant = nil
             self.check(shown && staysClosed && w.unreadBanner.isHidden,
                        "unreadable: the banner counts folders that could not be read (\"\(msg)\"), stays closed after x (\(staysClosed)), and hides when there are none")
         }
