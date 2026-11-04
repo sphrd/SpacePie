@@ -68,7 +68,8 @@ jobs:
 
       - name: Accuracy against robocopy (lists without copying, skips junctions and links)
         shell: pwsh
-        timeout-minutes: 10
+        # A fresh runner's disk is cold: the same two scans took 3 to 9 minutes, plus robocopy's own walk.
+        timeout-minutes: 25
         run: |
           # Folders without SYSTEM-only subfolders: robocopy on the elevated runner lists some that stay closed to the app
           # (the app shows those as "access denied" and leaves them out), which would make System32 differ.
