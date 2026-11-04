@@ -75,6 +75,23 @@ extension SelfTestRun {
             self.check(ok && w.zoom == before, "zoom: 150 %, 200 % and 75 % scale the window's content, toolbar buttons never overlap or leave the window" + detail)
         }
 
+        // Drive progress: size on disk against the used space (a 1 GB sparse file adds 1 GB of length, nearly nothing on
+        // disk); past 99 % it says it is finishing instead of "X of Y" with X larger than Y.
+        steps.then {
+            let base = self.P("progress-test")
+            try? fm.createDirectory(atPath: base, withIntermediateDirectories: true)
+            fm.createFile(atPath: base + "/sparse.img", contents: nil)
+            if let h = FileHandle(forWritingAtPath: base + "/sparse.img") { h.truncateFile(atOffset: 1 << 30); h.closeFile() }
+            let s = Scanner()
+            _ = s.run(base)
+            let over = MainWindowController.driveProgress("/", found: 120 << 30, used: 100 << 30)
+            let mid = MainWindowController.driveProgress("/", found: 50 << 30, used: 100 << 30)
+            self.check(s.bytesSeen >= 1 << 30 && s.allocSeen < 1 << 20 && over.fraction == 0.99 && !over.text.contains(" of ")
+                       && over.text.contains("finishing") && abs(mid.fraction - 0.5) < 0.001 && mid.text.contains("50 %"),
+                       "scan progress: size on disk (sparse 1 GB: \(Fmt.size(s.allocSeen)) on disk), never \"X of Y\" past the total")
+            try? fm.removeItem(atPath: base)
+        }
+
         // Treemap: rectangles fill the area in true proportion; the folder contents are drawn as rectangles.
         steps.then {
             let sizes: [Double] = [50, 25, 12.5, 6.25, 6.25]

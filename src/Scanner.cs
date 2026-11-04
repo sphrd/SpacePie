@@ -16,6 +16,8 @@ namespace SpacePie
     internal sealed unsafe class Scanner
     {
         public long FilesSeen, DirsSeen, BytesSeen;
+        /// <summary>Size on disk found so far: what a drive's used space measures (the progress of a whole-drive scan).</summary>
+        public long AllocSeen;
         public volatile string Current = "";
         public string RootPath;
         /// <summary>How the last scan was done, for the status line.</summary>
@@ -88,6 +90,7 @@ namespace SpacePie
                 foreach (var f in files) { b += f.Bytes; a += f.Alloc; }
                 node.LocalBytes = b; node.LocalAlloc = a; node.LocalFiles = files.Length;
                 Interlocked.Add(ref BytesSeen, b);
+                Interlocked.Add(ref AllocSeen, a);
                 Interlocked.Add(ref FilesSeen, files.Length);
             }
             Interlocked.Increment(ref DirsSeen);

@@ -26,7 +26,7 @@ func mountPoints() -> Set<String> {
 /// the folders macOS protects with a prompt are not entered either (FullDiskAccess.blocked), unless the scan starts there.
 final class Scanner {
     private let lock = NSCondition()
-    private var _files: Int64 = 0, _dirs: Int64 = 0, _bytes: Int64 = 0
+    private var _files: Int64 = 0, _dirs: Int64 = 0, _bytes: Int64 = 0, _alloc: Int64 = 0
     private var _current = ""
     private var _cancelled = false
     private var stack: [DirNode] = []
@@ -42,6 +42,8 @@ final class Scanner {
     var filesSeen: Int64 { lock.lock(); defer { lock.unlock() }; return _files }
     var dirsSeen: Int64 { lock.lock(); defer { lock.unlock() }; return _dirs }
     var bytesSeen: Int64 { lock.lock(); defer { lock.unlock() }; return _bytes }
+    /// Size on disk found so far: what a drive's used space measures (the progress of a whole-drive scan).
+    var allocSeen: Int64 { lock.lock(); defer { lock.unlock() }; return _alloc }
     var current: String { lock.lock(); defer { lock.unlock() }; return _current }
     var cancelled: Bool { lock.lock(); defer { lock.unlock() }; return _cancelled }
 
@@ -116,7 +118,7 @@ final class Scanner {
         node.children = subs
 
         lock.lock()
-        _bytes += node.localBytes; _files += node.localFiles; _dirs += 1
+        _bytes += node.localBytes; _alloc += node.localAlloc; _files += node.localFiles; _dirs += 1
         if toScan > 0 && !_cancelled {
             node.pending = toScan
             stack.append(contentsOf: subs.filter { $0.skipped == .no })

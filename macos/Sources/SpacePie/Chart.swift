@@ -243,9 +243,9 @@ final class PieChart: NSView {
         PieChart.band(NSPoint(x: pieRect.midX, y: pieRect.midY), r0, r1, start, sweep).fill()
     }
 
-    /// The brand logo with its soft accent glow (fades with the logo during the morph).
+    /// The logo on the chart's circle, without a glow (owner: the halo around it looked bad); fades during the morph.
     private func drawBrandLogo(_ r: NSRect, alpha: CGFloat) {
-        Theme.drawLogoGlow(in: r, alpha: alpha, glowAlpha: 0.13, glowFactor: 0.62)
+        Theme.drawLogo(in: r, alpha: alpha)
     }
 
     private func drawMorph() {

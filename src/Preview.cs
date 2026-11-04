@@ -189,7 +189,7 @@ namespace SpacePie
         protected override void DrawIcon(Graphics g, Rectangle r)
         {
             Theme.FillRound(g, picBox, Theme.S(12), Theme.SURFACE, Theme.BORDER);
-            if (picture == null) { Theme.DrawLogoGlow(g, Rectangle.Inflate(picBox, -Theme.S(64), -Theme.S(64)), 1f, 30, 0.6f); return; }
+            if (picture == null) { Theme.DrawLogo(g, Rectangle.Inflate(picBox, -Theme.S(64), -Theme.S(64)), 1f); return; }
             float k = Math.Min((picBox.Width - Theme.S(16)) / (float)picture.Width, (picBox.Height - Theme.S(16)) / (float)picture.Height);
             k = Math.Min(k, picture.Width < 96 ? 2f : 1f);
             int w = (int)(picture.Width * k), h = (int)(picture.Height * k);

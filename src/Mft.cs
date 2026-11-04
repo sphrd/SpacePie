@@ -274,7 +274,7 @@ namespace SpacePie
                                 long onDisk = (af & 0x8001) != 0 && len >= 72 ? *(long*)(a + 64) : allocSize;
                                 // NTFS's own files (records 0-15) have special named streams, e.g. $BadClus:$Bad spans the
                                 // whole volume; only their main stream is counted.
-                                if (unnamed || target >= 16) alloc[target] += onDisk;
+                                if (unnamed || target >= 16) { alloc[target] += onDisk; progress.AllocSeen += onDisk; }
                                 if (unnamed) { bytes[target] = dataSize; progress.BytesSeen += dataSize; }
                             }
                             break;

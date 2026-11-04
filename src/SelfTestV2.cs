@@ -50,6 +50,18 @@ namespace SpacePie
                 check(ok && Math.Abs(Theme.Zoom - before) < 0.001f, "zoom: 150 %, 200 % and 75 % resize fonts and layout, toolbar buttons never overlap or leave the window" + detail);
             }
 
+            // Drive progress: size on disk found so far (file lengths ran ahead of the used space: online-only files, sparse
+            // and compressed files), and past 99 % it says it is finishing, never "X of Y" with X larger than Y.
+            {
+                var progScan = new Scanner();
+                var progRoot = progScan.Run(dir);
+                double progFo, progFm;
+                string progOver = DriveProgress("C:\\", 120L << 30, 100L << 30, out progFo), progMid = DriveProgress("C:\\", 50L << 30, 100L << 30, out progFm);
+                check(System.Threading.Interlocked.Read(ref progScan.AllocSeen) == progRoot.Alloc && progFo == 0.99 && !progOver.Contains(" of ") && progOver.Contains("finishing")
+                      && Math.Abs(progFm - 0.5) < 0.001 && progMid.Contains("50 %"),
+                      string.Format("scan progress: size on disk ({0} found = {1} scanned), never \"X of Y\" past the total", progScan.AllocSeen, progRoot.Alloc));
+            }
+
             // Search in everything scanned: files and folders by name, across every scanned root.
             {
                 var flt = new FileFilter { Patterns = new[] { "node_modules" } };

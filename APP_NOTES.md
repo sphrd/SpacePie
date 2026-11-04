@@ -443,6 +443,22 @@ patterns (Part 3) are applied through the WinForms mapping below.
     does not; `ShotRun.save` makes the field non-selectable while capturing.
   - Toolbar action row: its buttons flow onto another row when they do not fit (seen in the CI's 150 % Windows shot:
     Delete permanently was outside the window); the zoom self-tests also check that no button leaves the window.
+- 2026-11-04: "the background glow of the logo is still there, the halo (its not a glow even cause it has sharp edges) circle
+  around the logo ... both for windows and macos, the scan takes a long time at 99% and the size of the scanned items goes
+  past the total written in the status. why? ... in the suggestions tab, the list keeeps jumping cause i think the app is
+  constantly rechecking"
+  - Halo: macOS `drawGlow` used `NSGradient.draw(in: ovalPath, relativeCenterPosition: .zero)`, which spreads the gradient
+    to the bounding square's corners: ~30 % strength at the circle's edge, cut by the clip = a hard-edged disc. Fixed to
+    `draw(fromCenter:radius:toCenter:radius:)`, and the logo is now drawn without any glow everywhere in the app (chart
+    placeholder, About, prompts, title bar, preview, splash) on both platforms. README/social images keep theirs.
+  - 99 %: the progress added file lengths and compared them with the drive's used space (allocated). Lengths run ahead
+    (iCloud/OneDrive files not downloaded, sparse VM/Docker disks, compressed files; macOS "used" also left out purgeable
+    space), so the bar hit the 99 % cap early and the "X of Y" passed Y. Now size on disk found (`allocSeen` /
+    `AllocSeen`, also in the MFT reader) against the used space (macOS: total - volumeAvailableCapacity); from 99 % on
+    "..., finishing the last folders...". Measured here: lengths 417 GB vs 388 GB on disk for the same scan.
+  - Suggestions jumping: macOS looked again at every live refresh (~4 s; the caches it lists change all the time; Windows
+    had a 20 s limit) and both re-sorted by size, Windows also emptied the list while looking. Now at most every 20 s,
+    not while the pointer is over the list / rows are selected (retried on the next live tick), rows keep their places.
 
 ## WinForms mapping of the design language
 

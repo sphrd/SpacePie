@@ -971,14 +971,27 @@ namespace SpacePie
                     scanBar.SetProgress("Cancelling... (finishing current folder)", detail, -1);
                 else if (used > 0)
                 {
-                    double frac = Math.Min(0.99, (double)bytes / used);
-                    scanBar.SetProgress(string.Format("Scanning {0}: {1} of {2} done ({3:0} %)", where, Fmt.Size(bytes), Fmt.Size(used), frac * 100),
-                        detail, frac);
+                    // Size on disk against the drive's used space (both count allocated clusters); file lengths would run
+                    // ahead (online-only cloud files, sparse and compressed files). Past 99 % it says it is finishing,
+                    // never "X of Y" with X larger than Y.
+                    double frac;
+                    string text = DriveProgress(where, Interlocked.Read(ref s.AllocSeen), used, out frac);
+                    scanBar.SetProgress(text, detail, frac);
                 }
                 else
                     scanBar.SetProgress(string.Format("Scanning {0}: {1} so far", Fmt.Shorten(s.RootPath ?? where, 60), Fmt.Size(bytes)), detail, -1);
             }
             if (j != null && deleteBar.Visible) UpdateDeleteProgress(j);
+        }
+
+        /// <summary>The status of a whole-drive scan: size on disk found so far of the used space; from 99 % on it says it
+        /// is finishing (hard links, compression and system files make the two differ a little).</summary>
+        internal static string DriveProgress(string root, long found, long used, out double fraction)
+        {
+            double f = (double)found / Math.Max(1L, used);
+            if (f >= 0.99) { fraction = 0.99; return string.Format("Scanning {0}: {1} found, finishing the last folders...", root, Fmt.Size(found)); }
+            fraction = f;
+            return string.Format("Scanning {0}: {1} of {2} done ({3:0} %)", root, Fmt.Size(found), Fmt.Size(used), f * 100);
         }
 
         void UpdateDriveLabel()

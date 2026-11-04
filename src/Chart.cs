@@ -268,7 +268,8 @@ namespace SpacePie
         static Color Fade(Color c, float a) { return Color.FromArgb((int)Math.Round(255 * Math.Max(0, Math.Min(1, a))), c); }
 
         // The brand logo with its glow (fades with the logo during the morph).
-        void DrawLogo(Graphics g, Rectangle circle, float alpha) { Theme.DrawLogoGlow(g, circle, alpha, 34, 0.62f); }
+        // The logo on the chart's circle, without a glow (owner: the halo around it looked bad).
+        void DrawLogo(Graphics g, Rectangle circle, float alpha) { Theme.DrawLogo(g, circle, alpha); }
 
         void DrawLogoNote(Graphics g)
         {

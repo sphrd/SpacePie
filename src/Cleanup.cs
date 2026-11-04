@@ -92,9 +92,13 @@ namespace SpacePie
                     foreach (var tg in s.Targets) ticks[tg.RecycleBin ? "<bin>" : tg.Path] = tg.Checked;
                 }
             int gen = ++suggestGen;
-            p.Caption.Text = "Looking for space that can be freed...";
-            if (sugHeadline != null && suggestions == null) sugHeadline.Text = "Looking...";
-            SetRows(p.List, new List<ListViewItem>(), "Looking for space that can be freed...");
+            // The first time the list says it is looking; later the rows stay while it looks again (no jumping).
+            if (suggestions == null)
+            {
+                p.Caption.Text = "Looking for space that can be freed...";
+                if (sugHeadline != null) sugHeadline.Text = "Looking...";
+                SetRows(p.List, new List<ListViewItem>(), "Looking for space that can be freed...");
+            }
             UpdateSuggestionButtons();
             var scanned = roots.Where(r => r.Node != null && !r.ReadOnly).Select(r => r.Node).ToList();
             List<Suggestion> found = null;
@@ -102,7 +106,8 @@ namespace SpacePie
                 .ContinueWith(t =>
                 {
                     if (gen != suggestGen || IsDisposed) return;
-                    suggestions = t.IsFaulted ? new List<Suggestion>() : found;
+                    var before = suggestions;
+                    suggestions = StableOrder(t.IsFaulted ? new List<Suggestion>() : found, before);
                     // Safe suggestions start ticked, "review first" ones unticked; earlier choices are kept.
                     foreach (var s in suggestions)
                     {
@@ -129,7 +134,7 @@ namespace SpacePie
             var lv = p.List;
             string top = lv.TopItem != null ? ((ItemInfo)lv.TopItem.Tag).Name : null;
             var rows = new List<ListViewItem>();
-            foreach (var s in suggestions.Where(x => x.Size > 0).OrderByDescending(x => x.Size))
+            foreach (var s in suggestions.Where(x => x.Size > 0))
             {
                 var head = new ItemInfo
                 {
@@ -168,6 +173,35 @@ namespace SpacePie
             p.ChartTotal = 0;
             UpdateSuggestionButtons();
             if (ActivePage == p) RefreshChart();
+        }
+
+        /// <summary>Found again: the suggestions keep the places they had (only their sizes change), new ones follow,
+        /// largest first; the first time, largest first.</summary>
+        static List<Suggestion> StableOrder(List<Suggestion> found, List<Suggestion> old)
+        {
+            var bySize = found.OrderByDescending(x => x.Size).ToList();
+            if (old == null || old.Count == 0) return bySize;
+            var place = new Dictionary<string, int>();
+            for (int i = 0; i < old.Count; i++) place[old[i].Name] = i;
+            var kept = found.Where(x => place.ContainsKey(x.Name)).OrderBy(x => place[x.Name]).ToList();
+            kept.AddRange(bySize.Where(x => !place.ContainsKey(x.Name)));
+            return kept;
+        }
+
+        /// <summary>Caches and temporary folders (suggestions themselves) change all the time: an open Suggestions view
+        /// looks again at most every 20 s, and not while the user works in the list (pointer over it, rows selected, a
+        /// mouse button held). Called on every live-update tick, so a skipped refresh happens as soon as it is due.</summary>
+        void RefreshSuggestionsIfDue()
+        {
+            if (ActivePage != pSuggest || !suggestionsDirty || busy || scanning || (DateTime.UtcNow - lastSuggestFind).TotalSeconds < 20) return;
+            if (SelfTestDir == null)
+            {
+                var lv = pSuggest.List;
+                if (lv.SelectedIndices.Count > 0 || Control.MouseButtons != MouseButtons.None) return;
+                if (lv.Visible && lv.ClientRectangle.Contains(lv.PointToClient(Cursor.Position))) return;
+            }
+            pSuggest.Stale = false;
+            FillSuggestions();
         }
 
         List<DeleteTarget> CheckedSuggestionTargets()

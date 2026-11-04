@@ -77,6 +77,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     var rowSlice: [Int: Int] = [:]
     var scanner: Scanner?
     var scanRoot: ScanRoot?
+    var scanUsed: Int64 = 0                // the scanned drive's used space (progress), read once per scan
     var deleteJob: DeleteJob?
     var deleteFinished = Set<String>()     // targets of the running delete that are done
     var deleteTargetPaths: [String] = []   // the running delete's targets
@@ -182,6 +183,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     var suggestions: [Suggestion]?
     var suggestDirty = false          // the scanned data changed since the suggestions were found: find them again
     var suggestFinding = false
+    var lastSuggestFind = Date.distantPast   // live changes look again at most every 20 s
     // Apps view (uninstaller)
     lazy var btnAppsRefresh = RoundButton(refresh: { [unowned self] in self.loadApps() })
     let appSearch = SearchBox("Search apps")
@@ -670,7 +672,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         let target = r!
         if let rep = target.replay { rep.timer?.invalidate(); target.replay = nil }
         let s = Scanner()
-        scanner = s; scanRoot = target
+        scanner = s; scanRoot = target; scanUsed = 0
         target.scanning = true
         let oldNode = target.node
         setScanning(true, "Scanning " + target.path + "...")
@@ -791,15 +793,32 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     }
     private func stopProgressTimer() { progressTimer?.invalidate(); progressTimer = nil }
 
+    /// The progress of a whole-drive scan: size on disk found so far against the drive's used space (both count
+    /// allocated blocks; file lengths would run ahead: cloud files not downloaded, sparse and compressed files). Past
+    /// 99 % (clones, snapshots and other volumes make the two differ a little) it says it is finishing, never "X of Y"
+    /// with X larger than Y.
+    static func driveProgress(_ root: String, found: Int64, used: Int64) -> (text: String, fraction: Double) {
+        let f = Double(found) / Double(max(1, used))
+        if f >= 0.99 { return ("Scanning \(root): \(Fmt.size(found)) found, finishing the last folders...", 0.99) }
+        return ("Scanning \(root): \(Fmt.size(found)) of \(Fmt.size(used)) done (\(Int(f * 100)) %)", f)
+    }
+
+    /// Space in use on the volume holding path, purgeable space included (it is still on the disk and scanned).
+    static func usedOnDisk(_ path: String) -> Int64 {
+        guard let v = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]),
+              let total = v.volumeTotalCapacity, let free = v.volumeAvailableCapacity else { return 0 }
+        return Int64(max(0, total - free))
+    }
+
     func updateProgress() {
         if let s = scanner {
-            let bytes = s.bytesSeen
             let detail = "\(Fmt.count(s.filesSeen)) files, \(Fmt.count(s.dirsSeen)) folders  --  \(Fmt.shorten(s.current, 90))"
             if s.cancelled { scanBar.set("Cancelling... (finishing current folder)", detail, -1) }
-            else if let r = scanRoot, r.isDrive, r.used > 0, PathUtil.same(r.path, s.rootPath) {
-                let f = min(0.99, Double(bytes) / Double(r.used))
-                scanBar.set("Scanning \(r.path): \(Fmt.size(bytes)) of \(Fmt.size(r.used)) done (\(Int(f * 100)) %)", detail, f)
-            } else { scanBar.set("Scanning \(Fmt.shorten(s.rootPath, 60)): \(Fmt.size(bytes)) so far", detail, -1) }
+            else if let r = scanRoot, r.isDrive, r.total > 0, PathUtil.same(r.path, s.rootPath) {
+                if scanUsed <= 0 { scanUsed = MainWindowController.usedOnDisk(r.path) }
+                let p = MainWindowController.driveProgress(r.path, found: s.allocSeen, used: scanUsed > 0 ? scanUsed : r.used)
+                scanBar.set(p.text, detail, p.fraction)
+            } else { scanBar.set("Scanning \(Fmt.shorten(s.rootPath, 60)): \(Fmt.size(DirNode.onDisk ? s.allocSeen : s.bytesSeen)) so far", detail, -1) }
         }
         if let j = deleteJob {
             let done = j.bytesDone, total = j.totalBytes

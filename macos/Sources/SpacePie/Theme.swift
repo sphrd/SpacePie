@@ -112,12 +112,13 @@ enum Theme {
         drawLogo(in: circle, alpha: alpha)
     }
 
-    /// Soft radial glow: `color` at `alpha` in the centre, transparent at `radius`.
+    /// Soft radial glow: `color` at `alpha` in the centre, fully transparent at `radius` (nothing drawn beyond).
+    /// Not NSGradient.draw(in: ovalPath, relativeCenterPosition:): that stretches the gradient to the path's bounding
+    /// square, so at the circle's edge it is still ~30 % strong and the clip leaves a hard-edged disc.
     static func drawGlow(at center: NSPoint, radius: CGFloat, color: NSColor, alpha: CGFloat) {
         guard radius >= 1 else { return }
         NSGradient(colors: [color.withAlphaComponent(alpha), color.withAlphaComponent(0)])?
-            .draw(in: NSBezierPath(ovalIn: NSRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius)),
-                  relativeCenterPosition: .zero)
+            .draw(fromCenter: center, radius: 0, toCenter: center, radius: radius, options: [])
     }
 
     /// Pie slice path in a flipped view: angles in degrees, 0 = 3 o'clock, clockwise positive (like GDI+ FillPie).

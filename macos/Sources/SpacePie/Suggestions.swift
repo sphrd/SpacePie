@@ -79,6 +79,7 @@ extension MainWindowController {
         if suggestFinding && !suggestDirty && !clear { return }      // already looking (e.g. the start-up refills)
         suggestDirty = false
         suggestFinding = true
+        lastSuggestFind = Date()
         suggestGen += 1
         let gen = suggestGen
         if suggestions == nil || clear {
@@ -95,9 +96,29 @@ extension MainWindowController {
             guard let self = self, gen == self.suggestGen else { return }
             self.suggestFinding = false
             Suggestion.carryOver(found, from: self.suggestions)
-            self.suggestions = found
+            self.suggestions = MainWindowController.stableOrder(found, self.suggestions)
             self.showSuggestions()
         })
+    }
+
+    /// Found again: the suggestions keep the places they had (only their sizes change), new ones follow, largest first;
+    /// the first time, largest first.
+    static func stableOrder(_ found: [Suggestion], _ old: [Suggestion]?) -> [Suggestion] {
+        let bySize = found.sorted { $0.size > $1.size }
+        guard let old = old, !old.isEmpty else { return bySize }
+        var place: [String: Int] = [:]
+        for (i, s) in old.enumerated() { place[s.name] = i }
+        let kept = found.filter { place[$0.name] != nil }.sorted { place[$0.name]! < place[$1.name]! }
+        return kept + bySize.filter { place[$0.name] == nil }
+    }
+
+    /// The user is working in the Suggestions list: the pointer is over it, rows are selected or a mouse button is held.
+    var userInSuggestions: Bool {
+        guard selfTestDir == nil, let p = pSuggest, let w = window, w.isVisible else { return false }
+        if !p.table.selectedRowIndexes.isEmpty || NSEvent.pressedMouseButtons != 0 { return true }
+        guard let sv = p.table.enclosingScrollView else { return false }
+        let inView = sv.convert(w.mouseLocationOutsideOfEventStream, from: nil)
+        return sv.bounds.contains(inView)
     }
 
     /// The scanned data changed (scan, rescan, live update, delete, measure): the suggestions are found again when the
@@ -146,7 +167,10 @@ extension MainWindowController {
                 rows.append(c)
             }
         }
-        p.setRows(rows, "Nothing to suggest: no caches, logs or leftovers worth deleting were found.")
+        // The list order is the suggestions' own (stable across refills) unless the user sorted by a column; the top row stays.
+        let top = p.topItem.flatMap { suggestKey($0) }
+        p.setRows(rows, "Nothing to suggest: no caches, logs or leftovers worth deleting were found.", keepOrder: true)
+        if let t = top, let i = p.items.firstIndex(where: { suggestKey($0) == t }) { p.scrollToTop(i) }
         if !keep.isEmpty {
             var sel = IndexSet()
             for (i, it) in p.items.enumerated() {

@@ -891,7 +891,7 @@ namespace SpacePie
             Measure(g);
             Color text = active ? Theme.FG : Theme.MUTED;
             int ls = Theme.S(20);
-            Theme.DrawLogoGlow(g, new Rectangle(Theme.S(12), (Height - ls) / 2, ls, ls), active ? 1f : 0.6f, 46, 0.9f);
+            Theme.DrawLogo(g, new Rectangle(Theme.S(12), (Height - ls) / 2, ls, ls), active ? 1f : 0.6f);
             const TextFormatFlags f = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
             CutText.Begin(this);
             int titleRight = items.Count > 0 ? itemRects[0].X - Theme.S(8) : minRect.X - Theme.S(8);

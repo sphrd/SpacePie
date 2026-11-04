@@ -154,8 +154,8 @@ final class ProgressPill: NSView {
 
 final class LogoView: NSView {
     override var isFlipped: Bool { true }
-    // The brand logo with its glow, kept inside the view's bounds.
-    override func draw(_ dirtyRect: NSRect) { Theme.drawLogoGlow(in: bounds, glowFactor: 0.5) }
+    // The plain logo (no glow anywhere in the app: the owner found the halo looked bad).
+    override func draw(_ dirtyRect: NSRect) { Theme.drawLogo(in: bounds) }
 }
 
 /// Accent text that opens a link on click.

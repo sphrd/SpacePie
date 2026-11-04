@@ -119,6 +119,7 @@ namespace SpacePie
 
         void ApplyChanges()
         {
+            RefreshSuggestionsIfDue();
             if (busy || scanning || fsChanges.IsEmpty) { if (livePending && !busy && !scanning) RefreshAfterLive(); return; }
             var files = new HashSet<DirNode>();
             var added = new List<string>();
@@ -173,8 +174,7 @@ namespace SpacePie
                 livePending = true;
                 suggestionsDirty = true;
                 foreach (var p in pages) if (p != pContents && (structure || p == pSuggest || p == pFiles || p == pTypes)) p.Stale = true;
-                // Temporary folders change all the time: refresh an open Suggestions tab at most every 20 s.
-                if (ActivePage == pSuggest && !busy && (DateTime.UtcNow - lastSuggestFind).TotalSeconds > 20) { pSuggest.Stale = false; FillSuggestions(); }
+                RefreshSuggestionsIfDue();
             }
             if (livePending && (DateTime.UtcNow - lastLiveRefresh).TotalSeconds >= 4) RefreshAfterLive();
         }

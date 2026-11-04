@@ -160,8 +160,19 @@ extension MainWindowController {
         layoutStatus()
     }
 
+    /// Caches and logs (suggestions themselves) change all the time: an open Suggestions view looks again at most every
+    /// 20 s, and not while the user works in the list (pointer over it, rows selected, a button held), so rows never move
+    /// under them. Called on every live-update tick, so a skipped refresh happens as soon as it is due.
+    func refreshSuggestionsIfDue() {
+        guard activePage === pSuggest, suggestDirty, !suggestFinding, !busy, !scanning, readers == 0,
+              Date().timeIntervalSince(lastSuggestFind) >= 20, !userInSuggestions else { return }
+        pSuggest.stale = false
+        fillSuggestions(quiet: true)
+    }
+
     func applyChanges() {
         checkLowSpaceStatus()
+        refreshSuggestionsIfDue()
         if busy || scanning || readers > 0 || (fsPending.isEmpty && fsDeep.isEmpty) {
             if livePending && !busy && !scanning && readers == 0 { refreshAfterLive() }
             if !busy && !scanning && readers == 0 && fsPending.isEmpty && fsDeep.isEmpty { finishReplays() }
@@ -239,7 +250,7 @@ extension MainWindowController {
         lastLiveRefresh = Date()
         refreshTreeQuietly()
         updateDriveLabel()
-        if activePage === pSuggest && suggestDirty && !suggestFinding { pSuggest.stale = false; fillSuggestions(quiet: true) }
+        refreshSuggestionsIfDue()
         guard let c = current, isAttached(c) else { return }
         if activePage !== pContents { return }
         if !contents.selectedRowIndexes.isEmpty || NSEvent.pressedMouseButtons != 0 { return }
