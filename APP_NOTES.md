@@ -420,6 +420,22 @@ patterns (Part 3) are applied through the WinForms mapping below.
     shortcuts, macOS font mapping (+3 pt), updater install target, self-test list.
   - Gotcha: a self-test scratch folder under a hidden folder (e.g. `~/.x`) fails the node_modules checks by design
     (dot-folders are never suggested); use a normal folder.
+- 2026-11-04: "the logo gow in the loading page on mac looks bad, remove it. even tho the app has full disk access, some
+  files were not removed and it said needs admin access. whats the solution for that? i see old screenshots on the website
+  ang readme. fix them. allow app to scale with default OS shortcuts like ctrl/cmd+ or - ... how do i sign the app?"
+  - macOS splash: plain logo; the 220 px glow reached past the 520x300 window's edges and was cut off. Windows keeps it.
+  - "needs administrator": Full Disk Access is read access; items an installer put in /Library (launch daemons, helper
+    tools, support folders) belong to root. macOS now removes them after one system administrator prompt
+    (`AdminRemove` in Access.swift: osascript `do shell script ... with administrator privileges`, launchctl bootout,
+    mv to ~/.Trash + chown, or rm -rf; SIP-restricted items reported). Used by Uninstall, Remove leftovers and the
+    delete errors prompt (**Delete as administrator...** / **Move as administrator...**). Windows: Run as administrator.
+  - Zoom on both platforms (Ctrl/Cmd + / - / 0, steps 75-200 %, remembered: macOS UserDefaults `WindowZoom`, Windows
+    `%LOCALAPPDATA%\SpacePie\zoom`). macOS scales the content view's bounds; Windows `Theme.SetZoom` + `Control.Scale` +
+    list rows/columns (`Zoom.cs`). The toolbar's right-hand group wraps to its own row when it does not fit. Checked on
+    the real macOS window at 150 % (sharp); Windows by CI self-test and the `zoom-150.png` screenshot.
+  - The self-test's history now stays next to its scratch folder (`History.folderOverride`); it used to write into the
+    real app data. Screenshots: README/site Suggestions and Apps pictures were from v1.8.1 (tab strip, tree pane);
+    replaced from the CI macOS run (clean runner, no owner data).
 
 ## WinForms mapping of the design language
 

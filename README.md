@@ -96,7 +96,8 @@ highlights its row and the other way round)
   **Uninstall...** on Windows runs the app's own uninstaller, checks everything
   again and asks to delete whatever is left (registry keys are saved to a `.reg`
   backup first). On macOS one confirmation moves the app and all its files to
-  the Trash. The list is read in the background as soon as a drive scan
+  the Trash; files an installer put where only an administrator may change them
+  (in `/Library`) are moved after macOS asks for your password once. The list is read in the background as soon as a drive scan
   finishes, so it is ready when you open the view.
 - **System (Windows):** space Windows itself uses and what you can do about it:
   Windows update leftovers (analyze and clean up the component store), restore
@@ -158,7 +159,10 @@ highlights its row and the other way round)
   the files removed and the space freed, and **Stop** halts it after the current
   file. Whatever view is open, items leave the list as they are deleted, and the
   chart follows. What could not be deleted (in use, access denied) is listed
-  afterwards with the reason for each item.
+  afterwards with the reason for each item; on macOS **Delete as administrator...**
+  then removes what only an administrator may change (macOS asks for your
+  password; Full Disk Access lets the app read everything, not change it). On
+  Windows, use **Run as administrator**.
 - Links are never followed, so nothing outside what you picked is touched; very
   long paths work; caches are emptied and files in use are skipped.
 
@@ -181,7 +185,8 @@ highlights its row and the other way round)
 - **About** lists the keyboard shortcuts and how to get the fastest, most
   complete scans.
 - Dark, flat, rounded design, with calm animations only while something is
-  working.
+  working. **Zoom** the whole window with <kbd>Ctrl</kbd>/<kbd>⌘</kbd> and
+  <kbd>+</kbd> / <kbd>-</kbd> (<kbd>0</kbd> for 100 %); the app remembers it.
 
 ## Download and install
 
@@ -247,6 +252,7 @@ or later.
 | Open a saved scan | | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd> |
 | Choose a folder to scan | | <kbd>⌘</kbd><kbd>O</kbd> |
 | Show in Finder | | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> |
+| Zoom in / out / 100 % | <kbd>Ctrl</kbd>+<kbd>+</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> / <kbd>Ctrl</kbd>+<kbd>0</kbd> | <kbd>⌘</kbd><kbd>+</kbd> / <kbd>⌘</kbd><kbd>-</kbd> / <kbd>⌘</kbd><kbd>0</kbd> |
 | About | <kbd>F1</kbd> | app menu |
 
 ### Privacy

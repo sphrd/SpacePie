@@ -41,12 +41,13 @@ namespace SpacePie
                     for (int i = 0; i < bar.Length; i++)
                         for (int j = i + 1; j < bar.Length; j++)
                             if (bar[i].Visible && bar[j].Visible && bar[i].Parent == bar[j].Parent && bar[i].Bounds.IntersectsWith(bar[j].Bounds)) overlap = true;
+                    foreach (var c in bar) if (c.Visible && c.Right > c.Parent.ClientSize.Width + 1) overlap = true;   // or out of the window
                     bool font = Math.Abs(Theme.FONT.Size - 10f * z) < 0.01f && ReferenceEquals(contents.Font, Theme.FONT);
                     if (overlap || !font) { ok = false; detail += string.Format(" {0}: overlap {1}, font {2}", z, overlap, font); }
                 }
                 SetZoom(before);
                 Application.DoEvents();
-                check(ok && Math.Abs(Theme.Zoom - before) < 0.001f, "zoom: 150 %, 200 % and 75 % resize fonts and layout, toolbar buttons never overlap" + detail);
+                check(ok && Math.Abs(Theme.Zoom - before) < 0.001f, "zoom: 150 %, 200 % and 75 % resize fonts and layout, toolbar buttons never overlap or leave the window" + detail);
             }
 
             // Search in everything scanned: files and folders by name, across every scanned root.

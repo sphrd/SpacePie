@@ -769,6 +769,8 @@ final class ShotRun {
         // The app opens on Contents; the first shots show Suggestions.
         let suggestIndex = w.pages.firstIndex { $0 === w.pSuggest } ?? 1
         steps.waitUntil(90) { w.suggestions != nil && !w.suggestFinding }
+        // The pictures show the lists, not the path field's text selected.
+        steps.then { w.window?.makeFirstResponder(w.contents) }
         steps.then { w.pageIndex = suggestIndex }
         steps.wait(1.5)
         steps.then { self.shot("0-suggestions-start") }

@@ -67,11 +67,12 @@ extension SelfTestRun {
                                      w.btnOpenScan, w.btnExport, w.measure]
                 var overlap = false
                 for i in bar.indices { for j in bar.indices where j > i && bar[i].frame.intersects(bar[j].frame) { overlap = true } }
+                if bar.contains(where: { $0.frame.maxX > r.bounds.width + 1 }) { overlap = true }   // or out of the window
                 if !scaled || overlap { ok = false; detail += " \(z): scaled \(scaled), overlap \(overlap)" }
             }
             w.setZoom(before)
             if let v = saved { UserDefaults.standard.set(v, forKey: MainWindowController.zoomKey) } else { UserDefaults.standard.removeObject(forKey: MainWindowController.zoomKey) }
-            self.check(ok && w.zoom == before, "zoom: 150 %, 200 % and 75 % scale the window's content, toolbar buttons never overlap" + detail)
+            self.check(ok && w.zoom == before, "zoom: 150 %, 200 % and 75 % scale the window's content, toolbar buttons never overlap or leave the window" + detail)
         }
 
         // Treemap: rectangles fill the area in true proportion; the folder contents are drawn as rectangles.

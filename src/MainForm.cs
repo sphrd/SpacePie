@@ -462,6 +462,8 @@ namespace SpacePie
             {
                 if (b == btnBasket) x += groupGap - gap;
                 var p = b.GetPreferredSize(Size.Empty);
+                // A narrow window (or a large zoom): the buttons flow onto another row instead of leaving the window.
+                if (x > 0 && x + p.Width > w) { x = 0; y += h + S(8); }
                 b.Bounds = new Rectangle(x, y, p.Width, h);
                 x += p.Width + gap;
             }

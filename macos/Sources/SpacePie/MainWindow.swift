@@ -468,6 +468,8 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             if btn === btnBasket { x += 10 }
             let p = btn.preferredSize
             let bw = btn.isIcon ? h : p.width
+            // A narrow window (or a large zoom): the buttons flow onto another row instead of leaving the window.
+            if x > m && x + bw > b.width - m { x = m; y += h + 8 }
             btn.frame = NSRect(x: x, y: y, width: bw, height: h)
             x += bw + gap
         }

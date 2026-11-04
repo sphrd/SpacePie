@@ -312,6 +312,7 @@ namespace SpacePie
             { "Ctrl+Shift+D", "Delete permanently (also Del)" },
             { "Ctrl+F", "Search files" },
             { "Ctrl+C", "Copy path" },
+            { "Ctrl+Plus / Minus / 0", "Zoom in / out / actual size" },
             { "F1", "About" },
         };
 
@@ -365,6 +366,8 @@ namespace SpacePie
             y += abs.Height + Theme.S(12);
             AddLabel("Keyboard shortcuts", Theme.FONT_BOLD, Theme.FG, ref y, Theme.S(4));
             int keyW = Theme.S(90), rowH = Theme.FONT_9.Height + Theme.S(3);
+            for (int i = 0; i < Shortcuts.GetLength(0); i++)
+                keyW = Math.Max(keyW, TextRenderer.MeasureText(Shortcuts[i, 0], Theme.FONT_9).Width + Theme.S(10));
             for (int i = 0; i < Shortcuts.GetLength(0); i++)
             {
                 Controls.Add(new Label { Text = Shortcuts[i, 0], Font = Theme.FONT_9, ForeColor = Theme.FG, BackColor = Theme.BG, UseMnemonic = false,
