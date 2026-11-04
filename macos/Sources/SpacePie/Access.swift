@@ -122,3 +122,84 @@ final class FullDiskAccessWindow: AppDialog {
         }
     }
 }
+
+/// Items the user's account may not change (owned by root: /Library/LaunchDaemons, /Library/PrivilegedHelperTools, an
+/// installer's folders in /Library...). Full Disk Access lets the app read them, not change them. They are removed as
+/// root after macOS's standard administrator prompt (one prompt for all of them): moved to the user's Trash (and given
+/// to the user, so the Trash can be emptied) or deleted. Launch daemons and agents are unloaded first. Items protected by
+/// System Integrity Protection stay (not even root may change them).
+enum AdminRemove {
+    struct Result {
+        var removed: [String] = []
+        var left: [String] = []        // "path  -  reason"
+        var cancelled = false
+        var error: String?
+    }
+
+    static func shellQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
+    static func appleScriptString(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    }
+
+    /// A free name in the Trash for an item called name ("name", "name 2", ...).
+    static func trashDestination(_ name: String, _ taken: inout Set<String>) -> String {
+        let trash = PathUtil.home + "/.Trash"
+        let ext = (name as NSString).pathExtension, base = (name as NSString).deletingPathExtension
+        var candidate = name, n = 2
+        while PathUtil.exists(trash + "/" + candidate) || taken.contains(candidate) {
+            candidate = base + " \(n)" + (ext.isEmpty ? "" : "." + ext)
+            n += 1
+        }
+        taken.insert(candidate)
+        return trash + "/" + candidate
+    }
+
+    /// The shell script run as root (one command per item; a failure does not stop the others).
+    static func script(_ paths: [String], trash: Bool) -> String {
+        var taken = Set<String>()
+        let uid = getuid(), gid = getgid()
+        var lines: [String] = []
+        for p in paths {
+            let q = shellQuote(p)
+            if p.hasSuffix(".plist") && p.hasPrefix("/Library/LaunchDaemons/") {
+                lines.append("/bin/launchctl bootout system \(q) >/dev/null 2>&1")
+            } else if p.hasSuffix(".plist") && p.hasPrefix("/Library/LaunchAgents/") {
+                lines.append("/bin/launchctl bootout gui/\(uid) \(q) >/dev/null 2>&1")
+            }
+            if trash {
+                let d = shellQuote(trashDestination(PathUtil.name(p), &taken))
+                lines.append("/bin/mv -f \(q) \(d) && /usr/sbin/chown -R \(uid):\(gid) \(d)")
+            } else {
+                lines.append("/bin/rm -rf \(q)")
+            }
+        }
+        return lines.joined(separator: "; ") + "; true"
+    }
+
+    /// Asks for an administrator password (macOS's own prompt) and removes the paths. Call off the main thread.
+    static func run(_ paths: [String], trash: Bool, reason: String) -> Result {
+        var r = Result()
+        let todo = paths.filter { PathUtil.exists($0) }
+        if todo.isEmpty { return r }
+        let source = "do shell script " + appleScriptString(script(todo, trash: trash))
+            + " with prompt " + appleScriptString(reason) + " with administrator privileges"
+        let out = SystemInfo.run("/usr/bin/osascript", ["-e", source], timeout: 600)
+        if out.status != 0 {
+            if out.err.contains("-128") || out.err.lowercased().contains("cancel") { r.cancelled = true }
+            else { r.error = out.err.split(separator: "\n").first.map { String($0) } ?? "exit code \(out.status)" }
+        }
+        for p in todo {
+            if PathUtil.exists(p) {
+                r.left.append(p + "  -  " + (r.cancelled ? "not removed (cancelled)" : protectedBySIP(p) ? "protected by macOS (System Integrity Protection)" : "could not be removed"))
+            } else { r.removed.append(p) }
+        }
+        return r
+    }
+
+    /// True when System Integrity Protection guards path (the "restricted" flag); not even an administrator may change it.
+    static func protectedBySIP(_ path: String) -> Bool {
+        var st = stat()
+        return lstat(path, &st) == 0 && st.st_flags & UInt32(SF_RESTRICTED) != 0
+    }
+}

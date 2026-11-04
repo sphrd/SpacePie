@@ -187,6 +187,12 @@ namespace SpacePie
                 ShowThisPc();
                 await Task.Delay(1500);
                 SaveShot((pages.Count + 9) + "-this-pc");
+                // Zoom: the whole window at 150 % (Ctrl+Plus), then back to 100 %.
+                SetZoom(1.5f);
+                await Task.Delay(1200);
+                SaveShot("zoom-150");
+                SetZoom(1f);
+                await Task.Delay(400);
                 if (openDir != null) SelectDir(openDir);
                 measure.SelectedIndex = 1;
                 await Task.Delay(800);

@@ -88,6 +88,24 @@ jobs:
           }
           $global:LASTEXITCODE = 0   # robocopy exits with 1 when it listed files
 
+      - name: Window screenshots
+        shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          $out = "$env:RUNNER_TEMP\shots"
+          $p = Start-Process .\SpacePie.exe -ArgumentList '--cli','screenshot',"`"$out`"","`"$env:ProgramFiles\Git`"" -PassThru
+          if (-not $p.WaitForExit(300000)) { Stop-Process -Id $p.Id -Force }
+          Get-ChildItem $out -ErrorAction SilentlyContinue | Select-Object Name
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpacePie-windows-shots
+          path: ${{ runner.temp }}/shots/*.png
+          if-no-files-found: ignore
+
       - name: SHA-256 for the release notes
         id: hash
         shell: pwsh

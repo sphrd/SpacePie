@@ -40,7 +40,7 @@ enum SelfTest {
         dir = PathUtil.trim((dir as NSString).standardizingPath)
         let fm = FileManager.default
         try? fm.removeItem(atPath: dir)
-        for extra in ["-snapshots", "-hashes.bin", "-snap", "-hash", "-clone"] { try? fm.removeItem(atPath: dir + extra) }
+        for extra in ["-snapshots", "-hashes.bin", "-history", "-snap", "-hash", "-clone"] { try? fm.removeItem(atPath: dir + extra) }
         var g = SystemRandomNumberGenerator()
         func random(_ n: Int) -> Data { Data((0..<n).map { _ in UInt8.random(in: 0...255, using: &g) }) }
         func write(_ rel: String, _ data: Data) {

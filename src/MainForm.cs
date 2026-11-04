@@ -104,7 +104,7 @@ namespace SpacePie
                 TextRenderer.DrawText(e.Graphics, e.ToolTipText, Theme.FONT_9, new Rectangle(S(8), S(5), e.Bounds.Width - S(16), e.Bounds.Height - S(10)),
                     Theme.FG, TextFormatFlags.NoPrefix | TextFormatFlags.Left);
             };
-            using (var g = CreateGraphics()) Theme.Scale = g.DpiX / 96f;
+            using (var g = CreateGraphics()) { Theme.Dpi = g.DpiX / 96f; Theme.Scale = Theme.Dpi * Theme.Zoom; }
             isAdmin = new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
 
             Text = AppName + (isAdmin ? " (Administrator)" : "");
@@ -466,6 +466,10 @@ namespace SpacePie
                 x += p.Width + gap;
             }
             var ms = measure.GetPreferredSize(Size.Empty);
+            var es0 = btnExport.GetPreferredSize(Size.Empty);
+            var os0 = btnOpenScan.GetPreferredSize(Size.Empty);
+            // The right-hand group moves to a row of its own when a narrow window (or a large zoom) leaves no room for it.
+            if (x - gap + groupGap > w - (os0.Width + gap + es0.Width + groupGap + ms.Width)) y += h + S(8);
             measure.Bounds = new Rectangle(w - ms.Width, y, ms.Width, h);
             var es = btnExport.GetPreferredSize(Size.Empty);
             btnExport.Bounds = new Rectangle(measure.Left - groupGap - es.Width, y, es.Width, h);
@@ -479,6 +483,10 @@ namespace SpacePie
         {
             base.OnKeyDown(e);
             if (e.KeyCode == Keys.F1) { ShowAbout(); e.Handled = true; return; }
+            // Zoom: Ctrl+Plus / Ctrl+Minus (also on the number pad), Ctrl+0 = 100 % (before the lists see Ctrl+Plus).
+            if (e.Control && !e.Alt && (e.KeyCode == Keys.Oemplus || e.KeyCode == Keys.Add)) { ZoomStep(1); e.Handled = e.SuppressKeyPress = true; return; }
+            if (e.Control && !e.Alt && (e.KeyCode == Keys.OemMinus || e.KeyCode == Keys.Subtract)) { ZoomStep(-1); e.Handled = e.SuppressKeyPress = true; return; }
+            if (e.Control && !e.Alt && !e.Shift && (e.KeyCode == Keys.D0 || e.KeyCode == Keys.NumPad0)) { SetZoom(1f); e.Handled = e.SuppressKeyPress = true; return; }
             if (e.Alt && e.KeyCode == Keys.Left) { GoBack(); e.Handled = true; return; }
             if (e.Alt && e.KeyCode == Keys.Enter && lastView != null && lastView.Focused) { ShowProperties(); e.Handled = e.SuppressKeyPress = true; return; }
             if (e.KeyCode == Keys.Space && e.Modifiers == Keys.None && lastView != null && lastView.Focused && SpacePreviews())

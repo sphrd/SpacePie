@@ -27,6 +27,28 @@ namespace SpacePie
                 check(n == 0, "last opened: \"not opened for 1 year\" finds nothing among files just made (" + n + ")");
             }
 
+            // Zoom (Ctrl+Plus / Ctrl+Minus / Ctrl+0): fonts and sizes follow, the toolbar's buttons never overlap; back to 100 %.
+            {
+                float before = Theme.Zoom;
+                bool ok = true;
+                string detail = "";
+                foreach (float z in new[] { 1.5f, 2f, 0.75f })
+                {
+                    SetZoom(z);
+                    Application.DoEvents();
+                    var bar = new Control[] { btnBack, btnForward, btnUp, btnRescan, btnExplorer, btnAddList, btnBasket, btnDelete, btnOpenScan, btnExport, measure };
+                    bool overlap = false;
+                    for (int i = 0; i < bar.Length; i++)
+                        for (int j = i + 1; j < bar.Length; j++)
+                            if (bar[i].Visible && bar[j].Visible && bar[i].Parent == bar[j].Parent && bar[i].Bounds.IntersectsWith(bar[j].Bounds)) overlap = true;
+                    bool font = Math.Abs(Theme.FONT.Size - 10f * z) < 0.01f && ReferenceEquals(contents.Font, Theme.FONT);
+                    if (overlap || !font) { ok = false; detail += string.Format(" {0}: overlap {1}, font {2}", z, overlap, font); }
+                }
+                SetZoom(before);
+                Application.DoEvents();
+                check(ok && Math.Abs(Theme.Zoom - before) < 0.001f, "zoom: 150 %, 200 % and 75 % resize fonts and layout, toolbar buttons never overlap" + detail);
+            }
+
             // Search in everything scanned: files and folders by name, across every scanned root.
             {
                 var flt = new FileFilter { Patterns = new[] { "node_modules" } };

@@ -141,7 +141,7 @@ final class InstalledApp {
             l.match = tier
             l.isDir = PathUtil.isDir(p)
             l.needsAdmin = admin || access(PathUtil.parent(p), W_OK) != 0
-            if l.needsAdmin { l.note = "needs administrator"; l.checked = false }
+            if l.needsAdmin { l.note = "needs administrator (asks for your password)" }
             // Name-only matches start unchecked: an uninstaller that ticks them is how the wrong folder gets deleted.
             if !l.sure { l.checked = false }
             if !measure {
@@ -727,13 +727,28 @@ extension MainWindowController {
     private func trashAll(_ a: InstalledApp, _ items: [AppLeftover], _ review: [AppLeftover], _ total: Int64, _ done: ((Bool) -> Void)?) {
         let targets = items.map { DeleteTarget(path: $0.path, label: PathUtil.name($0.path), isDir: $0.isDir, size: max(0, $0.size)) }
         runDelete(targets, trash: appsTrash, showErrors: false) { [unowned self] _ in
+            // What only an administrator may change (installers put items in /Library): one password prompt for all.
+            let stuck = items.filter { PathUtil.exists($0.path) }.map { $0.path }
+            self.removeAsAdmin(stuck, trash: self.appsTrash, what: "the files of \(a.name)") { admin in
+                self.finishUninstall(a, items, review, total, admin, done)
+            }
+        }
+    }
+
+    /// After the uninstall's delete (and the administrator retry): reports what is left and keeps it listed.
+    private func finishUninstall(_ a: InstalledApp, _ items: [AppLeftover], _ review: [AppLeftover], _ total: Int64,
+                                 _ admin: AdminRemove.Result?, _ done: ((Bool) -> Void)?) {
+        do {
+            let cancelled = admin?.cancelled ?? false
             var left: [AppLeftover] = []
             for l in items where PathUtil.exists(l.path) {
                 l.size = InstalledApp.measureItem(l.path)
-                let admin = access(l.path, W_OK) != 0 || access(PathUtil.parent(l.path), W_OK) != 0
-                l.needsAdmin = l.needsAdmin || admin
-                l.note = l.needsAdmin ? "needs administrator" : "could not be moved (in use or protected)"
-                l.checked = !l.needsAdmin
+                let needs = access(l.path, W_OK) != 0 || access(PathUtil.parent(l.path), W_OK) != 0
+                l.needsAdmin = l.needsAdmin || needs
+                l.note = AdminRemove.protectedBySIP(l.path) ? "protected by macOS (System Integrity Protection)"
+                    : l.needsAdmin ? (cancelled ? "needs administrator (password prompt cancelled)" : "needs administrator")
+                    : "could not be moved (in use or protected)"
+                l.checked = !AdminRemove.protectedBySIP(l.path)
                 left.append(l)
             }
             let named = review.filter { PathUtil.exists($0.path) }
@@ -771,7 +786,7 @@ extension MainWindowController {
                 let more = named.isEmpty ? "" : " " + MainWindowController.reviewNote(named, a.name)
                 var msg = "\(Fmt.count(n)) item\(n == 1 ? "" : "s") (\(Fmt.size(leftSize))) could not be moved to the Trash: in use, protected or access denied. "
                 msg += "They stay listed under the app; press Remove leftovers to try again"
-                msg += admin ? " (items that need an administrator: remove them in Finder)." : "."
+                msg += admin ? " (SpacePie asks for an administrator password for items only an administrator may change)." : "."
                 msg += more
                 let lines: [String] = left.map { $0.path + "  -  " + $0.note } + named.map { $0.path + "  -  " + $0.match }
                 self.alert("\(a.name) was partly removed", msg, details: lines)
@@ -790,7 +805,9 @@ extension MainWindowController {
         let n = picked.count, s = n == 1 ? "" : "s"
         let run = { [unowned self] in
             let targets = picked.map { DeleteTarget(path: $0.1.path, label: PathUtil.name($0.1.path), isDir: $0.1.isDir, size: max(0, $0.1.size)) }
-            self.runDelete(targets, trash: self.appsTrash) { [unowned self] _ in
+            self.runDelete(targets, trash: self.appsTrash, showErrors: false) { [unowned self] _ in
+              let stuck = picked.map { $0.1.path }.filter { PathUtil.exists($0) }
+              self.removeAsAdmin(stuck, trash: self.appsTrash, what: "\(Fmt.count(stuck.count)) leftover\(stuck.count == 1 ? "" : "s")") { [unowned self] admin in
                 var complete: [InstalledApp] = []
                 for a in owners {
                     var keep: [AppLeftover] = []
@@ -798,7 +815,8 @@ extension MainWindowController {
                         if !PathUtil.exists(l.path) { continue }
                         if picked.contains(where: { $0.1 === l }) {
                             l.size = InstalledApp.measureItem(l.path)
-                            l.note = "partly removed"
+                            l.note = AdminRemove.protectedBySIP(l.path) ? "protected by macOS (System Integrity Protection)"
+                                : admin?.cancelled == true ? "needs administrator (password prompt cancelled)" : "partly removed"
                         }
                         keep.append(l)
                     }
@@ -809,6 +827,7 @@ extension MainWindowController {
                 self.showApps()
                 if complete.count == 1 { self.statusLabel.stringValue = "\(complete[0].name) was removed completely." }
                 done?()
+              }
             }
         }
         if appsAuto { run(); return }

@@ -141,6 +141,8 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     let contextMenu = NSMenu()
     lazy var updates = UpdateController(parent: window)
     var split2Positioned = false
+    /// Zoom of everything in the window (⌘+ / ⌘- / ⌘0); remembered between starts.
+    var zoom: CGFloat = MainWindowController.savedZoom
 
     // Views (tabs)
     var pages: [Page] = []
@@ -443,6 +445,10 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     }
 
     @objc func layoutRoot() {
+        // Zoom: the content view's coordinates are scaled, so every view and its text is drawn larger or smaller (sharp,
+        // not a bitmap scale); the layout below works in those zoomed points.
+        let want = NSSize(width: (root.frame.width / zoom).rounded(), height: (root.frame.height / zoom).rounded())
+        if root.bounds.size != want { root.setBoundsSize(want); root.setBoundsOrigin(.zero); root.needsDisplay = true }
         let b = root.bounds
         let m: CGFloat = 15, gap: CGFloat = 6
         var y: CGFloat = 12
@@ -466,6 +472,10 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             x += bw + gap
         }
         let ms = measure.preferredSize, es = btnExport.preferredSize, os = btnOpenScan.preferredSize
+        // The right-hand group (Open scan, Export, the measure switch) moves to a row of its own when the window (or a
+        // larger zoom) leaves too little room beside the action row; nothing overlaps.
+        let rightW = os.width + gap + es.width + 16 + ms.width
+        if x - gap + 16 > b.width - m - rightW { y += h + 8 }
         measure.frame = NSRect(x: b.width - m - ms.width, y: y, width: ms.width, height: h)
         btnExport.frame = NSRect(x: measure.frame.minX - 16 - es.width, y: y, width: es.width, height: h)
         btnOpenScan.frame = NSRect(x: btnExport.frame.minX - gap - os.width, y: y, width: os.width, height: h)
@@ -503,6 +513,30 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         splitView.bounds.width - 180
     }
     func windowDidResize(_ notification: Notification) { layoutRoot() }
+
+    // MARK: Zoom (View menu: Actual Size ⌘0, Zoom In ⌘+, Zoom Out ⌘-)
+
+    static let zoomKey = "WindowZoom"
+    static let zoomSteps: [CGFloat] = [0.75, 0.85, 1, 1.1, 1.25, 1.5, 1.75, 2]
+    static var savedZoom: CGFloat {
+        let v = CGFloat(UserDefaults.standard.double(forKey: zoomKey))
+        return zoomSteps.contains(v) ? v : 1
+    }
+
+    func setZoom(_ z: CGFloat) {
+        let v = min(MainWindowController.zoomSteps.last!, max(MainWindowController.zoomSteps.first!, z))
+        if v == zoom { return }
+        zoom = v
+        UserDefaults.standard.set(Double(v), forKey: MainWindowController.zoomKey)
+        HoverTip.shared.reset()
+        layoutRoot()
+        root.needsDisplay = true
+        statusLabel.stringValue = "Zoom \(Int((v * 100).rounded())) %  (⌘+ larger, ⌘- smaller, ⌘0 actual size)"
+    }
+
+    @objc func menuBarZoomIn(_ sender: Any?) { setZoom(MainWindowController.zoomSteps.first { $0 > zoom + 0.001 } ?? zoom) }
+    @objc func menuBarZoomOut(_ sender: Any?) { setZoom(MainWindowController.zoomSteps.last { $0 < zoom - 0.001 } ?? zoom) }
+    @objc func menuBarActualSize(_ sender: Any?) { setZoom(1) }
 
     // MARK: Start-up
 

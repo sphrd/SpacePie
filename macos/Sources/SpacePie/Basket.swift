@@ -246,13 +246,72 @@ extension MainWindowController {
         return out
     }
 
-    /// After a delete: what could not be deleted (each "path  -  reason"), all of them.
-    func deleteErrorsDialog(_ errors: [String], trash: Bool) -> PromptDialog {
+    /// After a delete: what could not be deleted (each "path  -  reason"), all of them. With elevate, button 0 retries
+    /// as an administrator (macOS asks for the password); otherwise the only button is OK.
+    func deleteErrorsDialog(_ errors: [String], trash: Bool, elevate: Bool = false) -> PromptDialog {
         let n = errors.count
         var text = n == 1 ? "It is in use or access was denied." : "They are in use or access was denied."
         if !FullDiskAccess.granted { text += " Tip: give SpacePie Full Disk Access (button in the toolbar), then try again." }
-        return PromptDialog(icon: .warn, heading: "\(Fmt.count(n)) item\(n == 1 ? "" : "s") could not be \(trash ? "moved to the Trash" : "deleted")",
-                            text: text, details: errors, buttons: [("OK", .primary)], defaultIndex: 0, cancelIndex: 0)
+        let heading = "\(Fmt.count(n)) item\(n == 1 ? "" : "s") could not be \(trash ? "moved to the Trash" : "deleted")"
+        if elevate {
+            let warning = "Items owned by macOS or another user (installers put some in /Library) can only be changed by an administrator: "
+                + "\(trash ? "Move" : "Delete") as administrator asks for your password once. Full Disk Access lets the app read them, not change them."
+            return PromptDialog(icon: .warn, heading: heading, text: text, warning: warning, details: errors,
+                                buttons: [(trash ? "Move as administrator..." : "Delete as administrator...", trash ? .primary : .danger), ("Close", .secondary)],
+                                defaultIndex: 1, cancelIndex: 1)
+        }
+        return PromptDialog(icon: .warn, heading: heading, text: text, details: errors, buttons: [("OK", .primary)], defaultIndex: 0, cancelIndex: 0)
+    }
+
+    /// What of the targets is still on the disk after a delete: a whole target, or the items left inside a folder whose
+    /// contents were to go (not the Trash's own items: those are only ever deleted).
+    static func stillThere(_ targets: [DeleteTarget]) -> [String] {
+        var out: [String] = []
+        for t in targets where PathUtil.exists(t.path) && !t.emptyTrash {
+            if t.contentsOnly { out.append(contentsOf: DeleteJob.children(t.path, t.exclude)) } else { out.append(PathUtil.trim(t.path)) }
+        }
+        return out
+    }
+
+    /// Removes paths as root after macOS's administrator prompt (one prompt for all), then updates the scan. then gets
+    /// the result (nil when there was nothing to do, or in the self-test and screenshot runs, which never prompt).
+    func removeAsAdmin(_ paths: [String], trash: Bool, what: String, _ then: @escaping (AdminRemove.Result?) -> Void) {
+        let todo = paths.filter { PathUtil.exists($0) }
+        if todo.isEmpty || selfTestDir != nil || autoAccept { then(nil); return }
+        let n = todo.count
+        statusLabel.stringValue = "Asking for an administrator password to \(trash ? "move" : "delete") \(Fmt.count(n)) item\(n == 1 ? "" : "s")..."
+        let reason = "SpacePie needs an administrator password to \(trash ? "move \(what) to the Trash" : "delete \(what)")."
+        DispatchQueue.global(qos: .userInitiated).async {
+            let r = AdminRemove.run(todo, trash: trash, reason: reason)
+            DispatchQueue.main.async {
+                self.applyRemoved(r.removed)
+                if r.cancelled { self.statusLabel.stringValue = "Cancelled: nothing more was removed." }
+                else {
+                    self.statusLabel.stringValue = "\(trash ? "Moved" : "Deleted") \(Fmt.count(r.removed.count)) item\(r.removed.count == 1 ? "" : "s") as administrator"
+                        + (r.left.isEmpty ? "." : "; \(Fmt.count(r.left.count)) could not be removed.")
+                }
+                then(r)
+            }
+        }
+    }
+
+    /// Paths removed outside a delete job (as administrator) leave the scanned trees, the delete list and the suggestions.
+    func applyRemoved(_ paths: [String]) {
+        if paths.isEmpty { return }
+        whenNoReaders {
+            for p in paths {
+                if let n = self.findScanned(p, exact: true), PathUtil.same(n.fullPath, p), n.parent != nil { self.removeNode(n) }
+                else if let d = self.findScanned(PathUtil.parent(p), exact: true), PathUtil.same(d.fullPath, PathUtil.parent(p)) {
+                    d.removeFileRec(PathUtil.name(p))
+                }
+            }
+            self.basket.removeAll { !$0.emptyTrash && !PathUtil.exists($0.path) }
+            self.current = self.current.flatMap { self.isAttached($0) ? $0 : nil }
+            self.refreshTree(self.current)
+            self.markSuggestionsDirty()
+            self.viewsChanged()
+            self.updateDriveLabel()
+        }
     }
 
     /// Asks, deletes (or moves to the Trash) with the delete strip, then updates the scan. done(nil) when cancelled.
@@ -352,7 +411,15 @@ extension MainWindowController {
                     }
                     if job.stopped { self.statusLabel.stringValue += "  Stopped: what was not deleted yet stays." }
                     if !errors.isEmpty && showErrors && self.selfTestDir == nil {
-                        self.deleteErrorsDialog(errors, trash: trash).show(over: self.window) { _ in }
+                        let stuck = MainWindowController.stillThere(targets)
+                        self.deleteErrorsDialog(errors, trash: trash, elevate: !stuck.isEmpty).show(over: self.window) { i in
+                            guard i == 0, !stuck.isEmpty else { return }
+                            self.removeAsAdmin(stuck, trash: trash, what: "\(Fmt.count(stuck.count)) item\(stuck.count == 1 ? "" : "s")") { r in
+                                guard let r = r, !r.left.isEmpty, !r.cancelled else { return }
+                                self.alert("\(Fmt.count(r.left.count)) item\(r.left.count == 1 ? "" : "s") could not be removed, even as administrator",
+                                           r.error ?? "macOS protects them (System Integrity Protection) or they are on a read-only volume.", details: r.left)
+                            }
+                        }
                     }
                     done(job)
                 }

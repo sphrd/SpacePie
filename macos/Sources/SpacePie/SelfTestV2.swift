@@ -35,6 +35,45 @@ extension SelfTestRun {
                        "search: folders by name (\(dirs.count) node_modules) and files by pattern (\(files.count) *.bin) in everything scanned")
         }
 
+        // Removing as administrator: the script run as root (here as the user, on scratch files) moves items with odd
+        // names to the Trash under a free name and deletes others; the AppleScript string keeps quotes and backslashes.
+        steps.then {
+            let base = self.P("admin-test")
+            let name = "DSA admin test it's \"q\" " + UUID().uuidString
+            try? fm.createDirectory(atPath: base + "/" + name, withIntermediateDirectories: true)
+            fm.createFile(atPath: base + "/" + name + "/f.bin", contents: Data(count: 10))
+            fm.createFile(atPath: base + "/gone $x.bin", contents: Data(count: 10))
+            let sh1 = SystemInfo.run("/bin/sh", ["-c", AdminRemove.script([base + "/" + name], trash: true)])
+            let sh2 = SystemInfo.run("/bin/sh", ["-c", AdminRemove.script([base + "/gone $x.bin"], trash: false)])
+            let inTrash = PathUtil.home + "/.Trash/" + name
+            let ok = sh1.status == 0 && sh2.status == 0 && PathUtil.isDir(inTrash) && !PathUtil.exists(base + "/" + name)
+                && !PathUtil.exists(base + "/gone $x.bin")
+            try? fm.removeItem(atPath: inTrash)
+            let q = AdminRemove.appleScriptString("a \"b\" \\c")
+            self.check(ok && q == "\"a \\\"b\\\" \\\\c\"", "admin remove: the root script moves to the Trash and deletes (names with quotes, $), AppleScript quoting")
+            try? fm.removeItem(atPath: base)
+        }
+
+        // Zoom (⌘+ / ⌘- / ⌘0): the window's content is drawn at the zoom; the toolbar's buttons never overlap.
+        steps.then {
+            let before = w.zoom
+            let saved = UserDefaults.standard.object(forKey: MainWindowController.zoomKey)
+            var ok = true, detail = ""
+            for z: CGFloat in [1.5, 2, 0.75] {
+                w.setZoom(z)
+                let r = w.root
+                let scaled = abs(r.bounds.width - (r.frame.width / z).rounded()) <= 1
+                let bar: [NSView] = [w.btnBack, w.btnForward, w.btnUp, w.btnRescan, w.btnFinder, w.btnAddList, w.btnBasket, w.btnDelete,
+                                     w.btnOpenScan, w.btnExport, w.measure]
+                var overlap = false
+                for i in bar.indices { for j in bar.indices where j > i && bar[i].frame.intersects(bar[j].frame) { overlap = true } }
+                if !scaled || overlap { ok = false; detail += " \(z): scaled \(scaled), overlap \(overlap)" }
+            }
+            w.setZoom(before)
+            if let v = saved { UserDefaults.standard.set(v, forKey: MainWindowController.zoomKey) } else { UserDefaults.standard.removeObject(forKey: MainWindowController.zoomKey) }
+            self.check(ok && w.zoom == before, "zoom: 150 %, 200 % and 75 % scale the window's content, toolbar buttons never overlap" + detail)
+        }
+
         // Treemap: rectangles fill the area in true proportion; the folder contents are drawn as rectangles.
         steps.then {
             let sizes: [Double] = [50, 25, 12.5, 6.25, 6.25]

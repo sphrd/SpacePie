@@ -2,7 +2,7 @@ import AppKit
 import QuartzCore
 
 /// Splash shown from the first moment of a normal start until the main window is on screen: 520x300, bg, 2 px surface
-/// frame, a soft accent glow behind the logo, name, "by sphrd" with a version pill, an accent bar, a divider, a one-line
+/// frame, the logo (no glow), name, "by sphrd" with a version pill, an accent bar, a divider, a one-line
 /// description and a short log of the startup steps (finished ones with a check mark, the current one with a spinner
 /// arc). It is drawn and flushed to the window server at once (no run-loop turn), so building the main window right
 /// after it is not delayed.
@@ -26,7 +26,8 @@ final class SplashView: NSView {
         NSColor.clear.setFill(); bounds.fill()
         Theme.fillRound(bounds, SplashView.radius, fill: T.SURFACE)
         Theme.fillRound(bounds.insetBy(dx: 2, dy: 2), SplashView.radius - 2, fill: T.BG)
-        Theme.drawLogoGlow(in: NSRect(x: 36, y: 44, width: 96, height: 96))
+        // No glow on the macOS splash: it reached past the window's edges and was cut off (owner: "looks bad").
+        Theme.drawLogo(in: NSRect(x: 36, y: 44, width: 96, height: 96))
         let name = "SpacePie"
         let nameWidth = bounds.width - 192
         var size: CGFloat = 30

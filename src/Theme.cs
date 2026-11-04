@@ -48,13 +48,64 @@ namespace SpacePie
         public static readonly Color CHART_FREE = Hex(0x4a525e);
         public static readonly Color CHART_OTHER = Hex(0x6b7480);
 
-        public static readonly Font FONT = new Font("Segoe UI", 10f);
-        public static readonly Font FONT_11 = new Font("Segoe UI", 11f);
-        public static readonly Font FONT_9 = new Font("Segoe UI", 9f);
-        public static readonly Font FONT_BOLD = new Font("Segoe UI", 10f, FontStyle.Bold);
-        public static readonly Font FONT_HEADLINE = new Font("Segoe UI", 15f, FontStyle.Bold);
+        // Not readonly: SetZoom makes them again at the zoom (Ctrl+Plus / Ctrl+Minus / Ctrl+0).
+        public static Font FONT = new Font("Segoe UI", 10f);
+        public static Font FONT_11 = new Font("Segoe UI", 11f);
+        public static Font FONT_9 = new Font("Segoe UI", 9f);
+        public static Font FONT_BOLD = new Font("Segoe UI", 10f, FontStyle.Bold);
+        public static Font FONT_HEADLINE = new Font("Segoe UI", 15f, FontStyle.Bold);
 
+        /// <summary>Pixels per logical pixel: the display scale (Dpi) times the window zoom (Zoom). S() uses it.</summary>
         public static float Scale = 1f;
+        /// <summary>The display scale (DPI / 96).</summary>
+        public static float Dpi = 1f;
+        /// <summary>Zoom of everything in the window (1 = 100 %).</summary>
+        public static float Zoom = 1f;
+        public static readonly float[] ZoomSteps = { 0.75f, 0.85f, 1f, 1.1f, 1.25f, 1.5f, 1.75f, 2f };
+
+        static readonly float[] RoleSizes = { 10f, 11f, 9f, 10f, 15f };
+        static readonly FontStyle[] RoleStyles = { FontStyle.Regular, FontStyle.Regular, FontStyle.Regular, FontStyle.Bold, FontStyle.Bold };
+        // Every theme font ever made (any zoom) -> its role, by reference: controls holding an old one get the new one.
+        static readonly System.Collections.Generic.Dictionary<Font, int> fontRoles =
+            new System.Collections.Generic.Dictionary<Font, int>(new SameObject<Font>());
+        static readonly System.Collections.Generic.Dictionary<string, Font> sized = new System.Collections.Generic.Dictionary<string, Font>();
+
+        /// <summary>The theme fonts in role order: FONT, FONT_11, FONT_9, FONT_BOLD, FONT_HEADLINE.</summary>
+        public static Font[] Fonts() { return new[] { FONT, FONT_11, FONT_9, FONT_BOLD, FONT_HEADLINE }; }
+
+        /// <summary>Sets the zoom: Scale and the theme fonts follow (Dpi must be set first).</summary>
+        public static void SetZoom(float zoom)
+        {
+            lock (fontRoles)
+            {
+                if (fontRoles.Count == 0) { var first = Fonts(); for (int i = 0; i < first.Length; i++) fontRoles[first[i]] = i; }
+                Zoom = zoom;
+                Scale = Dpi * zoom;
+                var made = new Font[RoleSizes.Length];
+                for (int i = 0; i < made.Length; i++) { made[i] = new Font("Segoe UI", RoleSizes[i] * zoom, RoleStyles[i]); fontRoles[made[i]] = i; }
+                FONT = made[0]; FONT_11 = made[1]; FONT_9 = made[2]; FONT_BOLD = made[3]; FONT_HEADLINE = made[4];
+            }
+        }
+
+        /// <summary>The current theme font of the same role as f (a theme font of any zoom), or null for any other font.</summary>
+        public static Font Current(Font f)
+        {
+            int i;
+            lock (fontRoles) { if (f == null || !fontRoles.TryGetValue(f, out i)) return null; }
+            return Fonts()[i];
+        }
+
+        /// <summary>Segoe UI at size points times the zoom (one object per size, style and zoom).</summary>
+        public static Font Sized(float size, FontStyle style)
+        {
+            string key = (size * Zoom).ToString(System.Globalization.CultureInfo.InvariantCulture) + "/" + (int)style;
+            lock (sized)
+            {
+                Font f;
+                if (!sized.TryGetValue(key, out f)) { f = new Font("Segoe UI", size * Zoom, style); sized[key] = f; }
+                return f;
+            }
+        }
 
         public static int S(int v) { return (int)Math.Round(v * Scale); }
 
@@ -418,5 +469,12 @@ namespace SpacePie
             GetScrollInfo(hwnd, vertical ? 1 : 0, ref si);
             return si;
         }
+    }
+
+    /// <summary>Compares objects by reference (fonts are equal by value, but each zoom's fonts must stay apart).</summary>
+    internal sealed class SameObject<T> : System.Collections.Generic.IEqualityComparer<T> where T : class
+    {
+        public bool Equals(T a, T b) { return ReferenceEquals(a, b); }
+        public int GetHashCode(T o) { return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(o); }
     }
 }

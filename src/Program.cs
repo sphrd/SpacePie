@@ -33,6 +33,10 @@ namespace SpacePie
             Updater.CleanUp();   // the exe replaced by the last update, if any
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+            // Display scale and the saved zoom before any window exists (the splash keeps its own fixed scale); the
+            // screenshot and self-test runs always start at 100 %.
+            using (var g = System.Drawing.Graphics.FromHwnd(IntPtr.Zero)) Theme.Dpi = g.DpiX / 96f;
+            Theme.SetZoom(args.Length >= 1 && args[0] == "--cli" ? 1f : MainForm.SavedZoom());
             // Screenshots of every view (for checks and documentation): SpacePie.exe --cli screenshot <out folder> <path to scan> [--demo]
             // --demo shows the scanned folder as a made-up drive and hides this computer's drives (for README pictures).
             if (args.Length >= 4 && args[0] == "--cli" && args[1] == "screenshot")

@@ -15,7 +15,10 @@ final class PrevNode {
 enum History {
     static let magic: UInt32 = 0x31415344   // "DSA1"
 
+    static var folderOverride: String?          // self-test: its history stays next to its scratch folder
+
     static var folder: String {
+        if let f = folderOverride { return f }
         return AppData.path("history")
     }
 

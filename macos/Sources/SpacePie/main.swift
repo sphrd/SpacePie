@@ -160,6 +160,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(.separator())
         item(edit, "Find Files...", #selector(MainWindowController.menuBarFind(_:)), "f")
 
+        let view = sub("View")
+        item(view, "Actual Size", #selector(MainWindowController.menuBarActualSize(_:)), "0")
+        item(view, "Zoom In", #selector(MainWindowController.menuBarZoomIn(_:)), "+")
+        item(view, "Zoom Out", #selector(MainWindowController.menuBarZoomOut(_:)), "-")
+        // ⌘= also zooms in (the + key without Shift on most keyboards), as in other apps.
+        let zoomEq = NSMenuItem(title: "Zoom In", action: #selector(MainWindowController.menuBarZoomIn(_:)), keyEquivalent: "=")
+        zoomEq.keyEquivalentModifierMask = .command
+        zoomEq.isHidden = true
+        zoomEq.allowsKeyEquivalentWhenHidden = true
+        view.addItem(zoomEq)
+
         let folder = sub("Folder")
         item(folder, "Back", #selector(MainWindowController.menuBarBack(_:)), "[")
         item(folder, "Forward", #selector(MainWindowController.menuBarForward(_:)), "]")
@@ -256,6 +267,7 @@ if args.count >= 2 && args[1] == "--cli" {
         // The self-test keeps its snapshots and hash cache next to its scratch folder.
         Snapshot.folderOverride = dir + "-snapshots"
         HashCache.fileOverride = dir + "-hashes.bin"
+        History.folderOverride = dir + "-history"
         let app = NSApplication.shared
         let d = AppDelegate(initialPath: dir, screenshotDir: nil, selfTestDir: dir)
         app.delegate = d

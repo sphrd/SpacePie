@@ -135,7 +135,8 @@ namespace SpacePie
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
             // The main window sets the same scale later; the splash is up before it, so it reads the DPI itself (from the
             // screen: CreateGraphics would create the handle now and the window would ignore CenterScreen).
-            using (var g = Graphics.FromHwnd(IntPtr.Zero)) Theme.Scale = g.DpiX / 96f;
+            // The splash is a fixed 520x300 layout at the display scale (never zoomed); its own scale, not Theme.Scale.
+            using (var g = Graphics.FromHwnd(IntPtr.Zero)) Px1 = g.DpiX / 96f;
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
             ShowInTaskbar = false;
@@ -157,7 +158,7 @@ namespace SpacePie
 
         static Font Px(float size, FontStyle style)
         {
-            return new Font("Segoe UI", size * Theme.Scale, style, GraphicsUnit.Pixel);
+            return new Font("Segoe UI", size * Px1, style, GraphicsUnit.Pixel);
         }
 
         protected override CreateParams CreateParams
@@ -187,7 +188,8 @@ namespace SpacePie
             base.Dispose(disposing);
         }
 
-        static int S(int v) { return Theme.S(v); }
+        static float Px1 = 1f;
+        static int S(int v) { return (int)Math.Round(v * Px1); }
 
         protected override void OnPaint(PaintEventArgs e)
         {
@@ -243,9 +245,9 @@ namespace SpacePie
                 bool last = i == lines.Length - 1;
                 var icon = new Rectangle(S(37), ly + S(2), S(11), S(11));
                 if (last)
-                    Theme.DrawCometArc(g, RectangleF.Inflate(icon, -S(1), -S(1)), (float)(t * 360 % 360), 270, Math.Max(2f, 2f * Theme.Scale), Theme.ACCENT);
+                    Theme.DrawCometArc(g, RectangleF.Inflate(icon, -S(1), -S(1)), (float)(t * 360 % 360), 270, Math.Max(2f, 2f * Px1), Theme.ACCENT);
                 else
-                    using (var pen = new Pen(Color.FromArgb(160, Theme.ACCENT), Math.Max(1.5f, 1.6f * Theme.Scale)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+                    using (var pen = new Pen(Color.FromArgb(160, Theme.ACCENT), Math.Max(1.5f, 1.6f * Px1)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
                         g.DrawLines(pen, new[] {
                             new PointF(icon.X + icon.Width * 0.1f, icon.Y + icon.Height * 0.55f),
                             new PointF(icon.X + icon.Width * 0.4f, icon.Y + icon.Height * 0.85f),

@@ -13,7 +13,7 @@ namespace SpacePie
     /// </summary>
     internal class AppDialog : Form
     {
-        protected static readonly Font HeadingFont = new Font("Segoe UI", 16f, FontStyle.Bold);
+        protected static Font HeadingFont { get { return Theme.Sized(16f, FontStyle.Bold); } }
         readonly List<RoundButton> buttons = new List<RoundButton>();
 
         protected AppDialog(string caption)
@@ -101,7 +101,7 @@ namespace SpacePie
     {
         readonly AlertIcon icon;
         public string Result;
-        static readonly Font AlertHeading = new Font("Segoe UI", 13f, FontStyle.Bold);
+        static Font AlertHeading { get { return Theme.Sized(13f, FontStyle.Bold); } }
         internal DetailsBox Details;
         internal readonly List<RoundButton> Buttons = new List<RoundButton>();
 
