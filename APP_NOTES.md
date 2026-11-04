@@ -828,3 +828,10 @@ patterns (Part 3) are applied through the WinForms mapping below.
   with This PC / This Mac above the drives (only drives count their used space); Delete list button next to Delete
   permanently; slim closable unreadable-folders line; full text on hover for everything cut off; website refresh.
 - v2.1.1 (2026-11-03): Delete list (amber) left of Delete permanently (red); every list sorts by every column, groups stay together and the order survives refills.
+- v2.2.0 (2026-11-04): self-update installs in place (also from translocated / dmg copies); more cleanup checks
+  (CleanMyMac parity: system caches and logs, every drive's Trash, mail attachments, Xcode data, unavailable simulators,
+  leftovers of removed apps, broken background items, deleted users, disk images, unfinished downloads, old updates,
+  Windows logs, old app versions) with Never suggest this / Ignored (n); unused apps (Last opened, Not opened for 6 months);
+  admin-only deletes after one password prompt (macOS); zoom (Ctrl/Cmd +/-/0); no freeze during live updates or after the
+  instant restart; scan progress by size on disk; small soft logo glow; chart hover grows a section with its subfolders;
+  no unreadable-folders notice when access can't open them; macOS signed with the self-signed "sphrd" certificate.
