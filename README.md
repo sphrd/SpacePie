@@ -223,9 +223,12 @@ onto **Applications**. Or with [Homebrew](https://brew.sh):
 `brew install --cask sphrd/tap/spacepie`. It runs natively on Apple silicon and Intel Macs, macOS 11
 or later.
 
-- **First start:** the app is not signed with an Apple Developer ID, so macOS
-  blocks it the first time. Right-click the app, choose **Open**, then **Open**
-  again (or click **Open Anyway** in **System Settings > Privacy & Security**).
+- **First start:** the app is signed by its author (certificate "sphrd"), not
+  with an Apple Developer ID, so macOS blocks it the first time ("Apple could
+  not verify..."). Click **Done**, then open **System Settings > Privacy &
+  Security**, scroll down and click **Open Anyway** next to SpacePie, and
+  confirm. This is needed once; updates keep the same signature, so they open
+  directly and keep Full Disk Access.
 - **Full Disk Access:** on first start the app asks for it. Turn it on in
   **System Settings > Privacy & Security > Full Disk Access**, then reopen the
   app. Without it, macOS asks separately for every protected folder (Desktop,

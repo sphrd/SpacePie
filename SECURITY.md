@@ -25,8 +25,10 @@ shasum -a 256 SpacePie-macOS.dmg
 
 The built-in updater checks the same hash (published by GitHub for the release file) before it replaces the app.
 
-The files are built from this repository by GitHub Actions (`.github/workflows/build.yml`); they are not code-signed,
-so Windows SmartScreen and macOS Gatekeeper warn the first time. To avoid running a downloaded binary, build it from
+The files are built from this repository by GitHub Actions (`.github/workflows/build.yml`). The macOS app is signed with
+the author's self-signed certificate "sphrd" (the same for every release, so permissions survive updates; check with
+`codesign -dv --verbose=4 /Applications/SpacePie.app`), not an Apple Developer ID; the Windows exe is not signed. So
+Windows SmartScreen and macOS Gatekeeper warn the first time. To avoid running a downloaded binary, build it from
 source (see the README).
 
 ## What the app is careful about

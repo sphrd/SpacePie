@@ -553,8 +553,8 @@
         <details>
           <summary>Why does Windows SmartScreen or macOS warn me on first start?</summary>
           <div class="a">
-            <p>The app is not code-signed yet, so both systems show a warning the first time.</p>
-            <p><strong>Windows:</strong> click <strong>More info</strong>, then <strong>Run anyway</strong>. <strong>macOS:</strong> right-click the app, choose <strong>Open</strong>, then <strong>Open</strong> again (or click <strong>Open Anyway</strong> in System Settings &gt; Privacy &amp; Security).</p>
+            <p>The app is not signed by Microsoft- or Apple-approved certificates yet, so both systems show a warning the first time.</p>
+            <p><strong>Windows:</strong> click <strong>More info</strong>, then <strong>Run anyway</strong>. <strong>macOS:</strong> click <strong>Done</strong>, then <strong>Open Anyway</strong> in System Settings &gt; Privacy &amp; Security, and confirm. Needed once: updates keep the same signature (certificate "sphrd") and keep Full Disk Access.</p>
             <p>To check the download, compare its SHA-256 with the one in the <a href="https://github.com/sphrd/SpacePie/releases/latest">release notes</a>, for example with <code>Get-FileHash .\SpacePie.exe</code> on Windows.</p>
           </div>
         </details>

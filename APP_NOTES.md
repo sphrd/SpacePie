@@ -21,7 +21,7 @@ patterns (Part 3) are applied through the WinForms mapping below.
 | Scanner / deleter / interop (domain, not UI) | `src/Scanner.cs`, `src/Deleter.cs`, `src/Native.cs` |
 | Asset generator (icon `.ico`, 256 px `app.png` for the README, 1280x640 `social-preview.png` for GitHub) | `tools/make_icon.ps1` (run by every build) |
 | macOS app (Swift + AppKit, one target) | `macos/Sources/SpacePie/*.swift`; `Tokens.swift` is generated from `src/Theme.cs` by `macos/gen_tokens.py` (git-ignored) |
-| macOS build | `macos/build.sh` -> universal `SpacePie.app` (arm64 + x86_64), ad-hoc signed, packed into `SpacePie-macOS.dmg` at the repo root; version from `src/Program.cs`, icon from `assets/app-1024.png` |
+| macOS build | `macos/build.sh` -> universal `SpacePie.app` (arm64 + x86_64), signed with the self-signed "sphrd" certificate when present (CI secrets `MACOS_SIGN_P12` / `MACOS_SIGN_PASSWORD`; locally the login keychain), else ad-hoc, packed into `SpacePie-macOS.dmg` at the repo root; version from `src/Program.cs`, icon from `assets/app-1024.png` |
 | Build script | `build.ps1` -> compiles into `bin/`, moves `SpacePie.exe` to the repo root (git-ignored), deletes `bin/` |
 | Version | `src/Program.cs` (`AssemblyVersion` / `AssemblyFileVersion`), `src/app.manifest` |
 | Data folder | `src/AppData.cs`, `macos/Sources/SpacePie/AppData.swift` |
@@ -493,6 +493,13 @@ patterns (Part 3) are applied through the WinForms mapping below.
     Then: "so there should be no dialog even in that case" -> no banner and no dialog at all unless giving access would open
     folders (`unreadFixable`: no Full Disk Access / Windows `UnreadFixable`: not administrator); self-test hooks
     `unreadCanGrant` / `UnreadCanElevate`.
+  - "add the self certificate for mac ... put sphrd as name": ad-hoc signatures pin permissions (Full Disk Access) to one
+    build's cdhash, so every update lost them. Self-signed code-signing certificate CN=sphrd (RSA 3072, to 2036; made with
+    openssl, kept in ~/.spacepie-signing on the owner's Mac, imported into the login keychain, codesign "Always Allow"):
+    designated requirement `identifier "com.sphrd.SpacePie" and certificate leaf = H"d79bd5..."`, the same for every
+    build. CI imports the .p12 into a temporary keychain and build.sh signs with it; a CI step checks the requirement.
+    Gatekeeper still rejects (origin=sphrd): first launch = Open Anyway in Privacy & Security. Not a Developer ID: the owner
+    may get one ($99) later for notarization; Windows signing: SignPath Foundation (free OSS) or Certum Open Source.
 
 ## WinForms mapping of the design language
 

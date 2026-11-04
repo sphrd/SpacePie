@@ -32,8 +32,21 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
-# Ad-hoc signature (no Apple Developer ID): required for Apple Silicon; first launch needs right-click > Open.
-codesign --force --deep --sign - "$APP"
+# Signature. With the self-signed "sphrd" certificate (CI: from the MACOS_SIGN_P12 secret; locally: from the login
+# keychain) every build carries the same identity, so macOS keeps permissions such as Full Disk Access across updates.
+# Without it, an ad-hoc signature (tied to this exact build). Not an Apple Developer ID either way: the first launch of a
+# download needs System Settings > Privacy & Security > Open Anyway.
+IDENT="${MACOS_SIGN_IDENTITY:-}"
+if [ -z "$IDENT" ]; then
+    IDENT=$(security find-identity -p codesigning 2>/dev/null | awk '/"sphrd"/ { print $2; exit }' || true)
+fi
+if [ -n "$IDENT" ]; then
+    codesign --force --deep --timestamp=none --sign "$IDENT" "$APP"
+    echo "Signed with the sphrd certificate ($IDENT)"
+else
+    codesign --force --deep --sign - "$APP"
+    echo "Signed ad-hoc (no sphrd certificate found)"
+fi
 
 # Disk image: the app on the left, a link to Applications on the right, and a background with an arrow from the app to
 # Applications ("Drag to Applications"). dmgbuild (Python) writes the Finder layout (.DS_Store) itself, so no Finder
