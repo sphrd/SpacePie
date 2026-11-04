@@ -176,7 +176,8 @@ highlights its row and the other way round)
   file (`.spacepie`) that **Open scan...** shows again later, read-only, next to the
   drives: to keep a record, compare later, or send it to someone.
 - **Updates itself:** it checks for a new version at startup and installs it in
-  a click.
+  a click, in place (on macOS also when it was opened from the disk image: then
+  it installs into Applications).
 - **About** lists the keyboard shortcuts and how to get the fastest, most
   complete scans.
 - Dark, flat, rounded design, with calm animations only while something is
@@ -243,6 +244,9 @@ or later.
 | Search files | <kbd>Ctrl</kbd>+<kbd>F</kbd> | <kbd>⌘</kbd><kbd>F</kbd> |
 | Copy path | <kbd>Ctrl</kbd>+<kbd>C</kbd> | right-click menu |
 | Export | | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>E</kbd> |
+| Open a saved scan | | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>O</kbd> |
+| Choose a folder to scan | | <kbd>⌘</kbd><kbd>O</kbd> |
+| Show in Finder | | <kbd>⇧</kbd><kbd>⌘</kbd><kbd>R</kbd> |
 | About | <kbd>F1</kbd> | app menu |
 
 ### Privacy
@@ -251,7 +255,7 @@ Nothing leaves your computer. The only network request is the update check
 against this repository's releases. Kept locally only: the last scan of each
 drive or folder (folder names and sizes, to show what changed), one small copy
 per day and the totals of every scan (for the Changes timeline), the full scan of
-the last 4 drives (for the instant restart), and the content hashes of files
+the most recently scanned drives (for the instant restart: 4 on Windows, 10 drives or folders on macOS), and the content hashes of files
 compared for duplicates (to skip unchanged files next time). Everything it reads,
 keeps and changes, and how to check it: [PRIVACY.md](PRIVACY.md).
 

@@ -22,7 +22,8 @@ namespace SpacePie
             var sw = Stopwatch.StartNew();
             Snapshot.Info info = null;
             SetScanning(true, "Opening the last scan of " + r.Path + "...");
-            try { await RunThread(() => info = Snapshot.Load(r.Path)); } catch (Exception) { }
+            try { await RunThread(() => info = Snapshot.Load(r.Path)); }
+            catch (Exception ex) { fastStartNote = "The saved scan could not be read (" + ex.Message.Split('\n')[0] + "); scanned again."; }
             if (info == null) { SetScanning(false, null); return false; }
             double loaded = sw.Elapsed.TotalSeconds;
             r.Node = info.Node;

@@ -299,7 +299,7 @@ final class ListCell: NSTableCellView {
                 tri.fill()
             }
             if it.check >= 0 {
-                ListCell.drawCheck(NSRect(x: ListCell.checkX(it), y: ((b.height - 14) / 2).rounded(), width: 14, height: 14), it.check, strong: strong)
+                ListCell.drawCheck(NSRect(x: ListCell.checkX(it), y: ((b.height - ListCell.checkSize) / 2).rounded(), width: ListCell.checkSize, height: ListCell.checkSize), it.check, strong: strong)
             }
             if !it.isSummary && !it.isGroup {
                 let ir = NSRect(x: ListCell.iconX(it), y: (b.height - 16) / 2, width: 16, height: 16)
@@ -340,7 +340,7 @@ final class ListCell: NSTableCellView {
     /// indented by their depth (with room for the chevron whether or not they can expand).
     static func iconX(_ it: ItemInfo) -> CGFloat {
         if it.treeRow { return ListCell.checkX(it) + indent(it) }
-        if it.check >= 0 { return ListCell.checkX(it) + 14 + 6 }
+        if it.check >= 0 { return ListCell.checkX(it) + checkSize + 6 }
         if it.chevron >= 0 { return ListCell.checkX(it) }                    // after the chevron
         if let g = it.groupOf, g.chevron >= 0 { return 42 }                  // under an opened head with a chevron
         return it.groupOf != nil ? 6 + 18 : 6
@@ -365,7 +365,10 @@ final class ListCell: NSTableCellView {
     /// x of the checkbox in the name column: a head next to its chevron, its members indented by 18 px.
     static func checkX(_ it: ItemInfo) -> CGFloat { it.groupOf != nil ? 42 : 24 }
 
-    /// 14 px rounded checkbox: unchecked = muted outline, checked = accent with a check mark, mixed = accent with a dash.
+    /// Side of a checkbox (as on Windows).
+    static let checkSize: CGFloat = 16
+
+    /// 16 px rounded checkbox: unchecked = muted outline, checked = accent with a check mark, mixed = accent with a dash.
     /// On a selected (accent) row it is drawn in bg / fg so it stays visible.
     static func drawCheck(_ r: NSRect, _ state: Int, strong: Bool) {
         if state == 0 {
@@ -379,12 +382,12 @@ final class ListCell: NSTableCellView {
         NSBezierPath(roundedRect: r, xRadius: 3, yRadius: 3).fill()
         let m = NSBezierPath()
         if state == 1 {
-            m.move(to: NSPoint(x: r.minX + 3.5, y: r.midY))
-            m.line(to: NSPoint(x: r.minX + 6, y: r.maxY - 3.5))
-            m.line(to: NSPoint(x: r.maxX - 3, y: r.minY + 3.5))
+            m.move(to: NSPoint(x: r.minX + 4, y: r.midY))
+            m.line(to: NSPoint(x: r.minX + 7, y: r.maxY - 4))
+            m.line(to: NSPoint(x: r.maxX - 3.5, y: r.minY + 4))
         } else {
-            m.move(to: NSPoint(x: r.minX + 3.5, y: r.midY))
-            m.line(to: NSPoint(x: r.maxX - 3.5, y: r.midY))
+            m.move(to: NSPoint(x: r.minX + 4, y: r.midY))
+            m.line(to: NSPoint(x: r.maxX - 4, y: r.midY))
         }
         m.lineWidth = 2
         m.lineCapStyle = .round

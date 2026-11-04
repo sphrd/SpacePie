@@ -79,7 +79,13 @@ namespace SpacePie
             }
             catch (Exception ex)
             {
-                try { System.IO.File.WriteAllText("SpacePie_error.txt", ex.ToString()); } catch (Exception) { }
+                // Next to where it was started (as documented); when that folder can't be written to, in the app's data folder.
+                try { System.IO.File.WriteAllText("SpacePie_error.txt", ex.ToString()); }
+                catch (Exception)
+                {
+                    try { System.IO.Directory.CreateDirectory(AppData.Dir); System.IO.File.WriteAllText(AppData.Path("SpacePie_error.txt"), ex.ToString()); }
+                    catch (Exception) { }
+                }
                 Console.Error.WriteLine("Failed: " + ex.Message.Split('\n')[0]);
                 return 1;
             }

@@ -397,6 +397,29 @@ patterns (Part 3) are applied through the WinForms mapping below.
   (Suggestions, Apps, System, Duplicates) move whole groups and sort members inside (`KeepMemberOrder` for Duplicates:
   the kept newest copy stays first); `UserSorted` makes `SetRows` keep the chosen order on every refill. "Can free"
   sorts by the chart value (key `free`), System "Action" by `Category`. No release.
+- 2026-11-04: "fix all. under Agents there is an agent for app design, that needs to be in sync with style and mode of
+  functions added to the app, and vice versa. recheck mac app here as its the macos machine, why the updater doesnt
+  automatically install the app in place_ now it asked me to go to github releases and fownload and myself."
+  - Updater (macOS) root cause: before downloading it probed only the folder of the *running* bundle. A copy run from
+    the disk image, or a downloaded copy macOS runs translocated (a randomised read-only copy when the app was not
+    moved with Finder), failed the probe and got `Can't update here` with **Open download page**; no download was ever
+    attempted (no hdiutil/dmg trace in the log). Now `Updater.installTarget()`: the original bundle of a translocated
+    copy (`SecTranslocateIsTranslocatedURL` / `SecTranslocateCreateOriginalPathForURL` via dlsym), else the running
+    bundle when its folder is writable, else `/Applications` (or `~/Applications`); the staged copy loses
+    `com.apple.quarantine`; an EPERM move names System Settings > App Management; Restart now opens the copy installed.
+    `--cli update-install <dmg>` runs the install step; CI tests the swap on a copy of the built app. Verified here
+    (macOS 27): in place from /Applications and from a mounted dmg into /Applications; translocation itself can't be
+    created by a test process (EPERM), so that branch is checked only by the API's "not translocated" answer.
+  - Docs matched to code: duplicates use MD5 (PRIVACY said SHA-256); instant-restart scans kept: Windows 4 drives,
+    macOS 10 drives/folders (README/PRIVACY/site said 4 for both). Chart switch tooltip "pie chart" (was "ring chart").
+  - Agent sync (app follows agent): macOS prompts get **Copy list** (bottom left) like Windows; macOS checkboxes 16 px
+    (were 14); toolbar tooltips with shortcuts on Choose... (⌘O), Scan (Return), Show in Finder (⇧⌘R), Export (⇧⌘E),
+    Open scan (⇧⌘O); Windows: a failed saved-scan load is named in the status line; the CLI error file falls back to
+    the data folder when the working folder can't be written. Agent follows app: red Delete permanently, Back/Forward
+    and Open scan in the toolbar, current prompt wording, Files/Changes/System/Duplicates details, context menus,
+    shortcuts, macOS font mapping (+3 pt), updater install target, self-test list.
+  - Gotcha: a self-test scratch folder under a hidden folder (e.g. `~/.x`) fails the node_modules checks by design
+    (dot-folders are never suggested); use a normal folder.
 
 ## WinForms mapping of the design language
 

@@ -12,7 +12,10 @@ struct ReleaseInfo {
 
 /// Self-update from the GitHub releases of this repository (same contract as the Windows app): find the latest
 /// release, download SpacePie-macOS.dmg, verify size and the SHA-256 digest GitHub publishes, copy the app
-/// out of the image next to the running one and swap the bundles. The old bundle is removed at the next start.
+/// out of the image next to the installed one and swap the bundles. The old bundle is removed at the next start.
+/// Where it goes (installTarget): the app's own place; when macOS runs a downloaded app from a randomised read-only
+/// copy (App Translocation), the place the user put it; when the app runs from the disk image or another read-only
+/// place, the Applications folder.
 enum Updater {
     static let repo = "sphrd/SpacePie"
     static let assetName = "SpacePie-macOS.dmg"
@@ -72,14 +75,52 @@ enum Updater {
         return try result.get()
     }
 
-    /// The folder holding the .app must be writable for the swap (not the case when run from the disk image or when
-    /// macOS runs a downloaded app from a randomised read-only location).
-    static func folderWritable() -> Bool {
-        let probe = (bundlePath as NSString).deletingLastPathComponent + "/.spacepie-write-test-\(UUID().uuidString)"
+    /// True when a file can be created in folder (probed by creating one).
+    static func folderWritable(_ folder: String) -> Bool {
+        let probe = folder + "/.spacepie-write-test-\(UUID().uuidString)"
         guard FileManager.default.createFile(atPath: probe, contents: Data()) else { return false }
         try? FileManager.default.removeItem(atPath: probe)
         return true
     }
+
+    /// Where the running bundle really is. A downloaded app that was not moved into place with Finder runs from a
+    /// randomised read-only copy (App Translocation, /private/var/folders/.../AppTranslocation/...); the user's copy is
+    /// the original. nil when the app is not translocated.
+    static func translocationOriginal(_ path: String) -> String? {
+        typealias IsFn = @convention(c) (CFURL, UnsafeMutablePointer<Bool>, UnsafeMutablePointer<Unmanaged<CFError>?>?) -> Bool
+        typealias OriginalFn = @convention(c) (CFURL, UnsafeMutablePointer<Unmanaged<CFError>?>?) -> Unmanaged<CFURL>?
+        guard let h = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_NOW) else { return nil }
+        let url = URL(fileURLWithPath: path) as CFURL
+        if let s = dlsym(h, "SecTranslocateIsTranslocatedURL") {
+            var on = false
+            if !unsafeBitCast(s, to: IsFn.self)(url, &on, nil) || !on { return nil }
+        } else if !path.contains("/AppTranslocation/") { return nil }
+        guard let s = dlsym(h, "SecTranslocateCreateOriginalPathForURL"),
+              let original = unsafeBitCast(s, to: OriginalFn.self)(url, nil)?.takeRetainedValue() else { return nil }
+        let p = (original as URL).path
+        return p.isEmpty || p == path ? nil : p
+    }
+
+    /// The app as the user installed it (the original when macOS translocated it).
+    static var installedPath: String { translocationOriginal(bundlePath) ?? bundlePath }
+
+    /// Where Update now installs the new version: the installed app when its folder can be written to; else (the app
+    /// runs from the disk image or a read-only place) SpacePie.app in /Applications, or in ~/Applications when
+    /// /Applications can't be written to. nil when there is no such place.
+    static func installTarget() -> String? {
+        let own = installedPath
+        let ownFolder = (own as NSString).deletingLastPathComponent
+        if folderWritable(ownFolder) { return own }
+        let name = (own as NSString).lastPathComponent.hasSuffix(".app") ? (own as NSString).lastPathComponent : "SpacePie.app"
+        if folderWritable("/Applications") { return "/Applications/" + name }
+        let user = PathUtil.home + "/Applications"
+        try? FileManager.default.createDirectory(atPath: user, withIntermediateDirectories: true)
+        if folderWritable(user) { return user + "/" + name }
+        return nil
+    }
+
+    /// True when the update goes to another place than the app that runs (it runs from the disk image or a read-only place).
+    static func installsElsewhere(_ target: String) -> Bool { !PathUtil.same(target, installedPath) }
 
     /// Downloads and verifies the disk image; returns its local path.
     static func download(_ r: ReleaseInfo, progress: @escaping (Int64, Int64) -> Void, cancelled: @escaping () -> Bool) throws -> String {
@@ -105,37 +146,58 @@ enum Updater {
         return target
     }
 
-    /// Mounts the image, copies the app next to the running one, swaps the bundles, unmounts.
-    static func install(_ dmg: String) throws {
+    /// Mounts the image, copies the app next to the target (installTarget()), swaps the bundles (a target that does not
+    /// exist yet is simply created), unmounts.
+    static func install(_ dmg: String, to target: String) throws {
+        let fm = FileManager.default
         let mount = NSTemporaryDirectory() + "spacepie-update-mount-\(UUID().uuidString)"
-        try FileManager.default.createDirectory(atPath: mount, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: mount, withIntermediateDirectories: true)
         try run("/usr/bin/hdiutil", ["attach", dmg, "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount])
-        defer { _ = try? run("/usr/bin/hdiutil", ["detach", mount, "-force"]); try? FileManager.default.removeItem(atPath: mount) }
-        guard let appName = try FileManager.default.contentsOfDirectory(atPath: mount).first(where: { $0.hasSuffix(".app") }) else {
+        defer { _ = try? run("/usr/bin/hdiutil", ["detach", mount, "-force"]); try? fm.removeItem(atPath: mount) }
+        guard let appName = try fm.contentsOfDirectory(atPath: mount).first(where: { $0.hasSuffix(".app") }) else {
             throw NSError(domain: "update", code: 7, userInfo: [NSLocalizedDescriptionKey: "no app found in the download"])
         }
-        let app = bundlePath, staged = app + ".new", old = app + ".old"
-        try? FileManager.default.removeItem(atPath: staged)
+        let staged = target + ".new", old = target + ".old"
+        try? fm.removeItem(atPath: staged)
         try run("/usr/bin/ditto", [mount + "/" + appName, staged])
-        try? FileManager.default.removeItem(atPath: old)
-        try FileManager.default.moveItem(atPath: app, toPath: old)
-        do { try FileManager.default.moveItem(atPath: staged, toPath: app) }
-        catch { try? FileManager.default.moveItem(atPath: old, toPath: app); throw error }
+        // The new copy must open without Gatekeeper's prompt and never be translocated.
+        _ = try? run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", staged])
+        try? fm.removeItem(atPath: old)
+        let existed = PathUtil.exists(target)
+        do {
+            if existed { try fm.moveItem(atPath: target, toPath: old) }
+            do { try fm.moveItem(atPath: staged, toPath: target) }
+            catch { if existed { try? fm.moveItem(atPath: old, toPath: target) }; throw error }
+        } catch {
+            try? fm.removeItem(atPath: staged)
+            throw explain(error, target)
+        }
     }
 
-    /// Removes leftovers of an earlier update.
+    /// macOS's App Management protection refuses to let an app change another app's bundle (EPERM): say where to allow it.
+    private static func explain(_ error: Error, _ target: String) -> Error {
+        let e = error as NSError
+        let posix = (e.userInfo[NSUnderlyingErrorKey] as? NSError).flatMap { $0.domain == NSPOSIXErrorDomain ? $0.code : nil }
+        guard e.code == NSFileWriteNoPermissionError || posix == Int(EPERM) || posix == Int(EACCES) else { return error }
+        return NSError(domain: "update", code: 8, userInfo: [NSLocalizedDescriptionKey:
+            "macOS did not let SpacePie replace \(target) -- allow SpacePie in System Settings > Privacy & Security > App Management, then press Update now again"])
+    }
+
+    /// Removes leftovers of an earlier update (next to the app as installed, also when it runs translocated).
     static func cleanUp() {
         DispatchQueue.global(qos: .utility).async {
-            for p in [bundlePath + ".old", bundlePath + ".new", NSTemporaryDirectory() + "SpacePie-update.dmg"] {
+            let app = installedPath
+            for p in [app + ".old", app + ".new", NSTemporaryDirectory() + "SpacePie-update.dmg"] {
                 try? FileManager.default.removeItem(atPath: p)
             }
         }
     }
 
-    static func relaunch() {
+    /// Starts the installed copy at path and quits this one.
+    static func relaunch(_ path: String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        p.arguments = ["-n", bundlePath]
+        p.arguments = ["-n", path]
         try? p.run()
         NSApp.terminate(nil)
     }
@@ -251,11 +313,12 @@ final class UpdateController {
 
     private func startUpdate() {
         guard let r = release else { return }
-        if !Updater.folderWritable() {
-            show().setStep("Can't update here", "This copy can't replace itself (move it to Applications first) -- or download the update from the release page.",
+        guard let target = Updater.installTarget() else {
+            show().setStep("Can't update here", "Neither this app's folder nor an Applications folder can be written to, so the update can't be installed -- download it from the release page.",
                            [("Open download page", openPage), ("Later", closeWindow)])
             return
         }
+        let elsewhere = Updater.installsElsewhere(target)
         downloading = true; cancelFlag = false
         let label = "Version \(Updater.short(r.version))"
         let w = show()
@@ -271,7 +334,8 @@ final class UpdateController {
                     DispatchQueue.main.async { self.window?.setProgress(t, f) }
                 }, cancelled: { self.cancelFlag })
                 if self.cancelFlag { throw NSError(domain: "update", code: -999) }
-                try Updater.install(file)
+                DispatchQueue.main.async { self.window?.setProgress("\(label): installing...", 1) }
+                try Updater.install(file, to: target)
             }
             DispatchQueue.main.async {
                 self.downloading = false
@@ -284,15 +348,20 @@ final class UpdateController {
                     self.show().setStep("Update failed", "\(e.localizedDescription). You can download it from the release page.",
                                         [("Open download page", self.openPage), ("Close", self.closeWindow)])
                 case .success:
-                    self.show().setStep("Update installed", "Version \(Updater.short(r.version)) is installed -- restart the app to use it.",
+                    self.installed = target
+                    let place = elsewhere ? " in \((target as NSString).deletingLastPathComponent)" : ""
+                    self.show().setStep("Update installed", "Version \(Updater.short(r.version)) is installed\(place) -- restart the app to use it.",
                                         [("Restart now", self.restart), ("Later", self.closeWindow)])
                 }
             }
         }
     }
 
+    /// The copy installed by the last update (started by Restart now).
+    private var installed: String?
+
     private func restart() {
         if !canRestart() { window?.setProgress("Wait until the current delete has finished, then restart.", -1); return }
-        Updater.relaunch()
+        Updater.relaunch(installed ?? Updater.installedPath)
     }
 }

@@ -289,7 +289,9 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             self.pathField.frame = NSRect(x: 10, y: (b.height - fh) / 2, width: b.width - 44, height: fh)
         }
         drivesButton.onPress = { [unowned self] in self.showDrivesMenu() }
-        btnScan.tip = "Analyze the drive or folder"
+        btnBrowse.tip = "Choose a folder to analyze (⌘O)"
+        btnScan.tip = "Analyze the drive or folder (Return)"
+        btnFinder.tip = "Show the selected item in Finder (⇧⌘R)"
         btnAccess.tip = "Let the app read every folder (System Settings > Privacy & Security > Full Disk Access)"
         btnUp.tip = "Go to the parent folder (⌘↑)"
         btnBack.tip = "Back to the folder shown before (⌘[)"
@@ -298,8 +300,8 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         btnAddList.tip = "Collect the selected items in the delete list; review them there, then delete them together (⌘D)"
         btnDelete.tip = "Permanently delete the selected items, bypassing the Trash (⇧⌘D or ⌘⌫)"
         btnBasket.tip = "Show the delete list: the items collected with Add to delete list, to review and delete together"
-        btnExport.tip = "Save the scan as an HTML report, a CSV file, or a scan file to open again later"
-        btnOpenScan.tip = "Open a scan saved with Export (.\(Snapshot.scanFileExtension)): browse it read-only, next to the drives"
+        btnExport.tip = "Save the scan as an HTML report, a CSV file, or a scan file to open again later (⇧⌘E)"
+        btnOpenScan.tip = "Open a scan saved with Export (.\(Snapshot.scanFileExtension)): browse it read-only, next to the drives (⇧⌘O)"
         measure.tip = "Size: file lengths, as Finder shows them. Size on disk: the space really used (blocks, files not downloaded from iCloud)"
         measure.selectedIndex = DirNode.onDisk ? 1 : 0
         measure.onChange = { [unowned self] i in self.setMeasure(i == 1) }
@@ -347,7 +349,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         // Pie or treemap, top right of the chart pane (the title leaves room for it); the choice is remembered.
         chartMode.font = Theme.font9
         chartMode.backFill = T.SURFACE
-        chartMode.tip = "Show the open list as a ring chart or as a treemap (rectangles sized by space)"
+        chartMode.tip = "Show the open list as a pie chart or as a treemap (rectangles sized by space)"
         chart.treemap = UserDefaults.standard.bool(forKey: MainWindowController.treemapKey)
         chartMode.selectedIndex = chart.treemap ? 1 : 0
         chartMode.onChange = { [unowned self] i in

@@ -233,7 +233,7 @@ namespace SpacePie
                 }
                 catch (Exception) { }
             };
-            tips.SetToolTip(chartMode, "Show the open list as a ring chart or as a treemap (rectangles sized by space)");
+            tips.SetToolTip(chartMode, "Show the open list as a pie chart or as a treemap (rectangles sized by space)");
             chart.Controls.Add(chartMode);
             chart.Resize += (s, e) =>
             {

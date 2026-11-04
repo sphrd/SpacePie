@@ -238,6 +238,11 @@ if args.count == 2 && args[1] == "--splash" {
 }
 if args.count >= 2 && args[1] == "--cli" {
     if args.count == 4 && args[2] == "scan" { exit(headlessScan(args[3])) }
+    if args.count == 4 && args[2] == "update-install" {
+        // Installs the app from a downloaded SpacePie-macOS.dmg where Update now would (checks and CI).
+        guard let target = Updater.installTarget() else { print("failed: no writable place to install to"); exit(1) }
+        do { try Updater.install(args[3], to: target); print("installed to \(target)"); exit(0) } catch { print("failed: \(error.localizedDescription)"); exit(1) }
+    }
     if args.count == 5 && args[2] == "screenshot" {
         let app = NSApplication.shared
         let d = AppDelegate(initialPath: args[4], screenshotDir: args[3])
@@ -261,6 +266,7 @@ if args.count >= 2 && args[1] == "--cli" {
     print("Usage: SpacePie --cli scan <folder>")
     print("       SpacePie --cli screenshot <out-folder> <folder>")
     print("       SpacePie --cli selftest <scratch-folder>")
+    print("       SpacePie --cli update-install <SpacePie-macOS.dmg>")
     exit(2)
 }
 

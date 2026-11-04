@@ -614,7 +614,7 @@ extension MainWindowController {
         let x = pt.x - p.table.rect(ofColumn: ci).minX
         if it.chevron >= 0 && x >= ListCell.chevronX - 3 && x < ListCell.chevronX + 17 { expandApps([it], nil); return true }
         let cx = ListCell.checkX(it)
-        if it.check >= 0 && x >= cx - 4 && x < cx + 18 { toggleAppChecks([it]); return true }
+        if it.check >= 0 && x >= cx - 4 && x < cx + ListCell.checkSize + 4 { toggleAppChecks([it]); return true }
         return false
     }
 

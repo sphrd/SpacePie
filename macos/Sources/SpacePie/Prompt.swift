@@ -109,7 +109,24 @@ final class PromptDialog: AppDialog {
         for (i, b) in buttons.enumerated() { items.append((b.0, { [weak self] in self?.finish(i) })) }
         setButtons(items, kinds: buttons.map { $0.1 })
         if defaultIndex < self.buttons.count { self.buttons[defaultIndex].ring = true }
+        // Copy list: every listed item to the clipboard (bottom left, as on Windows).
+        if !details.isEmpty {
+            let copy = RoundButton("Copy list", .secondary)
+            copy.tip = "Copy every item of the list to the clipboard"
+            copy.onClick = { [weak copy] in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(details.joined(separator: "\n"), forType: .string)
+                copy?.title = "Copied"
+            }
+            let s = copy.preferredSize
+            copy.frame = NSRect(x: 24, y: root.bounds.height - 20 - s.height, width: s.width, height: s.height)
+            root.addSubview(copy)
+            copyButton = copy
+        }
     }
+
+    /// Copy list (prompts with a list of items).
+    private(set) var copyButton: RoundButton?
 
     private func measure(_ s: String, _ font: NSFont) -> CGFloat {
         ceil((s as NSString).boundingRect(with: NSSize(width: contentWidth - 4, height: 10000), options: [.usesLineFragmentOrigin, .usesFontLeading],

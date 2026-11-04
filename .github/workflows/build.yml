@@ -147,6 +147,17 @@ jobs:
           echo "$out" | grep -q 'bytes'
           /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "macos/build/SpacePie.app/Contents/Info.plist"
 
+      - name: Self-update install (dmg -> bundle swap, as Update now does)
+        run: |
+          D="$RUNNER_TEMP/update-test"
+          rm -rf "$D"; mkdir -p "$D"
+          ditto macos/build/SpacePie.app "$D/SpacePie.app"
+          out=$("$D/SpacePie.app/Contents/MacOS/SpacePie" --cli update-install "$PWD/SpacePie-macOS.dmg")
+          echo "$out"
+          echo "$out" | grep -q "installed to $D/SpacePie.app"
+          test -d "$D/SpacePie.app.old" && test -x "$D/SpacePie.app/Contents/MacOS/SpacePie" && test ! -e "$D/SpacePie.app.new"
+          rm -rf "$D"
+
       - name: End-to-end self-test (live updates, delete list, Trash, duplicates, export)
         timeout-minutes: 5
         run: |

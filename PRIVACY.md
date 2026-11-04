@@ -7,7 +7,7 @@ analytics and no advertising.
 
 - **File and folder names, sizes and dates** of the drives and folders you scan, to show where the space went.
   It never reads the contents of a file, except:
-  - **Duplicates:** files of the same size are read to compare their content (SHA-256). Only the hashes are kept.
+  - **Duplicates:** files of the same size are read to compare their content (an MD5 hash of each file, used only to find identical files). Only the hashes are kept.
   - **Preview** (Windows, Space): the first 64 KB of a text file you choose to preview, shown in the window and not
     stored. Pictures come from the operating system's own thumbnails.
 - **Installed apps** (Apps tab): the uninstall entries in the Windows registry and the Microsoft Store package list,
@@ -27,7 +27,7 @@ Windows: `%LOCALAPPDATA%\SpacePie`. macOS: `~/Library/Application Support/SpaceP
 | What | Why | How much |
 |---|---|---|
 | `history\` | folder names and sizes of the last scan of each drive or folder, a small copy per day (folders of 4 MB or more), and the totals of every scan | the 10 most recently scanned drives/folders; 12 daily copies and 1,000 totals each |
-| `snapshots\` | the full scan of each drive when the app closes, for an instant restart | the 4 most recent drives |
+| `snapshots\` | the full scan of each drive, for an instant restart (Windows: saved when the app closes; macOS: after each full scan) | Windows: the 4 most recent drives; macOS: the 10 most recently scanned drives or folders |
 | `hashes.bin` | content hashes of files compared for duplicates | 2 million files, 90 days |
 | `apps.bin` / `apps.plist` | the list of installed apps, so the Apps tab shows at once | one list |
 | `registry-backups\` (Windows) | a `.reg` backup of every registry key the app removes | until you delete them |

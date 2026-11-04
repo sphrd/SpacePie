@@ -7,7 +7,7 @@ using System.Windows.Forms;
 namespace SpacePie
 {
     /// <summary>
-    /// Treemap view of the same slices as the ring chart: one rectangle per slice, area in true proportion (squarified so
+    /// Treemap view of the same slices as the pie chart: one rectangle per slice, area in true proportion (squarified so
     /// rectangles stay close to square). Folder slices hold their subfolders, two levels deep (like the outer rings).
     /// Hover, click (open a folder) and the link to the list work as for the rings; the area below the map shows the
     /// hovered item, and "Up" goes to the parent folder.

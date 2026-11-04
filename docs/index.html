@@ -445,7 +445,7 @@
         <div class="panel">
           <h3>What it reads and sends</h3>
           <ul>
-            <li><strong>Names, sizes and dates</strong> of what you scan. It never reads the contents of a file, except to compare duplicates (only SHA-256 hashes are kept) and the first 64&nbsp;KB of a text file you choose to preview on Windows.</li>
+            <li><strong>Names, sizes and dates</strong> of what you scan. It never reads the contents of a file, except to compare duplicates (only content hashes are kept) and the first 64&nbsp;KB of a text file you choose to preview on Windows.</li>
             <li><strong>Online-only cloud files</strong> are never opened, previewed or downloaded.</li>
             <li><strong>The only network requests</strong> go to GitHub, for updates: at start and when you press Check for updates, and the release file when you press Update now. Nothing about your files or your computer is sent.</li>
           </ul>
@@ -453,7 +453,7 @@
         <div class="panel">
           <h3>What it keeps and changes</h3>
           <ul>
-            <li><strong>Kept locally only:</strong> scan history for the Changes timeline, the full scan of the last 4 drives for the instant restart, duplicate hashes and the list of installed apps, in <code>%LOCALAPPDATA%\SpacePie</code> or <code>~/Library/Application Support/SpacePie</code>. Delete the folder to remove all of it.</li>
+            <li><strong>Kept locally only:</strong> scan history for the Changes timeline, the full scan of the most recently scanned drives for the instant restart, duplicate hashes and the list of installed apps, in <code>%LOCALAPPDATA%\SpacePie</code> or <code>~/Library/Application Support/SpacePie</code>. Delete the folder to remove all of it.</li>
             <li><strong>Changes nothing unless you ask:</strong> deleting, uninstalling, the System view's clean-up actions, replacing duplicates with links, or turning "Always start as administrator" on or off.</li>
             <li><strong>Check it yourself:</strong> every web address and network call is in the open source. <a href="https://github.com/sphrd/SpacePie/blob/main/PRIVACY.md">Read PRIVACY.md</a>.</li>
           </ul>
