@@ -50,6 +50,22 @@ final class PromptDialog: AppDialog {
     /// The prompts on screen (kept alive while they show).
     private(set) static var open: [PromptDialog] = []
 
+    /// s shortened in the middle with "..." to fit width in font (unchanged when it fits).
+    static func fitMiddle(_ s: String, _ font: NSFont, _ width: CGFloat) -> String {
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        if width <= 0 || (s as NSString).size(withAttributes: attrs).width <= width { return s }
+        let chars = Array(s)
+        var lo = 0, hi = chars.count       // characters kept
+        while lo < hi {
+            let mid = (lo + hi + 1) / 2
+            let head = mid * 2 / 5, tail = mid - head
+            let t = String(chars[0..<head]) + "..." + String(chars[(chars.count - tail)...])
+            if (t as NSString).size(withAttributes: attrs).width <= width { lo = mid } else { hi = mid - 1 }
+        }
+        let head = lo * 2 / 5, tail = lo - head
+        return String(chars[0..<head]) + "..." + String(chars[(chars.count - tail)...])
+    }
+
     convenience init(icon: PromptIcon, heading: String, text: String, warning: String = "", details: [String] = [],
                      buttons: [(String, ButtonKind)], defaultIndex: Int = 0, cancelIndex: Int? = nil) {
         self.init(title: "SpacePie")
@@ -77,7 +93,7 @@ final class PromptDialog: AppDialog {
             box.panelFill = T.SURFACE; box.outline = T.BORDER; box.backFill = T.BG
             let scroll = NSScrollView(frame: box.bounds.insetBy(dx: 2, dy: 2))
             scroll.hasVerticalScroller = true
-            scroll.hasHorizontalScroller = true
+            scroll.hasHorizontalScroller = false
             scroll.autohidesScrollers = true
             scroll.scrollerStyle = .overlay
             scroll.scrollerKnobStyle = .light
@@ -94,7 +110,11 @@ final class PromptDialog: AppDialog {
             tv.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
             tv.textContainer?.widthTracksTextView = false
             tv.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-            tv.textStorage?.setAttributedString(NSAttributedString(string: details.joined(separator: "\n"),
+            // Every line fits the box: a long one is shortened in the middle, so its start and its end (the reason or
+            // size) stay readable. Copy list copies the full lines.
+            let fitWidth = scroll.contentSize.width - 2 * tv.textContainerInset.width - 16
+            let shown = details.map { PromptDialog.fitMiddle($0, font, fitWidth) }
+            tv.textStorage?.setAttributedString(NSAttributedString(string: shown.joined(separator: "\n"),
                                                                    attributes: [.font: font, .foregroundColor: T.FG]))
             tv.selectedTextAttributes = [.backgroundColor: T.ACCENT, .foregroundColor: T.BG]
             scroll.documentView = tv

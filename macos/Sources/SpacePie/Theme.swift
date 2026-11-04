@@ -105,11 +105,37 @@ enum Theme {
         NSBezierPath(ovalIn: NSRect(x: hp.x - d / 2, y: hp.y - d / 2, width: d, height: d)).fill()
     }
 
-    /// The brand logo: drawLogo with the soft accent glow behind it (as on the splash); glowAlpha ~0.18 on bg, ~0.13 on surface.
-    static func drawLogoGlow(in circle: NSRect, alpha: CGFloat = 1, glowAlpha: CGFloat = 0.18, glowFactor: CGFloat = 1.15) {
+    /// The glow reaches at most this many logo radii from the centre (owner: "maximum radius of the entire glow can be
+    /// 150% of logo radius").
+    static let glowReach: CGFloat = 1.5
+
+    /// The brand logo with a small soft accent glow around it: strongest (glowAlpha) at the logo's edge, gone at
+    /// glowReach x its radius. Within limit (the view's bounds) the glow ends earlier where there is less room, so it
+    /// is never cut off with a hard edge. glowAlpha ~0.22 on bg, ~0.16 on surface.
+    static func drawLogoGlow(in circle: NSRect, alpha: CGFloat = 1, glowAlpha: CGFloat = 0.22, limit: NSRect? = nil) {
         guard alpha > 0 else { return }
-        drawGlow(at: NSPoint(x: circle.midX, y: circle.midY), radius: circle.width * glowFactor, color: T.ACCENT, alpha: glowAlpha * min(1, alpha))
+        let c = NSPoint(x: circle.midX, y: circle.midY), r = circle.width / 2
+        var reach = r * glowReach
+        if let l = limit { reach = min(reach, c.x - l.minX, l.maxX - c.x, c.y - l.minY, l.maxY - c.y) }
+        if reach > r + 1 { drawRimGlow(at: c, inner: r, outer: reach, color: T.ACCENT, alpha: glowAlpha * min(1, alpha)) }
         drawLogo(in: circle, alpha: alpha)
+    }
+
+    /// Glow around a circle of radius inner: alpha at inner, easing to fully transparent at outer (nothing beyond).
+    static func drawRimGlow(at center: NSPoint, inner: CGFloat, outer: CGFloat, color: NSColor, alpha: CGFloat) {
+        guard outer > inner, outer >= 1 else { return }
+        let k = inner / outer
+        var colors: [NSColor] = [color.withAlphaComponent(alpha)]
+        var locs: [CGFloat] = [0]
+        for i in 0...8 {
+            let u = CGFloat(i) / 8                       // 0 at the logo's edge, 1 at the glow's end
+            colors.append(color.withAlphaComponent(alpha * (1 - u) * (1 - u)))
+            locs.append(k + (1 - k) * u)
+        }
+        locs.withUnsafeMutableBufferPointer { b in
+            NSGradient(colors: colors, atLocations: b.baseAddress!, colorSpace: .sRGB)?
+                .draw(fromCenter: center, radius: 0, toCenter: center, radius: outer, options: [])
+        }
     }
 
     /// Soft radial glow: `color` at `alpha` in the centre, fully transparent at `radius` (nothing drawn beyond).

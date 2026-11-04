@@ -51,7 +51,7 @@ namespace SpacePie
             }
             foreach (var c in changes)
                 fsChanges.Enqueue(new FsChange { Kind = c.Deleted ? WatcherChangeTypes.Deleted : c.Created ? WatcherChangeTypes.Created : WatcherChangeTypes.Changed, Path = c.Path });
-            for (int i = 0; i < 100 && !fsChanges.IsEmpty; i++) ApplyChanges();
+            for (int i = 0; i < 100 && !fsChanges.IsEmpty; i++) await ApplyChanges();
             RefreshAfterLive();
             r.JournalId = id;
             r.JournalUsn = next;

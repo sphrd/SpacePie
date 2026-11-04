@@ -469,6 +469,22 @@ patterns (Part 3) are applied through the WinForms mapping below.
     Logs double-counted with User caches / Logs (left out). `/Library/Caches` is sticky (`rwxrwxrwt`, items owned by
     root): `needsRoot` checks ownership in sticky folders, not only writability; such targets go through `AdminRemove`
     first (one password prompt), the rest through the normal delete.
+  - "the app seems to be crashing now after launch ... the loading bar and logo gets stuck and the mouse gets the rainbow
+    wheel": sampled the installed 2.1.1 with `sample`: the live-update timer (`applyChanges`) did all its disk work on the
+    main thread (lstat per changed path, re-reading folders, scanning new / lost folders) - after the instant restart it
+    replays the FSEvents history, up to 20,000 paths per 2 s tick. Now `planChanges` (static, background via
+    `readInBackground`, trees held still) works out a `LivePlan`; `applyPlan` only does the in-memory changes on the main
+    thread (`liveWorking` keeps one batch at a time). `Scanner.readFiles` reads, `refreshFiles` = read + setFiles.
+  - "Keep the glow everywhere there was ... maximum radius of the entire glow can be 150% of logo radius": glow back on the
+    splash, chart placeholder, About / prompts (mac), title bar, About, preview, splash, chart (Windows). `drawLogoGlow` /
+    `DrawLogoGlow(limit)`: rim glow strongest at the logo's edge, (1-u)^2 to 0 at 1.5 R or the view's edge if nearer (never
+    clipped). The mac About logo view is 138 px around the 92 px logo.
+  - Website: the moving highlight on the hero divider removed ("gives the feeling like something is loading").
+  - "could not be read" dialog: lines ran past the box (overlay horizontal scroller hidden). Detail lines are now shortened in
+    the middle to fit (`PromptDialog.fitMiddle`; Copy list copies full lines); each folder says why: protected by macOS
+    (owned by you), belongs to <owner>, needs Full Disk Access; sorted by reason.
+  - Chart hover: the hovered slice / ring section and, recursively, its subfolders' sections in the outer rings grow 4 px
+    and lighten (`ChartArc.parent`, `arcLit` / `ArcLit`), drawn last.
 
 ## WinForms mapping of the design language
 

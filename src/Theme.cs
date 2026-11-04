@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
@@ -186,19 +187,59 @@ namespace SpacePie
             g.SmoothingMode = sm;
         }
 
+        /// <summary>The glow reaches at most this many logo radii from the centre (owner: "maximum radius of the entire
+        /// glow can be 150% of logo radius").</summary>
+        public const float GlowReach = 1.5f;
+
         /// <summary>
-        /// The brand logo: DrawLogo with the soft accent glow behind it (as on the splash). The glow reaches glowFactor x
-        /// the diameter from the centre and fades with alpha; glowAlpha ~46 on BG, ~34 on SURFACE.
+        /// The brand logo with a small soft accent glow around it: strongest (glowAlpha) at the logo's edge, gone at
+        /// GlowReach x its radius. Within limit (the control's client area) the glow ends earlier where there is less
+        /// room, so it is never cut off with a hard edge. glowAlpha ~56 on BG, ~40 on SURFACE.
         /// </summary>
-        public static void DrawLogoGlow(Graphics g, Rectangle circle, float alpha, int glowAlpha, float glowFactor = 1.15f)
+        public static void DrawLogoGlow(Graphics g, Rectangle circle, float alpha, int glowAlpha, Rectangle limit)
         {
             if (alpha <= 0) return;
-            var sm = g.SmoothingMode;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            DrawGlow(g, new PointF(circle.X + circle.Width / 2f, circle.Y + circle.Height / 2f), circle.Width * glowFactor, ACCENT,
-                (int)Math.Round(glowAlpha * Math.Min(1f, alpha)));
-            g.SmoothingMode = sm;
+            var c = new PointF(circle.X + circle.Width / 2f, circle.Y + circle.Height / 2f);
+            float r = circle.Width / 2f, reach = r * GlowReach;
+            if (!limit.IsEmpty)
+                reach = Math.Min(reach, Math.Min(Math.Min(c.X - limit.Left, limit.Right - c.X), Math.Min(c.Y - limit.Top, limit.Bottom - c.Y)));
+            if (reach > r + 1)
+            {
+                var sm = g.SmoothingMode;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                DrawRimGlow(g, c, r, reach, ACCENT, (int)Math.Round(glowAlpha * Math.Min(1f, alpha)));
+                g.SmoothingMode = sm;
+            }
             DrawLogo(g, circle, alpha);
+        }
+
+        /// <summary>Glow around a circle of radius inner: alpha at inner, easing to fully transparent at outer (nothing beyond).</summary>
+        public static void DrawRimGlow(Graphics g, PointF center, float inner, float outer, Color c, int alpha)
+        {
+            if (outer <= inner || outer < 1) return;
+            alpha = Math.Max(0, Math.Min(255, alpha));
+            float k = inner / outer;
+            // PathGradientBrush positions run from the edge (0) to the centre (1).
+            var colors = new List<Color>();
+            var pos = new List<float>();
+            for (int i = 8; i >= 0; i--)
+            {
+                float u = i / 8f;                                   // 0 at the logo's edge, 1 at the glow's end
+                colors.Add(Color.FromArgb((int)Math.Round(alpha * (1 - u) * (1 - u)), c));
+                pos.Add((1 - k) * (1 - u));
+            }
+            colors.Add(Color.FromArgb(alpha, c));
+            pos.Add(1f);
+            using (var path = new GraphicsPath())
+            {
+                path.AddEllipse(center.X - outer, center.Y - outer, 2 * outer, 2 * outer);
+                using (var b = new PathGradientBrush(path))
+                {
+                    b.CenterPoint = center;
+                    b.InterpolationColors = new ColorBlend { Colors = colors.ToArray(), Positions = pos.ToArray() };
+                    g.FillPath(b, path);
+                }
+            }
         }
 
         /// <summary>

@@ -4,7 +4,8 @@ import AppKit
 /// window, the logo on the left, content in a column on the right, buttons bottom right (the first one primary).
 class AppDialog: NSWindowController, NSWindowDelegate {
     let root = FlatView(frame: NSRect(x: 0, y: 0, width: 470, height: 250))
-    let logo = LogoView(frame: NSRect(x: 30, y: 30, width: 92, height: 92))
+    // 92 px logo; the view is 1.5x as large around it for the glow.
+    let logo = LogoView(frame: NSRect(x: 7, y: 7, width: 138, height: 138))
     private(set) var buttons: [RoundButton] = []
     var onClose: (() -> Void)?
     static let contentX: CGFloat = 146
@@ -154,8 +155,11 @@ final class ProgressPill: NSView {
 
 final class LogoView: NSView {
     override var isFlipped: Bool { true }
-    // The plain logo (no glow anywhere in the app: the owner found the halo looked bad).
-    override func draw(_ dirtyRect: NSRect) { Theme.drawLogo(in: bounds) }
+    // The logo with its glow, both inside the view (the logo at 2/3 of the size, so the glow fits at 1.5x its radius).
+    override func draw(_ dirtyRect: NSRect) {
+        let s = min(bounds.width, bounds.height) / Theme.glowReach
+        Theme.drawLogoGlow(in: NSRect(x: bounds.midX - s / 2, y: bounds.midY - s / 2, width: s, height: s), limit: bounds)
+    }
 }
 
 /// Accent text that opens a link on click.

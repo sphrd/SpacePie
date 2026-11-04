@@ -102,11 +102,8 @@
   .values { list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 10px; padding: 0; margin: 28px 0 0; }
   .values li { border: 1px solid var(--border); border-radius: 999px; padding: 3px 14px; font-size: 14px; color: var(--muted); }
 
-  /* highlighter sweep on a 2px line */
-  .sweep { position: relative; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; }
-  .sweep::after { content: ""; position: absolute; top: 0; left: -130px; width: 130px; height: 100%;
-    background: linear-gradient(90deg, rgba(77,163,255,0), var(--accent), rgba(77,163,255,0)); animation: sweep 1.6s linear infinite; }
-  @keyframes sweep { from { left: -130px; } to { left: 100%; } }
+  /* a plain 2px divider (no moving highlight: on a page nothing is loading) */
+  .sweep { position: relative; height: 2px; background: var(--border); border-radius: 1px; }
 
   .hero-shot { margin: 40px 0 0; }
   .shot-btn { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 12px; }
@@ -247,7 +244,6 @@
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .sweep::after { animation: none; display: none; }
     *, *::before, *::after { transition: none !important; }
   }
 </style>

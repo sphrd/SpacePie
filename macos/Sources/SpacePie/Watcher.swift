@@ -173,72 +173,111 @@ extension MainWindowController {
     func applyChanges() {
         checkLowSpaceStatus()
         refreshSuggestionsIfDue()
+        if liveWorking { return }
         if busy || scanning || readers > 0 || (fsPending.isEmpty && fsDeep.isEmpty) {
             if livePending && !busy && !scanning && readers == 0 { refreshAfterLive() }
             if !busy && !scanning && readers == 0 && fsPending.isEmpty && fsDeep.isEmpty { finishReplays() }
             return
         }
-        let batch = fsPending.prefix(20000)
+        let batch = Array(fsPending.prefix(20000))
         fsPending.removeFirst(batch.count)
         let deep = fsDeep
         fsDeep.removeAll()
-        var files: [DirNode] = []
-        var fileIds = Set<ObjectIdentifier>()
-        var added: [String] = []
+        // Everything that touches the disk (looking at each changed path, reading folders again, scanning new ones)
+        // runs in the background while the trees are held still; only the small in-memory changes run here, so the
+        // window never stops responding, however many changes arrive (e.g. replaying the history after a restart).
+        let scanned = roots.filter { !$0.readOnly }.compactMap { $0.node }
+        liveWorking = true
+        readInBackground({ MainWindowController.planChanges(batch, deep, scanned) }, { [weak self] plan in
+            guard let self = self else { return }
+            self.liveWorking = false
+            self.applyPlan(plan)
+        })
+    }
+
+    /// What a batch of changed paths does to the trees, worked out off the main thread.
+    final class LivePlan {
+        var replace: [(DirNode, DirNode)] = []      // folder scanned again as a whole (lost events, downloaded again)
+        var remove: [DirNode] = []
+        var files: [(DirNode, [FileRec])] = []       // a folder's own files read again
+        var add: [(DirNode, DirNode)] = []           // (parent, new folder scanned)
         var structure = false
-        var seen = Set<String>()
-        var revive: [DirNode] = []
+    }
+
+    static func planChanges(_ batch: [String], _ deep: [String], _ scanned: [DirNode]) -> LivePlan {
+        let plan = LivePlan()
+        func find(_ p: String, _ exact: Bool) -> DirNode? { MainWindowController.findScanned(in: scanned, p, exact: exact) }
+        var handled: [String] = []                   // folders scanned again as a whole: nothing below them is looked at
         // Folders FSEvents could not report file by file: scanned again as a whole.
         for p in deep {
-            guard let n = findScanned(p, exact: true), n.parent != nil, !n.insideSkipped else { continue }
-            if PathUtil.isDir(p) { replaceNode(n, Scanner().run(p)) } else { removeNode(n) }
-            structure = true
+            guard let n = find(p, true), n.parent != nil, !n.insideSkipped else { continue }
+            if PathUtil.isDir(p) { plan.replace.append((n, Scanner().run(p))) } else { plan.remove.append(n) }
+            handled.append(PathUtil.trim(p))
+            plan.structure = true
         }
-        func refresh(_ d: DirNode) { if fileIds.insert(ObjectIdentifier(d)).inserted { files.append(d) } }
+        var refresh: [DirNode] = []
+        var refreshIds = Set<ObjectIdentifier>()
+        func refreshDir(_ d: DirNode) { if refreshIds.insert(ObjectIdentifier(d)).inserted { refresh.append(d) } }
+        var added: [String] = []
+        var seen = Set<String>()
+        var revive: [DirNode] = []
         for p0 in batch {
             let p = PathUtil.trim(p0)
-            if !seen.insert(p).inserted { continue }
+            if !seen.insert(p).inserted || handled.contains(where: { PathUtil.isWithin(p, $0) }) { continue }
             // Nothing inside a folder the scan did not enter is read: it would download it or make macOS ask for access.
             // A folder that was not downloaded and now is (opened in Finder) is scanned.
-            if let holder = findScanned(p, exact: false), holder.insideSkipped {
+            if let holder = find(p, false), holder.insideSkipped {
                 let hp = holder.fullPath
                 if holder.skipped == .notDownloaded && PathUtil.isDir(hp) && !Dataless.isDataless(hp)
                     && !revive.contains(where: { $0 === holder }) { revive.append(holder) }
                 continue
             }
-            let node = findScanned(p, exact: true)
+            let node = find(p, true)
             let exists = PathUtil.exists(p)
-            if let n = node, n.parent == nil { if exists { refresh(n) }; continue }   // the scanned root itself
-            let parent = findScanned(PathUtil.parent(p), exact: true)
+            if let n = node, n.parent == nil { if exists { refreshDir(n) }; continue }   // the scanned root itself
+            let parent = find(PathUtil.parent(p), true)
             if !exists {
-                if let n = node { removeNode(n); structure = true }
-                else if let par = parent { refresh(par) }
+                if let n = node { plan.remove.append(n); plan.structure = true }
+                else if let par = parent { refreshDir(par) }
             } else if PathUtil.isDir(p) {
-                if let n = node { refresh(n) }
-                else if parent != nil { added.append(p); structure = true }
+                if let n = node { refreshDir(n) }
+                else if parent != nil { added.append(p); plan.structure = true }
             } else if let par = parent {
-                refresh(par)
+                refreshDir(par)
             }
         }
-        for d in files where isAttached(d) { Scanner.refreshFiles(d) }
+        for d in refresh { if let list = Scanner.readFiles(d) { plan.files.append((d, list)) } }
         var done = Set<String>()
         for p in added where done.insert(p).inserted {
-            guard let parent = findScanned(PathUtil.parent(p), exact: true), parent.child(PathUtil.name(p)) == nil, PathUtil.isDir(p) else { continue }
+            guard let parent = find(PathUtil.parent(p), true), parent.child(PathUtil.name(p)) == nil, PathUtil.isDir(p) else { continue }
             let fresh = Scanner().run(p)   // usually small (a new folder); large copies arrive folder by folder anyway
             fresh.name = PathUtil.name(p)
+            plan.add.append((parent, fresh))
+        }
+        for d in revive where d.parent != nil {
+            plan.replace.append((d, Scanner().run(d.fullPath)))
+            plan.structure = true
+        }
+        return plan
+    }
+
+    /// Applies a plan on the main thread: only what is still attached (nothing else changed the trees meanwhile, but a
+    /// folder may have been removed by an earlier step of the same plan).
+    func applyPlan(_ plan: LivePlan) {
+        for (old, fresh) in plan.replace where isAttached(old) { replaceNode(old, fresh) }
+        for n in plan.remove where isAttached(n) { removeNode(n) }
+        for (d, list) in plan.files where isAttached(d) { d.setFiles(list) }
+        let now = Int64(Date().timeIntervalSince1970)
+        for (parent, fresh) in plan.add where isAttached(parent) && parent.child(fresh.name) == nil {
             fresh.parent = parent
-            fresh.modified = Int64(Date().timeIntervalSince1970)
+            fresh.modified = now
             parent.children.append(fresh)
             parent.addUp(fresh.bytes, fresh.alloc, fresh.files, fresh.dirs + 1)
         }
-        for d in revive where isAttached(d) && d.parent != nil {
-            replaceNode(d, Scanner().run(d.fullPath))
-            structure = true
-        }
-        if !files.isEmpty || !added.isEmpty || structure {
+        if !plan.files.isEmpty || !plan.add.isEmpty || plan.structure {
             livePending = true
             markSuggestionsDirty()
-            if structure { deniedCache.removeAll(); for p in pages where p !== pContents { p.stale = true } }
+            if plan.structure { deniedCache.removeAll(); for p in pages where p !== pContents { p.stale = true } }
         }
         if livePending && Date().timeIntervalSince(lastLiveRefresh) >= 4 { refreshAfterLive() }
         if fsPending.isEmpty && fsDeep.isEmpty { finishReplays() }

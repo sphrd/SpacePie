@@ -15,6 +15,7 @@ final class ChartArc {
     var start: CGFloat = 0, sweep: CGFloat = 0
     var level = 1
     var owner = 0
+    var parent = -1             // the outer-ring section it lies in (-1 = directly on the slice)
     var color: NSColor = T.ACCENT
     var dir: DirNode
     var parentSize: Int64 = 0
@@ -138,7 +139,7 @@ final class PieChart: NSView {
             var a = startAngle
             for (i, s) in slices.enumerated() {
                 let sweep = CGFloat(360 * Double(max(0, s.size)) / Double(total))
-                if let d = s.dir { addArcs(d, a, sweep, 1, i, s.color) }
+                if let d = s.dir { addArcs(d, a, sweep, 1, i, s.color, -1) }
                 a += sweep
             }
         }
@@ -164,7 +165,7 @@ final class PieChart: NSView {
         needsDisplay = true
     }
 
-    private func addArcs(_ dir: DirNode, _ start: CGFloat, _ sweep: CGFloat, _ level: Int, _ owner: Int, _ base: NSColor) {
+    private func addArcs(_ dir: DirNode, _ start: CGFloat, _ sweep: CGFloat, _ level: Int, _ owner: Int, _ base: NSColor, _ parent: Int) {
         if level > rings || dir.children.isEmpty || dir.size <= 0 || sweep < 1 { return }
         var a = start
         var k = 0
@@ -172,11 +173,11 @@ final class PieChart: NSView {
             let s = CGFloat(Double(sweep) * Double(c.size) / Double(dir.size))
             if s < 1.5 { break }                   // children are sorted by size: the rest are smaller still
             let arc = ChartArc(c)
-            arc.start = a; arc.sweep = s; arc.level = level; arc.owner = owner; arc.parentSize = dir.size
+            arc.start = a; arc.sweep = s; arc.level = level; arc.owner = owner; arc.parentSize = dir.size; arc.parent = parent
             arc.color = PieChart.blend(base, T.SURFACE, (level == 1 ? 0.28 : 0.5) + (k % 2 == 0 ? 0 : 0.12))
             k += 1
             arcs.append(arc)
-            addArcs(c, a, s, level + 1, owner, base)
+            addArcs(c, a, s, level + 1, owner, base, arcs.count - 1)
             a += s
         }
     }
@@ -188,6 +189,19 @@ final class PieChart: NSView {
     private var innerOuterRatio: CGFloat { rings > 0 ? 1 - 0.15 * CGFloat(rings) : 1 }
     private func ringInner(_ level: Int) -> CGFloat { innerOuterRatio + 0.02 + 0.15 * CGFloat(level - 1) }
     private func ringOuter(_ level: Int) -> CGFloat { innerOuterRatio + 0.15 * CGFloat(level) }
+
+    /// Pixels a hovered section (and everything in the rings beyond it) grows outwards.
+    static let hoverGrow: CGFloat = 4
+
+    /// Hovered: the section under the pointer and, recursively, the sections of its subfolders in the outer rings.
+    private func arcLit(_ i: Int) -> Bool {
+        if hoverArc >= 0 {
+            var j = i
+            while j >= 0 { if j == hoverArc { return true }; j = arcs[j].parent }
+            return false
+        }
+        return hover >= 0 && arcs[i].owner == hover
+    }
 
     /// Highlight from the list (does not call onHover).
     func setHover(_ i: Int) {
@@ -243,9 +257,9 @@ final class PieChart: NSView {
         PieChart.band(NSPoint(x: pieRect.midX, y: pieRect.midY), r0, r1, start, sweep).fill()
     }
 
-    /// The logo on the chart's circle, without a glow (owner: the halo around it looked bad); fades during the morph.
+    /// The logo on the chart's circle with its small glow (kept inside the pane); fades during the morph.
     private func drawBrandLogo(_ r: NSRect, alpha: CGFloat) {
-        Theme.drawLogo(in: r, alpha: alpha)
+        Theme.drawLogoGlow(in: r, alpha: alpha, glowAlpha: 0.16, limit: bounds)
     }
 
     private func drawMorph() {
@@ -284,20 +298,30 @@ final class PieChart: NSView {
                 let sweep = CGFloat(360 * Double(s.size) / Double(total))
                 if sweep <= 0 { continue }
                 if !s.empty {
+                    let lit = i == hover && hoverArc < 0
                     if rings > 0 {
-                        let col = i == hover && hoverArc < 0 ? PieChart.blend(s.color, .white, 0.25) : s.color
-                        fillBand(R * holeRatio, R * innerOuterRatio, start, max(0.01, sweep), col)
+                        let col = lit ? PieChart.blend(s.color, .white, 0.25) : s.color
+                        fillBand(R * holeRatio, R * innerOuterRatio + (lit ? PieChart.hoverGrow : 0), start, max(0.01, sweep), col)
                     } else {
-                        let rr = i == hover ? r.insetBy(dx: -6, dy: -6) : r
-                        s.color.setFill(); Theme.pie(rr, start: start, sweep: max(0.01, sweep)).fill()
+                        let rr = lit ? r.insetBy(dx: -PieChart.hoverGrow, dy: -PieChart.hoverGrow) : r
+                        (lit ? PieChart.blend(s.color, .white, 0.2) : s.color).setFill()
+                        Theme.pie(rr, start: start, sweep: max(0.01, sweep)).fill()
                     }
                 } else if i == hover {
                     fillBand(R * holeRatio, R, start, sweep, T.BORDER)
                 }
                 start += sweep
             }
+            // Hovered sections last, a little larger and lighter, over their neighbours.
+            var lit: [Int] = []
             for (i, a) in arcs.enumerated() {
-                fillBand(R * ringInner(a.level), R * ringOuter(a.level), a.start, a.sweep, i == hoverArc ? PieChart.blend(a.color, .white, 0.3) : a.color)
+                if arcLit(i) { lit.append(i); continue }
+                fillBand(R * ringInner(a.level), R * ringOuter(a.level), a.start, a.sweep, a.color)
+            }
+            let g = PieChart.hoverGrow
+            for i in lit {
+                let a = arcs[i]
+                fillBand(R * ringInner(a.level) - g / 2, R * ringOuter(a.level) + g, a.start, a.sweep, PieChart.blend(a.color, .white, 0.3))
             }
             // Thin separators in the panel colour between visible slices.
             if slices.filter({ $0.size > 0 }).count > 1 {

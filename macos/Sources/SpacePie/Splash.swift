@@ -27,7 +27,7 @@ final class SplashView: NSView {
         Theme.fillRound(bounds, SplashView.radius, fill: T.SURFACE)
         Theme.fillRound(bounds.insetBy(dx: 2, dy: 2), SplashView.radius - 2, fill: T.BG)
         // No glow on the macOS splash: it reached past the window's edges and was cut off (owner: "looks bad").
-        Theme.drawLogo(in: NSRect(x: 36, y: 44, width: 96, height: 96))
+        Theme.drawLogoGlow(in: NSRect(x: 36, y: 44, width: 96, height: 96))
         let name = "SpacePie"
         let nameWidth = bounds.width - 192
         var size: CGFloat = 30

@@ -244,15 +244,21 @@ final class Scanner {
     /// counting nothing on disk.
     @discardableResult
     static func refreshFiles(_ dir: DirNode) -> Bool {
-        if dir.insideSkipped { return false }
+        guard let list = readFiles(dir) else { return false }
+        dir.setFiles(list)
+        return true
+    }
+
+    /// A folder's own files read again (hard links counted once, as in the scan); nil when it can't be read. Only reads.
+    static func readFiles(_ dir: DirNode) -> [FileRec]? {
+        if dir.insideSkipped { return nil }
         var linked = Set<String>()
         for f in dir.fileList ?? [] where f.flags & FileRec.hardLinkFlag != 0 { linked.insert(f.name) }
         let r = readFolder(dir.fullPath, wantDirs: false, firstLink: { _ in true })
-        guard var list = r.files else { return false }
+        guard var list = r.files else { return nil }
         if !linked.isEmpty {
             for i in list.indices where linked.contains(list[i].name) { list[i].alloc = 0; list[i].flags |= FileRec.hardLinkFlag }
         }
-        dir.setFiles(list)
-        return true
+        return list
     }
 }

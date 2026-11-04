@@ -199,8 +199,8 @@ namespace SpacePie
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-            // The plain logo (no glow anywhere in the app: the owner found the halo looked bad).
-            Theme.DrawLogo(g, new Rectangle(S(36), S(44), S(96), S(96)), 1f);
+            // The logo with its small soft glow (Theme.DrawLogoGlow, the same everywhere in the app).
+            Theme.DrawLogoGlow(g, new Rectangle(S(36), S(44), S(96), S(96)), 1f, 56, ClientRectangle);
             using (var pen = new Pen(Theme.SURFACE, S(2))) g.DrawRectangle(pen, S(1), S(1), Width - S(2), Height - S(2));
 
             const TextFormatFlags f = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis;

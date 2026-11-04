@@ -46,7 +46,8 @@ to the Recycle Bin / Trash or permanently.
 
 **Seeing where the space went** (the views are in a bar on the left, a row with an
 icon and a name each; the chart always shows the open list, and hovering a slice
-highlights its row and the other way round)
+highlights its row and the other way round; a hovered slice or ring section grows a
+little and lights up together with all its subfolders in the outer rings)
 
 - **Pie or treemap:** the chart pane shows the open list as a pie chart or as a
   treemap (rectangles sized by space, folders with their subfolders inside), one

@@ -176,7 +176,25 @@ extension MainWindowController {
         guard let d = current, isAttached(d) else { return }
         let here = deniedUnder(d.top).filter { $0.isUnder(d) }
         if here.isEmpty { return }
-        var lines = here.prefix(2000).map { n -> String in n.fullPath + "   " + (n.denied ? "access denied" : "needs Full Disk Access") }
+        // Why each one stays closed, grouped by that reason: protected by macOS (owned by you, e.g. app containers),
+        // belonging to another account (root, a service, another user), or needing Full Disk Access.
+        let uid = getuid()
+        var owners: [uid_t: String] = [:]
+        func reason(_ n: DirNode) -> String {
+            if !n.denied { return "needs Full Disk Access" }
+            var st = stat()
+            guard lstat(n.fullPath, &st) == 0 else { return "access denied" }
+            if st.st_uid == uid { return "protected by macOS" }
+            if owners[st.st_uid] == nil { owners[st.st_uid] = getpwuid(st.st_uid).map { String(cString: $0.pointee.pw_name) } ?? "uid \(st.st_uid)" }
+            return "belongs to " + owners[st.st_uid]!
+        }
+        var listed: [(why: String, path: String)] = []
+        for n in here.prefix(2000) { listed.append((why: reason(n), path: n.fullPath)) }
+        listed.sort { a, b in
+            if a.why != b.why { return a.why < b.why }
+            return a.path.localizedStandardCompare(b.path) == .orderedAscending
+        }
+        var lines: [String] = listed.map { $0.path + "   " + $0.why }
         if here.count > lines.count { lines.append("... and \(Fmt.count(here.count - lines.count)) more") }
         let granted = FullDiskAccess.granted
         let d2 = PromptDialog(icon: .warn, heading: "\(Fmt.count(here.count)) folder\(here.count == 1 ? "" : "s") could not be read",

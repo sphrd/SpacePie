@@ -181,13 +181,18 @@ namespace SpacePie
         /// <summary>Reads a folder's own files again (not its subfolders) and updates the index and totals.</summary>
         public static bool RefreshFiles(DirNode dir)
         {
-            List<DirNode> ignore = null;
-            bool cancel = false;
-            string path = dir.FullPath;
-            var files = ReadFolder(path, new DirNode(), ref ignore, Native.ClusterSize(path), ref cancel);
+            var files = ReadFiles(dir.FullPath);
             if (files == null) return false;
             dir.SetFiles(files);
             return true;
+        }
+
+        /// <summary>A folder's own files read again (null when it can't be read). Only reads: safe off the window's thread.</summary>
+        public static FileRec[] ReadFiles(string path)
+        {
+            List<DirNode> ignore = null;
+            bool cancel = false;
+            return ReadFolder(path, new DirNode(), ref ignore, Native.ClusterSize(path), ref cancel);
         }
     }
 }

@@ -25,6 +25,7 @@ namespace SpacePie
         public float Start, Sweep;
         public int Level;            // 1 = first outer ring
         public int Owner;            // index of the inner slice it belongs to
+        public int Parent = -1;      // the outer-ring section it lies in (-1 = directly on the slice)
         public Color Color;
         public DirNode Dir;
         public long ParentSize;
@@ -148,7 +149,7 @@ namespace SpacePie
                 for (int i = 0; i < this.slices.Count; i++)
                 {
                     float sweep = (float)(360.0 * Math.Max(0, this.slices[i].Size) / total);
-                    if (this.slices[i].Dir != null) AddArcs(this.slices[i].Dir, a, sweep, 1, i, this.slices[i].Color);
+                    if (this.slices[i].Dir != null) AddArcs(this.slices[i].Dir, a, sweep, 1, i, this.slices[i].Color, -1);
                     a += sweep;
                 }
             }
@@ -171,7 +172,7 @@ namespace SpacePie
             Invalidate();
         }
 
-        void AddArcs(DirNode dir, float start, float sweep, int level, int owner, Color baseColor)
+        void AddArcs(DirNode dir, float start, float sweep, int level, int owner, Color baseColor, int parent)
         {
             if (level > rings || dir.Children == null || dir.Size <= 0 || sweep < 1f) return;
             float a = start;
@@ -181,10 +182,24 @@ namespace SpacePie
                 float s = (float)(sweep * (double)c.Size / dir.Size);
                 if (s < 1.5f) break;   // children are sorted by size: the rest are smaller still
                 var color = Blend(baseColor, BackColor, (level == 1 ? 0.28f : 0.5f) + (k++ % 2 == 0 ? 0f : 0.12f));
-                arcs.Add(new ChartArc { Start = a, Sweep = s, Level = level, Owner = owner, Color = color, Dir = c, ParentSize = dir.Size });
-                AddArcs(c, a, s, level + 1, owner, baseColor);
+                arcs.Add(new ChartArc { Start = a, Sweep = s, Level = level, Owner = owner, Color = color, Dir = c, ParentSize = dir.Size, Parent = parent });
+                AddArcs(c, a, s, level + 1, owner, baseColor, arcs.Count - 1);
                 a += s;
             }
+        }
+
+        /// <summary>Pixels (at 100 %) a hovered section, and everything in the rings beyond it, grows outwards.</summary>
+        const int HoverGrow = 4;
+
+        /// <summary>Hovered: the section under the pointer and, recursively, the sections of its subfolders in the outer rings.</summary>
+        bool ArcLit(int i)
+        {
+            if (hoverArc >= 0)
+            {
+                for (int j = i; j >= 0; j = arcs[j].Parent) if (j == hoverArc) return true;
+                return false;
+            }
+            return hover >= 0 && arcs[i].Owner == hover;
         }
 
         static Color Blend(Color a, Color b, float t)
@@ -267,9 +282,8 @@ namespace SpacePie
 
         static Color Fade(Color c, float a) { return Color.FromArgb((int)Math.Round(255 * Math.Max(0, Math.Min(1, a))), c); }
 
-        // The brand logo with its glow (fades with the logo during the morph).
-        // The logo on the chart's circle, without a glow (owner: the halo around it looked bad).
-        void DrawLogo(Graphics g, Rectangle circle, float alpha) { Theme.DrawLogo(g, circle, alpha); }
+        // The brand logo with its small glow, kept inside the pane (fades with the logo during the morph).
+        void DrawLogo(Graphics g, Rectangle circle, float alpha) { Theme.DrawLogoGlow(g, circle, alpha, 40, ClientRectangle); }
 
         void DrawLogoNote(Graphics g)
         {
@@ -341,23 +355,32 @@ namespace SpacePie
                     {
                         if (rings > 0)
                         {
-                            var col = i == hover && hoverArc < 0 ? Blend(slices[i].Color, Color.White, 0.25f) : slices[i].Color;
-                            FillBand(g, c0, R * HoleRatio, R * InnerOuterRatio, start, Math.Max(sweep, 0.01f), col);
+                            bool litSlice = i == hover && hoverArc < 0;
+                            var col = litSlice ? Blend(slices[i].Color, Color.White, 0.25f) : slices[i].Color;
+                            FillBand(g, c0, R * HoleRatio, R * InnerOuterRatio + (litSlice ? Theme.S(HoverGrow) : 0), start, Math.Max(sweep, 0.01f), col);
                         }
                         else
                         {
                             var rr = r;
-                            if (i == hover) rr.Inflate(Theme.S(6), Theme.S(6));
-                            using (var b = new SolidBrush(slices[i].Color)) g.FillPie(b, rr, start, Math.Max(sweep, 0.01f));
+                            if (i == hover) rr.Inflate(Theme.S(HoverGrow), Theme.S(HoverGrow));
+                            using (var b = new SolidBrush(i == hover ? Blend(slices[i].Color, Color.White, 0.2f) : slices[i].Color)) g.FillPie(b, rr, start, Math.Max(sweep, 0.01f));
                         }
                     }
                     start += sweep;
                 }
+                // Hovered sections last, a little larger and lighter, over their neighbours.
+                var litArcs = new List<int>();
                 for (int i = 0; i < arcs.Count; i++)
                 {
                     var a = arcs[i];
-                    var col = i == hoverArc ? Blend(a.Color, Color.White, 0.3f) : a.Color;
-                    FillBand(g, c0, R * RingInner(a.Level), R * RingOuter(a.Level), a.Start, a.Sweep, col);
+                    if (ArcLit(i)) { litArcs.Add(i); continue; }
+                    FillBand(g, c0, R * RingInner(a.Level), R * RingOuter(a.Level), a.Start, a.Sweep, a.Color);
+                }
+                float grow = Theme.S(HoverGrow);
+                foreach (int i in litArcs)
+                {
+                    var a = arcs[i];
+                    FillBand(g, c0, R * RingInner(a.Level) - grow / 2, R * RingOuter(a.Level) + grow, a.Start, a.Sweep, Blend(a.Color, Color.White, 0.3f));
                 }
                 // Thin separators in the panel colour between visible slices.
                 int visible = 0;

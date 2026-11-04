@@ -90,6 +90,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     var progressTimer: Timer?
     var onScanFinished: (() -> Void)?
     var readers = 0                       // background tasks reading the scanned trees (the trees must not change meanwhile)
+    var liveWorking = false               // a batch of live changes is being worked out in the background
     /// Contents lists the drives and scanned folders (This PC, the level above every drive).
     var thisPc = false
     /// Folders opened in place in the Contents tree-list.
@@ -750,9 +751,14 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     /// The deepest scanned folder holding path; with exact, only a folder whose path is exactly path. A folder another
     /// scan did enter is preferred to one that was skipped (e.g. Desktop scanned on its own, skipped in the disk's scan).
     func findScanned(_ path: String, exact: Bool) -> DirNode? {
+        MainWindowController.findScanned(in: roots.filter { !$0.readOnly }.compactMap { $0.node }, path, exact: exact)
+    }
+
+    /// findScanned over given trees (a background task takes them on the main thread first).
+    static func findScanned(in scanned: [DirNode], _ path: String, exact: Bool) -> DirNode? {
         var skipped: DirNode?
-        for r in roots where !r.readOnly {
-            guard let n = r.node, PathUtil.isWithin(path, n.fullPath) else { continue }
+        for n in scanned {
+            guard PathUtil.isWithin(path, n.fullPath) else { continue }
             if let d = MainWindowController.findByPath(n, path), !exact || PathUtil.same(d.fullPath, path) {
                 if !d.insideSkipped { return d }
                 if skipped == nil { skipped = d }
