@@ -102,8 +102,22 @@
   .values { list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 10px; padding: 0; margin: 28px 0 0; }
   .values li { border: 1px solid var(--border); border-radius: 999px; padding: 3px 14px; font-size: 14px; color: var(--muted); }
 
-  /* a plain 2px divider (no moving highlight: on a page nothing is loading) */
-  .sweep { position: relative; height: 2px; background: var(--border); border-radius: 1px; }
+  /* 2px divider with a still highlight in its middle (nothing moves: nothing is loading there) */
+  .divider { height: 2px; border-radius: 1px;
+    background: linear-gradient(90deg, var(--border) 0%, var(--border) 34%, var(--accent) 50%, var(--border) 66%, var(--border) 100%); }
+  /* the scan card's progress line: a highlight glides along it while "scanning"; scrolled past, the scan is done */
+  .sweep { position: relative; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; transition: background-color .5s ease; }
+  .sweep::after { content: ""; position: absolute; top: 0; left: -130px; width: 130px; height: 100%;
+    background: linear-gradient(90deg, rgba(77,163,255,0), var(--accent), rgba(77,163,255,0)); animation: sweep 1.6s linear infinite; }
+  @keyframes sweep { from { left: -130px; } to { left: 100%; } }
+  .scanbar.done .sweep { background-color: var(--accent); }
+  .scanbar.done .sweep::after { animation: none; display: none; }
+  .scanbar .tick { display: none; width: 16px; height: 16px; flex: none; color: var(--accent); }
+  .scanbar.done .tick { display: block; }
+  .scanbar.done canvas.spin { display: none; }
+  .scanbar .when-done { display: none; }
+  .scanbar.done .when-done { display: inline; }
+  .scanbar.done .while-scanning { display: none; }
 
   .hero-shot { margin: 40px 0 0; }
   .shot-btn { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 12px; }
@@ -244,6 +258,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
+    .sweep::after { animation: none; display: none; }
     *, *::before, *::after { transition: none !important; }
   }
 </style>
@@ -292,7 +307,7 @@
   </div>
 
   <div class="wrap">
-    <div class="sweep" aria-hidden="true"></div>
+    <div class="divider" aria-hidden="true"></div>
 
     <figure class="hero-shot">
       <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" data-caption="SpacePie: the views bar, folder contents as an expandable tree-list and the pie chart (demo data)">
@@ -312,7 +327,7 @@
           <h3>Scan</h3>
           <p>Your system drive is scanned as soon as the app opens, in the background, with progress and <strong>Cancel</strong>. Other drives, USB disks or any folder are scanned when you ask: select it and press <strong>Scan</strong>, or drag a folder onto the window.</p>
           <div class="scanbar" aria-hidden="true">
-            <div class="row"><canvas class="spin"></canvas>Scanning the system drive&hellip;</div>
+            <div class="row"><canvas class="spin"></canvas><svg class="tick" viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="while-scanning">Scanning the system drive&hellip;</span><span class="when-done">Scanned the system drive</span></div>
             <div class="sweep"></div>
           </div>
         </div>
@@ -673,6 +688,19 @@
     }
   });
 
+  // The scan card's progress: once the card is scrolled into the upper part of the window, the scan is done (the line
+  // fills, the spinner turns into a tick) and stays done.
+  var bars = Array.prototype.slice.call(document.querySelectorAll(".scanbar"));
+  function checkDone() {
+    bars = bars.filter(function (b) {
+      if (b.getBoundingClientRect().bottom < window.innerHeight * 0.35) { b.classList.add("done"); return false; }
+      return true;
+    });
+    if (!bars.length) window.removeEventListener("scroll", checkDone);
+  }
+  window.addEventListener("scroll", checkDone, { passive: true });
+  checkDone();
+
   // Trailing lines (small spinners)
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (reduce) return;
@@ -731,7 +759,7 @@
 
   function frame(t) {
     items.forEach(function (it) {
-      if (!it.el._visible) return;
+      if (!it.el._visible || it.el.offsetParent === null) return;   // off screen, or the scan is done (hidden)
       it.s.ctx.clearRect(0, 0, it.s.w, it.s.h);
       it.draw(it.s, t);
     });
