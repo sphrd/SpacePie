@@ -126,6 +126,12 @@ namespace SpacePie
                 Directory.CreateDirectory(ShotDir);
                 if (ShotDemo)
                 {
+                    // README / website size: a 1600 x 867 window with the content at 125 %, and the plain title.
+                    WindowState = FormWindowState.Normal;
+                    Size = new Size(1600, 867);
+                    SetZoom(1.25f);
+                    Text = AppName;
+                    await Task.Delay(800);
                     // Duplicates read the files, so they are found before the folder is shown as a made-up drive.
                     FindDuplicates();
                     for (int k = 0; k < 600 && dupeFinder != null; k++) await Task.Delay(200);
@@ -191,7 +197,7 @@ namespace SpacePie
                 SetZoom(1.5f);
                 await Task.Delay(1200);
                 SaveShot("zoom-150");
-                SetZoom(1f);
+                SetZoom(ShotDemo ? 1.25f : 1f);
                 await Task.Delay(400);
                 if (openDir != null) SelectDir(openDir);
                 measure.SelectedIndex = 1;
