@@ -299,19 +299,19 @@ extension SelfTestRun {
             IgnoreList.fileOverride = nil
 
             let home = base + "/home"
-            for d in ["Library/Preferences", "Library/Application Support/com.example.dsaorphan", "Library/Application Support/com.apple.dsatest", "Library/LaunchAgents"] {
+            for d in ["Library/Preferences", "Library/Application Support/com.dsaorphanvendor.dsaorphan", "Library/Application Support/com.apple.dsatest", "Library/LaunchAgents"] {
                 try? fm.createDirectory(atPath: home + "/" + d, withIntermediateDirectories: true)
             }
-            fm.createFile(atPath: home + "/Library/Preferences/com.example.dsaorphan.plist", contents: Data(count: 100))
-            fm.createFile(atPath: home + "/Library/Preferences/com.example.dsarecent.plist", contents: Data(count: 100))
+            fm.createFile(atPath: home + "/Library/Preferences/com.dsaorphanvendor.dsaorphan.plist", contents: Data(count: 100))
+            fm.createFile(atPath: home + "/Library/Preferences/com.dsarecentvendor.dsarecent.plist", contents: Data(count: 100))
             fm.createFile(atPath: home + "/Library/Preferences/org.cups.dsatest.plist", contents: Data(count: 100))
             let longAgo = Date().addingTimeInterval(-90 * 86400)
-            for p in ["Preferences/com.example.dsaorphan.plist", "Application Support/com.example.dsaorphan", "Application Support/com.apple.dsatest", "Preferences/org.cups.dsatest.plist"] {
+            for p in ["Preferences/com.dsaorphanvendor.dsaorphan.plist", "Application Support/com.dsaorphanvendor.dsaorphan", "Application Support/com.apple.dsatest", "Preferences/org.cups.dsatest.plist"] {
                 try? fm.setAttributes([.modificationDate: longAgo], ofItemAtPath: home + "/Library/" + p)
             }
             let orphans = w.orphanLeftovers(home: home).map { PathUtil.name($0.path) }
-            let orphanOk = orphans.contains("com.example.dsaorphan.plist") && orphans.contains("com.example.dsaorphan") && !orphans.contains("com.apple.dsatest")
-                && !orphans.contains("com.example.dsarecent.plist") && !orphans.contains("org.cups.dsatest.plist")
+            let orphanOk = orphans.contains("com.dsaorphanvendor.dsaorphan.plist") && orphans.contains("com.dsaorphanvendor.dsaorphan") && !orphans.contains("com.apple.dsatest")
+                && !orphans.contains("com.dsarecentvendor.dsarecent.plist") && !orphans.contains("org.cups.dsatest.plist")
 
             let agents = home + "/Library/LaunchAgents/"
             (["Label": "com.example.dsabroken", "Program": base + "/no such program"] as NSDictionary).write(toFile: agents + "com.example.dsabroken.plist", atomically: true)
