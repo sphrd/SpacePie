@@ -161,6 +161,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     var filesGen = 0
     // File types view
     let typeGroup = ChoiceBox("Group by: ", ["Extension", "Category"])
+    let appFilter = ChoiceBox("", ["All apps", "Not opened for 6 months"])
     var typesGen = 0
     // Duplicates view
     lazy var btnFindDupes = RoundButton("Find duplicates", .primary) { [unowned self] in self.findDuplicates() }
@@ -179,6 +180,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     lazy var btnSugAll = RoundButton("Select all", .secondary) { [unowned self] in self.checkAllSuggestions(true) }
     lazy var btnSugNone = RoundButton("Deselect all", .secondary) { [unowned self] in self.checkAllSuggestions(false) }
     lazy var btnSugDelete = RoundButton("Delete permanently", .danger) { [unowned self] in self.deleteCheckedSuggestions(trash: false) }
+    lazy var btnSugIgnored = RoundButton("Ignored", .secondary) { [unowned self] in self.showIgnoredSuggestions() }
     var suggestGen = 0
     var suggestions: [Suggestion]?
     var suggestDirty = false          // the scanned data changed since the suggestions were found: find them again
@@ -861,6 +863,13 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             btnSugAll.isEnabled = !shown.isEmpty
             btnSugNone.isEnabled = !shown.isEmpty
             btnSugDelete.isEnabled = idle && anyChecked
+            let ignored = IgnoreList.count
+            let title = "Ignored (\(Fmt.count(ignored)))..."
+            if btnSugIgnored.isHidden != (ignored == 0) || btnSugIgnored.title != title {
+                btnSugIgnored.isHidden = ignored == 0
+                btnSugIgnored.title = title
+                pSuggest.bar?.relayout()
+            }
         }
         if pApps != nil { updateAppButtons() }
         if pSystem != nil { updateSystemButtons() }
@@ -1278,6 +1287,11 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             m.addItem(it)
         }
         m.autoenablesItems = false
+        if lastView === pSuggest.table {
+            let rows = pSuggest.selectedItems.filter { $0.suggestion != nil }
+            add("Never suggest this", "", [], !rows.isEmpty, #selector(menuIgnoreSuggestion))
+            m.addItem(.separator())
+        }
         if lastView === pApps.table {
             let app = selectedApp
             let idle = !busy && !scanning && !appsWorking
@@ -1301,6 +1315,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     }
 
     @objc private func menuUninstall() { uninstallSelectedApp() }
+    @objc private func menuIgnoreSuggestion() { ignoreSelectedSuggestions() }
     @objc private func menuOpen() { openSelected() }
     @objc private func menuQuickLook() { quickLookSelected() }
     @objc private func menuGetInfo() { getInfoSelected() }

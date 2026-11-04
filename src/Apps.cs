@@ -25,6 +25,8 @@ namespace SpacePie
         public string IconSource;
         public System.Drawing.Image Icon;
         public long Size, EstimatedSize;
+        /// <summary>Last opened as Windows recorded it (FILETIME, UTC); 0 = not recorded.</summary>
+        public long LastUsed;
         public bool Uninstalled, Expanded, Searching;
         /// <summary>Another app with the same program folder (its size is counted there, not here).</summary>
         public string SharedWith;
@@ -63,6 +65,7 @@ namespace SpacePie
         int appsGen;
         bool appsLoading;
         SearchBox appSearch;
+        ChoiceBox appFilter;
         RoundButton btnAppUninstall, btnAppLeftovers;
         volatile bool waitContinue;
         /// <summary>Self-test: extra uninstall roots to read (e.g. a fake app's key) and no Store apps.</summary>
@@ -81,17 +84,20 @@ namespace SpacePie
             refresh.Glyph = Theme.DrawRefresh;
             appSearch = new SearchBox("Search apps");
             appSearch.TextChangedDelayed += (s, e) => ShowApps();
+            appFilter = new ChoiceBox("", "All apps", "Not opened for 6 months");
+            tips.SetToolTip(appFilter, "Show all apps, or only those not opened for 6 months (as Windows recorded it)");
+            appFilter.SelectedIndexChanged += (s, e) => ShowApps();
             btnAppUninstall = Btn("Uninstall...", ButtonKind.Warn, "Run the selected app's own uninstaller, then choose which leftovers to remove", UninstallSelectedApp);
             btnAppLeftovers = Btn("Remove leftovers", ButtonKind.Warn, "Delete the checked leftovers (registry keys are backed up to a .reg file first)", RemoveCheckedLeftovers);
             foreach (var b in new[] { refresh, btnAppUninstall, btnAppLeftovers }) b.Compact = true;
             btnAppUninstall.Tag = btnAppLeftovers.Tag = "right";
-            var list = NewList(new[] { "Name", "Size", "% of apps", "Publisher", "Version", "Installed", "Location" },
-                new[] { "name", "size", "size", "cat", "note", "mod", "folder" }, new[] { 260, 90, 130, 170, 100, 100, 360 }, 2);
+            var list = NewList(new[] { "Name", "Size", "% of apps", "Publisher", "Version", "Installed", "Last opened", "Location" },
+                new[] { "name", "size", "size", "cat", "note", "mod", "used", "folder" }, new[] { 260, 90, 130, 170, 100, 100, 110, 360 }, 2);
             list.GlyphClicked += AppGlyph;
             list.Grouped = true;
             list.KeyDown += (s, e) => { if (e.KeyCode == Keys.Space) { ToggleSelectedLeftovers(); e.Handled = true; } };
             list.SelectedIndexChanged += (s, e) => UpdateAppButtons();
-            var p = AddPage("Apps", list, MakeBar(refresh, appSearch, btnAppUninstall, btnAppLeftovers));
+            var p = AddPage("Apps", list, MakeBar(refresh, appSearch, appFilter, btnAppUninstall, btnAppLeftovers));
             p.ChartTitle = "Installed apps";
             p.ChartScope = "of apps";
             p.Empty = "No apps found.";
@@ -124,6 +130,7 @@ namespace SpacePie
             return Task.Run(() =>
             {
                 var found = ReadInstalledApps(testMode);
+                try { AppsUsage.Fill(found); } catch (Exception) { }
                 System.Threading.Tasks.Parallel.ForEach(found, new ParallelOptions { MaxDegreeOfParallelism = 4 }, a =>
                 {
                     try { a.Icon = LoadAppIcon(a, iconPx); } catch (Exception) { }
@@ -231,8 +238,10 @@ namespace SpacePie
             var p = pApps;
             if (apps == null) return;
             string q = appSearch.Text.Trim();
-            var shown = apps.Where(a => q.Length == 0 || a.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                a.Publisher.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            bool unusedOnly = appFilter != null && appFilter.SelectedIndex == 1;
+            var nowUtc = DateTime.UtcNow;
+            var shown = apps.Where(a => (q.Length == 0 || a.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                a.Publisher.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0) && (!unusedOnly || AppsUsage.IsUnused(a, nowUtc))).ToList();
             long total = shown.Sum(a => a.Uninstalled ? 0 : a.Size);
             var lv = p.List;
             var keepSel = lv.SelectedItems.Count == 1 ? ((ItemInfo)lv.SelectedItems[0].Tag).Data : null;
@@ -250,11 +259,13 @@ namespace SpacePie
                     Data = a, Name = a.Uninstalled ? a.Name + "  (uninstalled -- leftovers)" : a.Name, Size = a.Uninstalled ? leftSize : a.Size,
                     FolderIcon = true, Icon = a.Icon, Path = string.IsNullOrEmpty(a.Location) ? null : a.Location, Folder = a.Location,
                     Category = a.Publisher, Note = a.Version, Percent = total > 0 && !a.Uninstalled ? 100.0 * a.Size / total : 0,
-                    Expandable = true, Expanded = a.Expanded, Check = a.Uninstalled && hasLeft ? LeftoverState(a) : -1
+                    Expandable = true, Expanded = a.Expanded, Check = a.Uninstalled && hasLeft ? LeftoverState(a) : -1,
+                    Used = a.Uninstalled ? 0 : a.LastUsed
                 };
                 string where = a.SharedWith != null ? "same folder as " + a.SharedWith : a.IsStore && string.IsNullOrEmpty(a.Location) ? "Microsoft Store" : a.Location;
                 var lvi = Row(head, head.Name, a.Size > 0 || a.Uninstalled ? Fmt.Size(head.Size) : "", a.Uninstalled || a.SharedWith != null ? "" : head.Percent.ToString("0.0") + " %",
-                    a.Publisher, a.Version, FormatInstallDate(a.InstallDate), where);
+                    a.Publisher, a.Version, FormatInstallDate(a.InstallDate),
+                    a.Uninstalled ? "" : a.LastUsed > 0 ? Fmt.Date(a.LastUsed) : "Not recorded", where);
                 if (a.SharedWith != null) lvi.ForeColor = Theme.MUTED;
                 if (a.Uninstalled) lvi.ForeColor = Theme.WARN_FG;
                 rows.Add(lvi);
@@ -263,7 +274,7 @@ namespace SpacePie
                 {
                     // While searching, or when nothing was found: one muted line, so the arrow always shows something.
                     var none = new ItemInfo { GroupOf = head, IsSummary = true, Name = a.Searching ? "Looking for its files and settings..." : "No files or settings found." };
-                    var nr = Row(none, none.Name, "", "", "", "", "", "");
+                    var nr = Row(none, none.Name, "", "", "", "", "", "", "");
                     nr.ForeColor = Theme.MUTED;
                     rows.Add(nr);
                     continue;
@@ -276,10 +287,10 @@ namespace SpacePie
                         Note = l.Kind, Check = a.Uninstalled ? (l.Checked ? 1 : 0) : -1,
                         Targets = l.IsRegistry ? null : new List<DeleteTarget> { new DeleteTarget { Path = l.Path, Label = l.Label, IsDir = l.IsDir, Size = l.Size } }
                     };
-                    rows.Add(Row(it, it.Name, l.IsRegistry ? "--" : Fmt.Size(l.Size), "", l.Kind, l.Match + (string.IsNullOrEmpty(l.Note) ? "" : "; " + l.Note), "", l.Path));
+                    rows.Add(Row(it, it.Name, l.IsRegistry ? "--" : Fmt.Size(l.Size), "", l.Kind, l.Match + (string.IsNullOrEmpty(l.Note) ? "" : "; " + l.Note), "", "", l.Path));
                 }
             }
-            SetRows(lv, rows, apps.Count == 0 ? "No installed apps were found." : "No app matches \"" + q + "\".");
+            SetRows(lv, rows, apps.Count == 0 ? "No installed apps were found." : unusedOnly && q.Length == 0 ? "Every app was opened in the last 6 months." : "No app matches \"" + q + "\".");
             if (top != null)
                 foreach (ListViewItem it in lv.Items) if (((ItemInfo)it.Tag).Data == top) { try { lv.TopItem = it; } catch (Exception) { } break; }
             if (keepSel != null)

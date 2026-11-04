@@ -15,6 +15,7 @@ enum AppsCache {
         var name, version, publisher, path, bundleId: String
         var size: Int64
         var installed: Double?
+        var lastUsed: Double?
         var icon: Data?                   // PNG at row size (2x pixels)
     }
     struct File: Codable {
@@ -27,7 +28,8 @@ enum AppsCache {
         let list = apps.filter { !$0.uninstalled }
         let rows = list.map { a -> (Entry, CGImage?) in
             (Entry(name: a.name, version: a.version, publisher: a.publisher, path: a.path, bundleId: a.bundleId, size: a.size,
-                   installed: a.installed?.timeIntervalSince1970, icon: nil),
+                   installed: a.installed?.timeIntervalSince1970,
+                   lastUsed: a.lastUsed?.timeIntervalSince1970, icon: nil),
              a.icon?.cgImage(forProposedRect: nil, context: nil, hints: nil))
         }
         let path = filePath
@@ -58,6 +60,7 @@ enum AppsCache {
             let a = InstalledApp()
             a.name = e.name; a.version = e.version; a.path = e.path; a.bundleId = e.bundleId; a.size = e.size
             a.installed = e.installed.map { Date(timeIntervalSince1970: $0) }
+            a.lastUsed = e.lastUsed.map { Date(timeIntervalSince1970: $0) }
             if let png = e.icon, let cg = NSBitmapImageRep(data: png)?.cgImage {
                 a.icon = NSImage(cgImage: cg, size: InstalledApp.iconSize)
                 a.iconRequested = true

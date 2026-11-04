@@ -12,7 +12,7 @@ namespace SpacePie
     /// </summary>
     internal static class AppsCache
     {
-        const int Version = 1;
+        const int Version = 2;
         internal static string FileOverride;   // self-test
 
         static string FilePath
@@ -38,7 +38,7 @@ namespace SpacePie
                             w.Write(s ?? "\0");
                         w.Write((int)a.Hive); w.Write((int)a.View);
                         w.Write(a.IsMsi); w.Write(a.IsStore);
-                        w.Write(a.Size); w.Write(a.EstimatedSize);
+                        w.Write(a.Size); w.Write(a.EstimatedSize); w.Write(a.LastUsed);
                         byte[] png = null;
                         if (a.Icon != null)
                             using (var ms = new MemoryStream()) { a.Icon.Save(ms, System.Drawing.Imaging.ImageFormat.Png); png = ms.ToArray(); }
@@ -73,7 +73,7 @@ namespace SpacePie
                         };
                         a.Hive = (RegistryHive)r.ReadInt32(); a.View = (RegistryView)r.ReadInt32();
                         a.IsMsi = r.ReadBoolean(); a.IsStore = r.ReadBoolean();
-                        a.Size = r.ReadInt64(); a.EstimatedSize = r.ReadInt64();
+                        a.Size = r.ReadInt64(); a.EstimatedSize = r.ReadInt64(); a.LastUsed = r.ReadInt64();
                         int len = r.ReadInt32();
                         if (len > 0) using (var ms = new MemoryStream(r.ReadBytes(len))) a.Icon = new System.Drawing.Bitmap(System.Drawing.Image.FromStream(ms));
                         list.Add(a);

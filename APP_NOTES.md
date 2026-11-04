@@ -459,6 +459,16 @@ patterns (Part 3) are applied through the WinForms mapping below.
   - Suggestions jumping: macOS looked again at every live refresh (~4 s; the caches it lists change all the time; Windows
     had a 20 s limit) and both re-sorted by size, Windows also emptied the list while looking. Now at most every 20 s,
     not while the pointer is over the list / rows are selected (retried on the next live tick), rows keep their places.
+  - "compare my app with CleanMyMac X and see what extra thing do their scan check" -> chosen: all trashes, system caches
+    and logs, leftovers of removed apps, unused apps, disk images, unfinished downloads, old updates, more Xcode data,
+    deleted users, broken login items, mail attachments, ignore list (not: evicting iCloud files). No release yet.
+    Done in `MoreSuggestions.swift` / `MoreSuggestions.cs` + `AppsUsage.cs`. Real-data check here (`--cli suggest`) found
+    false positives that became rules: `/Users/root` (owned by uid 0: deleted users must be owned by no existing account),
+    `.part` files in a Python test-data folder (unfinished downloads only in Downloads / Desktop), CUPS / swiftpm / Java /
+    iZotope plug-in prefs (installed component ids, `notAppIds`, not changed for 30 days), orphans in ~/Library/Caches and
+    Logs double-counted with User caches / Logs (left out). `/Library/Caches` is sticky (`rwxrwxrwt`, items owned by
+    root): `needsRoot` checks ownership in sticky folders, not only writability; such targets go through `AdminRemove`
+    first (one password prompt), the rest through the normal delete.
 
 ## WinForms mapping of the design language
 

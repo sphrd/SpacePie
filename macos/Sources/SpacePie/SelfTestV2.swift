@@ -280,6 +280,61 @@ extension SelfTestRun {
                        "apps: leftovers by confidence: bundle id = \(cache), developer folder = \(dev), shortened name = \(name) (unchecked: \(unchecked))")
         }
 
+        // CleanMyMac-style checks: ignore list, leftovers of removed apps, broken launch items, rotated logs, unused apps,
+        // and which deletions need the administrator.
+        steps.then {
+            let base = self.dir + "-more"
+            try? fm.removeItem(atPath: base)
+            try? fm.createDirectory(atPath: base, withIntermediateDirectories: true)
+            IgnoreList.fileOverride = base + "/ignored.txt"
+            IgnoreList.clear()
+            let s1 = Suggestion("DSA test one", safe: true, note: ""), s2 = Suggestion("DSA test two", safe: true, note: "")
+            s1.targets = [DeleteTarget(path: base + "/a", label: "a", size: 10)]; s1.size = 10
+            s2.targets = [DeleteTarget(path: base + "/b", label: "b", size: 10), DeleteTarget(path: base + "/c", label: "c", size: 5)]; s2.size = 15
+            IgnoreList.add(name: "DSA test one")
+            IgnoreList.add(path: base + "/b")
+            let kept = IgnoreList.apply([s1, s2])
+            let ignoreOk = kept.count == 1 && kept[0].name == "DSA test two" && kept[0].targets.count == 1 && kept[0].size == 5 && IgnoreList.count == 2
+            IgnoreList.clear()
+            IgnoreList.fileOverride = nil
+
+            let home = base + "/home"
+            for d in ["Library/Preferences", "Library/Application Support/com.example.dsaorphan", "Library/Application Support/com.apple.dsatest", "Library/LaunchAgents"] {
+                try? fm.createDirectory(atPath: home + "/" + d, withIntermediateDirectories: true)
+            }
+            fm.createFile(atPath: home + "/Library/Preferences/com.example.dsaorphan.plist", contents: Data(count: 100))
+            fm.createFile(atPath: home + "/Library/Preferences/com.example.dsarecent.plist", contents: Data(count: 100))
+            fm.createFile(atPath: home + "/Library/Preferences/org.cups.dsatest.plist", contents: Data(count: 100))
+            let longAgo = Date().addingTimeInterval(-90 * 86400)
+            for p in ["Preferences/com.example.dsaorphan.plist", "Application Support/com.example.dsaorphan", "Application Support/com.apple.dsatest", "Preferences/org.cups.dsatest.plist"] {
+                try? fm.setAttributes([.modificationDate: longAgo], ofItemAtPath: home + "/Library/" + p)
+            }
+            let orphans = w.orphanLeftovers(home: home).map { PathUtil.name($0.path) }
+            let orphanOk = orphans.contains("com.example.dsaorphan.plist") && orphans.contains("com.example.dsaorphan") && !orphans.contains("com.apple.dsatest")
+                && !orphans.contains("com.example.dsarecent.plist") && !orphans.contains("org.cups.dsatest.plist")
+
+            let agents = home + "/Library/LaunchAgents/"
+            (["Label": "com.example.dsabroken", "Program": base + "/no such program"] as NSDictionary).write(toFile: agents + "com.example.dsabroken.plist", atomically: true)
+            (["Label": "com.example.dsafine", "ProgramArguments": ["/bin/ls"]] as NSDictionary).write(toFile: agents + "com.example.dsafine.plist", atomically: true)
+            let brokenOk = MainWindowController.isBrokenLaunchItem(agents + "com.example.dsabroken.plist") && !MainWindowController.isBrokenLaunchItem(agents + "com.example.dsafine.plist")
+
+            let logsOk = MainWindowController.isRotatedLog("system.log.0.gz") && MainWindowController.isRotatedLog("install.log.3")
+                && !MainWindowController.isRotatedLog("system.log") && !MainWindowController.isRotatedLog("wifi.log")
+
+            let old = Date().addingTimeInterval(-400 * 86400), recent = Date().addingTimeInterval(-86400)
+            let a1 = InstalledApp(); a1.installed = old; a1.lastUsed = old
+            let a2 = InstalledApp(); a2.installed = old; a2.lastUsed = recent
+            let a3 = InstalledApp(); a3.installed = old
+            let a4 = InstalledApp(); a4.installed = recent
+            let unusedOk = a1.isUnused() && !a2.isUnused() && a3.isUnused() && !a4.isUnused()
+
+            let rootOk = MainWindowController.needsRoot(DeleteTarget(path: "/private/var/log/system.log", label: "x", size: 1))
+                && !MainWindowController.needsRoot(DeleteTarget(path: base + "/a", label: "a", size: 1))
+            try? fm.removeItem(atPath: base)
+            self.check(ignoreOk && orphanOk && brokenOk && logsOk && unusedOk && rootOk,
+                       "more checks: ignore list (\(ignoreOk)), leftovers of removed apps (\(orphanOk): \(orphans.joined(separator: ", "))), broken launch items (\(brokenOk)), rotated logs (\(logsOk)), unused apps (\(unusedOk)), admin-only deletes (\(rootOk))")
+        }
+
         // Scan files: saved, opened read-only next to the live scan, never confused with it, then closed.
         var savedFile = ""
         var same = false

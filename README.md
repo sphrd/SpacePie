@@ -80,14 +80,22 @@ highlights its row and the other way round)
   the circle) gets a slice of its own, in true proportion; all smaller items
   together form one grey "N smaller items" slice.
 - **Suggestions** (the green view under Contents): how much can be freed, in
-  large print, and what: the Recycle Bin / Trash, temporary files, caches
-  (browsers, developer tools, Xcode, Homebrew...), the `node_modules` folders of
-  your own projects (never those inside installed programs or editors), old
-  installers in Downloads, and more, each with what deleting it means. Expand a
-  suggestion to see every location, check exactly what you want (**Select all** /
-  **Deselect all**) and **Delete permanently** right there. Safe items start
-  checked; items to review first start unchecked.
-  Suggestions are looked up again whenever the disk changes or you rescan.
+  large print, and what: the Recycle Bin / Trash (on every drive), temporary
+  files, user and system caches and logs, caches of browsers and developer tools
+  (Xcode, simulators that can no longer run, device support files, Homebrew...),
+  the `node_modules` folders of your own projects (never those inside installed
+  programs or editors), mail attachments, unfinished downloads, disk images not
+  opened for a month, old update packages and app versions, leftovers of apps
+  that are no longer installed, broken background items (macOS), folders of
+  deleted users, old installers in Downloads, and more, each with what deleting it
+  means. Expand a suggestion to see every location, check exactly what you want
+  (**Select all** / **Deselect all**) and **Delete permanently** right there.
+  Safe items start checked; items to review first start unchecked. Items only an
+  administrator may change are deleted after macOS asks for your password once
+  (Windows: Run as administrator). Right-click a suggestion or a location and
+  choose **Never suggest this** to hide it for good; **Ignored (n)...** lists
+  them and brings them back. Suggestions are looked up again whenever the disk
+  changes or you rescan.
 - **Apps:** every installed app, with its own logo and its real size on disk
   (Windows: programs and Microsoft Store apps; macOS: apps in Applications).
   Expand an app (its arrow, or a double-click) to see everything that belongs to
@@ -97,8 +105,11 @@ highlights its row and the other way round)
   again and asks to delete whatever is left (registry keys are saved to a `.reg`
   backup first). On macOS one confirmation moves the app and all its files to
   the Trash; files an installer put where only an administrator may change them
-  (in `/Library`) are moved after macOS asks for your password once. The list is read in the background as soon as a drive scan
-  finishes, so it is ready when you open the view.
+  (in `/Library`) are moved after macOS asks for your password once. **Last
+  opened** shows when each app was last used, as the system recorded it, and the
+  **Not opened for 6 months** filter lists the apps you no longer use. The list
+  is read in the background as soon as a drive scan finishes, so it is ready
+  when you open the view.
 - **System (Windows):** space Windows itself uses and what you can do about it:
   Windows update leftovers (analyze and clean up the component store), restore
   points (delete the oldest or all but the newest), the hibernation and page

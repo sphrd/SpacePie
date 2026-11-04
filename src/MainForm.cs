@@ -176,7 +176,9 @@ namespace SpacePie
             miRecycle = new ToolStripMenuItem("Move to Recycle Bin...", null, (s, e) => RecycleSelected());
             miDelete = new ToolStripMenuItem("Delete permanently...", null, (s, e) => DeleteSelected()) { ShortcutKeyDisplayString = "Ctrl+Shift+D" };
             miCloseScan = new ToolStripMenuItem("Close saved scan", null, (s, e) => CloseSavedScan(SelectedSavedScan()));
-            menu.Items.AddRange(new ToolStripItem[] { miOpen, miPreview, miExplorer, miCopy, miProps, miRescan, new ToolStripSeparator(), miAddList, miRecycle, miDelete, miCloseScan });
+            miIgnoreSuggestion = new ToolStripMenuItem("Never suggest this", null, (s, e) => IgnoreSelectedSuggestions());
+            var sepIgnore = new ToolStripSeparator();
+            menu.Items.AddRange(new ToolStripItem[] { miIgnoreSuggestion, sepIgnore, miOpen, miPreview, miExplorer, miCopy, miProps, miRescan, new ToolStripSeparator(), miAddList, miRecycle, miDelete, miCloseScan });
             foreach (ToolStripItem it in menu.Items) it.ForeColor = Theme.FG;
             miDelete.ForeColor = Theme.WARN_FG;
             menu.Opened += (s, e) => Theme.RoundPopup(menu.Handle);
@@ -197,6 +199,8 @@ namespace SpacePie
                 miRecycle.Enabled = deletable;
                 miDelete.Enabled = deletable;
                 miCloseScan.Visible = SelectedSavedScan() != null;
+                miIgnoreSuggestion.Visible = sepIgnore.Visible = pSuggest != null && lastView == pSuggest.List;
+                miIgnoreSuggestion.Enabled = pSuggest != null && pSuggest.List.SelectedItems.Count > 0;
             };
 
             Splash.Status("Creating the lists");

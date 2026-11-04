@@ -21,6 +21,7 @@ final class InstalledApp {
     var name = "", bundleId = "", version = "", path = ""
     var size: Int64 = 0
     var installed: Date?
+    var lastUsed: Date?                  // last opened, as Spotlight recorded it; nil = not recorded
     var uninstalled = false
     var leftovers: [AppLeftover]?        // installed: the bundle and all its files; partly removed: what is left; nil = not looked for yet
     var expanded = false
@@ -83,6 +84,9 @@ final class InstalledApp {
         if let at = try? FileManager.default.attributesOfItem(atPath: path) {
             a.installed = (at[.creationDate] as? Date) ?? (at[.modificationDate] as? Date)
         }
+        if let md = MDItemCreate(nil, a.path as CFString) {
+            a.lastUsed = MDItemCopyAttribute(md, kMDItemLastUsedDate) as? Date
+        }
         return a
     }
 
@@ -92,6 +96,15 @@ final class InstalledApp {
         let list = readAll(roots)
         for a in list { a.size = measure(a.path) }
         return sorted(list)
+    }
+
+    static let unusedDays = 182.0
+
+    /// Not opened for about 6 months: opened last before then, or never recorded as opened and installed before then.
+    func isUnused(now: Date = Date()) -> Bool {
+        if uninstalled { return false }
+        guard let since = lastUsed ?? installed else { return false }
+        return now.timeIntervalSince(since) > InstalledApp.unusedDays * 86400
     }
 
     static func sorted(_ list: [InstalledApp]) -> [InstalledApp] {
@@ -280,10 +293,13 @@ extension MainWindowController {
         btnUninstall.tip = "Move the selected app and all its files to the Trash"
         btnRemoveLeftovers.tip = "Move the checked items that are left to the Trash"
         for b in [btnAppsRefresh, btnUninstall, btnRemoveLeftovers] { b.compact = true }
-        let bar = ActionBar([btnAppsRefresh, appSearch, btnUninstall, btnRemoveLeftovers], right: [btnUninstall, btnRemoveLeftovers])
+        appFilter.tip = "Show all apps, or only those not opened for 6 months (as macOS recorded it)"
+        appFilter.onChange = { [unowned self] _ in self.showApps() }
+        let bar = ActionBar([btnAppsRefresh, appSearch, appFilter, btnUninstall, btnRemoveLeftovers], right: [btnUninstall, btnRemoveLeftovers])
         bar.minRowHeight = 0
         let p = Page("Apps", [Column("name", "Name", 230), Column("size", "Size", 80, true), Column("size", "% of apps", 125, true),
                               Column("cat", "Publisher", 110), Column("note", "Version", 90), Column("mod", "Installed", 128),
+                              Column("used", "Last opened", 128),
                               Column("folder", "Location", 330)],
                      barColumn: 2, bar: bar)
         p.chartTitle = "Installed apps"
@@ -406,7 +422,8 @@ extension MainWindowController {
     /// The apps shown: matching the search box.
     var shownApps: [InstalledApp] {
         let q = appSearch.text.trimmingCharacters(in: .whitespaces).lowercased()
-        let all = apps ?? []
+        var all = apps ?? []
+        if appFilter.selectedIndex == 1 { all = all.filter { $0.isUnused() } }
         if q.isEmpty { return all }
         return all.filter { $0.name.lowercased().contains(q) || $0.publisher.lowercased().contains(q) || $0.bundleId.lowercased().contains(q) }
     }
@@ -429,12 +446,15 @@ extension MainWindowController {
             it.category = a.uninstalled ? "" : a.publisher
             it.note = a.uninstalled ? "" : a.version
             it.modified = a.uninstalled ? 0 : Int64(a.installed?.timeIntervalSince1970 ?? 0)
+            it.used = a.uninstalled ? 0 : Int64(a.lastUsed?.timeIntervalSince1970 ?? 0)
             it.folder = a.path
             it.percent = total > 0 ? 100 * Double(max(0, it.size)) / Double(total) : 0
             it.hideBar = a.uninstalled
-            it.cells = [it.name, Fmt.size(it.size), a.uninstalled ? "" : Fmt.pct(it.percent), it.category, it.note, Fmt.date(it.modified), it.folder]
+            it.cells = [it.name, Fmt.size(it.size), a.uninstalled ? "" : Fmt.pct(it.percent), it.category, it.note, Fmt.date(it.modified),
+                        a.uninstalled ? "" : (a.lastUsed == nil ? "Not recorded" : Fmt.date(it.used)), it.folder]
             var tip = a.name + "\n" + a.path + (a.bundleId.isEmpty ? "" : "\n" + a.bundleId)
             if !a.uninstalled, a.leftovers != nil { tip += "\nAll its files: " + Fmt.size(a.leftoverSize) }
+            if a.isUnused() { tip += "\nNot opened for 6 months or more" }
             it.tip = tip
             if a.uninstalled { it.color = T.WARN_FG }
             it.chevron = a.expanded ? 1 : 0
@@ -448,7 +468,7 @@ extension MainWindowController {
                 w.isSummary = true
                 w.hideBar = true
                 w.name = "Looking for its files..."
-                w.cells = [w.name, "", "", "", "", "", ""]
+                w.cells = [w.name, "", "", "", "", "", "", ""]
                 rows.append(w)
                 continue
             }
@@ -466,7 +486,7 @@ extension MainWindowController {
                 c.note = l.match + (l.note.isEmpty ? "" : "; " + l.note)
                 c.folder = l.path
                 c.hideBar = true
-                c.cells = [c.name, l.size < 0 ? "—" : Fmt.size(l.size), "", l.kind, c.note, "", l.path]
+                c.cells = [c.name, l.size < 0 ? "—" : Fmt.size(l.size), "", l.kind, c.note, "", "", l.path]
                 c.tip = c.name + "\n" + l.path + "\n" + c.note
                 c.check = a.uninstalled ? (l.checked ? 1 : 0) : -1
                 if !l.sure { c.color = T.WARN_FG }

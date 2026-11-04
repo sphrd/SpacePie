@@ -174,7 +174,7 @@ extension MainWindowController {
         var total = targets.reduce(Int64(0)) { $0 + $1.size }
         let n = targets.count, s = n == 1 ? "" : "s"
         let details = targets.map { t -> String in
-            var line = (t.emptyTrash ? "Empty the Trash" : PathUtil.trim(t.path) + (t.contentsOnly ? "  (contents)" : "")) + "   " + Fmt.size(t.size)
+            var line = (t.emptyTrash ? "Empty the " + t.label : PathUtil.trim(t.path) + (t.contentsOnly ? "  (contents)" : "")) + "   " + Fmt.size(t.size)
             if let why = kept[ObjectIdentifier(t)] { line += "  -  kept: " + why }
             if let svc = synced[ObjectIdentifier(t)] { line += "  -  synced with " + svc }
             return line
@@ -183,6 +183,11 @@ extension MainWindowController {
         if trash && targets.contains(where: { $0.emptyTrash }) { warnings.append("The Trash itself is emptied: its items are deleted for good.") }
         if targets.contains(where: { t in !t.contentsOnly && !t.emptyTrash && MainWindowController.riskyPaths.contains { PathUtil.isWithin(t.path, $0) } }) {
             warnings.append("This includes macOS system, library or application content. Deleting it can break macOS or installed apps.")
+        }
+        // Items only an administrator may change: macOS asks for the password once, right after this confirmation.
+        let rootOnly = targets.filter { MainWindowController.needsRoot($0) }.count
+        if rootOnly > 0 {
+            warnings.append("\(rootOnly == n ? (n == 1 ? "It belongs" : "They belong") : "\(Fmt.count(rootOnly)) of them belong") to the system: macOS asks for your administrator password to \(trash ? "move" : "delete") \(rootOnly == 1 ? "it" : "them").")
         }
         // Synced folders: deleting here deletes in the cloud and on the other devices too.
         if !synced.isEmpty {
@@ -333,9 +338,40 @@ extension MainWindowController {
         }
         deleteConfirmDialog(targets, trash: trash, synced: synced, kept: kept).show(over: window) { i in
             if i != 0 { done(nil); return }
-            if trash && !kept.isEmpty && others.isEmpty { self.runDelete(targets, trash: false, done) }
-            else if trash && !kept.isEmpty { self.runDelete(others, trash: true, done) }
-            else { self.runDelete(targets, trash: trash, done) }
+            if trash && !kept.isEmpty && others.isEmpty { self.runDeleteElevating(targets, trash: false, done) }
+            else if trash && !kept.isEmpty { self.runDeleteElevating(others, trash: true, done) }
+            else { self.runDeleteElevating(targets, trash: trash, done) }
+        }
+    }
+
+    /// True when only an administrator may delete the target (its folder, or for contents only the folder itself, can't be
+    /// written to: /Library, /private/var, other users' folders).
+    static func needsRoot(_ t: DeleteTarget) -> Bool {
+        if t.emptyTrash { return false }
+        let uid = getuid()
+        // Removing item from dir: dir must be writable, and in a sticky folder (/Library/Caches) item must be ours; a
+        // folder of someone else's we can't write into can't be emptied either.
+        func blocked(_ item: String, in dir: String) -> Bool {
+            var ds = stat(), st = stat()
+            guard lstat(dir, &ds) == 0, lstat(item, &st) == 0 else { return false }
+            if access(dir, W_OK) != 0 { return true }
+            if ds.st_mode & S_ISVTX != 0 && st.st_uid != uid && ds.st_uid != uid { return true }
+            return (st.st_mode & S_IFMT) == S_IFDIR && st.st_uid != uid && access(item, W_OK) != 0
+        }
+        if !t.contentsOnly { return blocked(t.path, in: PathUtil.parent(t.path)) }
+        if PathUtil.exists(t.path) && access(t.path, W_OK) != 0 { return true }
+        return DeleteJob.children(t.path).prefix(200).contains { blocked($0, in: t.path) }
+    }
+
+    /// Deletes: what only an administrator may change goes first, after one password prompt (removeAsAdmin), then the
+    /// rest with the delete strip as always. Cancelling the prompt keeps those items; the others are still deleted.
+    func runDeleteElevating(_ targets: [DeleteTarget], trash: Bool, _ done: @escaping (DeleteJob?) -> Void) {
+        let root = targets.filter { MainWindowController.needsRoot($0) }
+        if root.isEmpty || selfTestDir != nil || shotMode { runDelete(targets, trash: trash, done); return }
+        let user = targets.filter { t in !root.contains { $0 === t } }
+        let n = root.count
+        removeAsAdmin(MainWindowController.stillThere(root), trash: trash, what: "\(Fmt.count(n)) item\(n == 1 ? "" : "s") that belong\(n == 1 ? "s" : "") to the system") { [weak self] _ in
+            self?.runDelete(user, trash: trash, done)
         }
     }
 

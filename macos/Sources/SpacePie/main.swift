@@ -27,6 +27,22 @@ func headlessScan(_ path: String) -> Int32 {
     return 0
 }
 
+/// Scans the folder and prints what the Suggestions view would list (checks and CI).
+func headlessSuggest(_ path: String) -> Int32 {
+    let full = (path as NSString).expandingTildeInPath
+    let root = Scanner().run(full)
+    let started = Date()
+    let w = MainWindowController()
+    let list = w.findSuggestions([root], volumes: [])
+    print("\(list.count) suggestions in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+    for s in list {
+        print("\(s.safe ? "safe  " : "review") \(Fmt.size(s.size).leftPad(10))  \(s.name)  (\(s.location))")
+        for t in s.targets.prefix(ProcessInfo.processInfo.environment["ALL"] != nil ? 999 : 5) { print("                      \(Fmt.size(t.size).leftPad(10))  \(t.emptyTrash ? "Empty the " + t.label : t.path)") }
+        if s.targets.count > 5 { print("                      ... and \(s.targets.count - 5) more") }
+    }
+    return 0
+}
+
 extension String {
     func leftPad(_ n: Int) -> String { count >= n ? self : String(repeating: " ", count: n - count) + self }
 }
@@ -250,6 +266,7 @@ if args.count == 2 && args[1] == "--splash" {
 }
 if args.count >= 2 && args[1] == "--cli" {
     if args.count == 4 && args[2] == "scan" { exit(headlessScan(args[3])) }
+    if args.count == 4 && args[2] == "suggest" { exit(headlessSuggest(args[3])) }
     if args.count == 4 && args[2] == "update-install" {
         // Installs the app from a downloaded SpacePie-macOS.dmg where Update now would (checks and CI).
         guard let target = Updater.installTarget() else { print("failed: no writable place to install to"); exit(1) }
@@ -277,6 +294,7 @@ if args.count >= 2 && args[1] == "--cli" {
         exit(0)
     }
     print("Usage: SpacePie --cli scan <folder>")
+    print("       SpacePie --cli suggest <folder>")
     print("       SpacePie --cli screenshot <out-folder> <folder>")
     print("       SpacePie --cli selftest <scratch-folder>")
     print("       SpacePie --cli update-install <SpacePie-macOS.dmg>")

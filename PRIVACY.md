@@ -11,7 +11,12 @@ analytics and no advertising.
   - **Preview** (Windows, Space): the first 64 KB of a text file you choose to preview, shown in the window and not
     stored. Pictures come from the operating system's own thumbnails.
 - **Installed apps** (Apps tab): the uninstall entries in the Windows registry and the Microsoft Store package list,
-  or the apps in `/Applications` on macOS, and the folders and settings that belong to them.
+  or the apps in `/Applications` on macOS, and the folders and settings that belong to them. When each app was last
+  opened comes from what the system already records: Spotlight's "last used" date on macOS; on Windows, Explorer's
+  launch records for your account (UserAssist) and the last-access time of the app's program files.
+- **Cleanup suggestions:** besides caches and temporary folders, the names of the accounts on this computer (to find
+  folders of deleted users), the registered Store packages (Windows), launch agents and daemons whose program is
+  gone, the mounted disk images and Xcode's list of simulators (macOS). Mail messages are never read.
 - **System information** (System tab): free space and health of your drives, restore points or Time Machine
   snapshots, the component store, hibernation and page files, and (Windows) a list of broken registry entries.
 - **Synced folders:** where OneDrive, Dropbox, Google Drive, iCloud Drive and similar services keep their files, so the
@@ -29,7 +34,8 @@ Windows: `%LOCALAPPDATA%\SpacePie`. macOS: `~/Library/Application Support/SpaceP
 | `history\` | folder names and sizes of the last scan of each drive or folder, a small copy per day (folders of 4 MB or more), and the totals of every scan | the 10 most recently scanned drives/folders; 12 daily copies and 1,000 totals each |
 | `snapshots\` | the full scan of each drive, for an instant restart (Windows: saved when the app closes; macOS: after each full scan) | Windows: the 4 most recent drives; macOS: the 10 most recently scanned drives or folders |
 | `hashes.bin` | content hashes of files compared for duplicates | 2 million files, 90 days |
-| `apps.bin` / `apps.plist` | the list of installed apps, so the Apps tab shows at once | one list |
+| `apps.bin` / `apps.plist` | the list of installed apps (with when each was last opened), so the Apps tab shows at once | one list |
+| `ignored-suggestions.txt` | the suggestions and locations you chose never to see again | until you stop ignoring them |
 | `registry-backups\` (Windows) | a `.reg` backup of every registry key the app removes | until you delete them |
 | `treemap`, `always-admin`, `task-args.txt` (Windows) | your chart choice and the "Always start as administrator" setting | a few bytes |
 

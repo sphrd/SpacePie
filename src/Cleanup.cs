@@ -50,7 +50,10 @@ namespace SpacePie
             var none = Btn("Deselect all", ButtonKind.Secondary, "Uncheck everything", () => CheckAllSuggestions(false));
             btnSugDelete = Btn("Delete permanently", ButtonKind.Danger, "Delete the checked items now, bypassing the Recycle Bin (Ctrl+Shift+D)", () => DeleteCheckedSuggestions(false));
             btnSugDelete.Tag = "right";
-            foreach (var b in new[] { refresh, all, none, btnSugDelete }) b.Compact = true;
+            btnSugIgnored = Btn("Ignored", ButtonKind.Secondary, "Items you chose never to see again (right-click a suggestion > Never suggest this); stop ignoring them here", ShowIgnoredSuggestions);
+            btnSugIgnored.Visible = IgnoreList.Count > 0;
+            btnSugIgnored.Text = string.Format("Ignored ({0:N0})...", IgnoreList.Count);
+            foreach (var b in new[] { refresh, all, none, btnSugIgnored, btnSugDelete }) b.Compact = true;
             var list = NewList(new[] { "Name", "Size", "% of suggestions", "Location", "What deleting means" },
                 new[] { "name", "size", "size", "folder", "note" }, new[] { 260, 90, 150, 300, 420 }, 2);
             list.GlyphClicked += SuggestionGlyph;
@@ -60,7 +63,7 @@ namespace SpacePie
                 if (e.KeyCode == Keys.Space) { ToggleSelectedSuggestions(); e.Handled = true; }
                 else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Left) { ExpandSelectedSuggestions(e.KeyCode == Keys.Right); e.Handled = true; }
             };
-            var p = AddPage("Suggestions", list, MakeBar(refresh, all, none, btnSugDelete));
+            var p = AddPage("Suggestions", list, MakeBar(refresh, all, none, btnSugIgnored, btnSugDelete));
             // The amount that can be freed, large and bold in the tab's colour, above the caption.
             sugHeadline = new Label
             {
@@ -214,6 +217,7 @@ namespace SpacePie
         {
             if (btnSugDelete == null) return;
             btnSugDelete.Enabled = CheckedSuggestionTargets().Count > 0 && !busy && !scanning;
+            UpdateIgnoredButton();
         }
 
         void SuggestionGlyph(ListViewItem lvi, bool checkbox)
@@ -380,7 +384,8 @@ namespace SpacePie
                 s.Targets.Add(new DeleteTarget { Path = old, Label = "Windows.old", IsDir = true, Size = s.Size, Note = "previous Windows" });
                 list.Add(s);
             }
-            return list;
+            FindMoreSuggestions(scanned, list);
+            return IgnoreList.Apply(list);
         }
 
         void Contents(List<Suggestion> list, string name, string dir, bool safe, bool admin, string note)

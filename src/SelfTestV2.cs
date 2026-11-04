@@ -192,6 +192,43 @@ namespace SpacePie
                     sync.Count, string.Join(", ", sync.Select(r => r.Value).Distinct())));
             }
 
+            // More checks: the ignore list, unused apps, UserAssist decoding, and the new suggestions run without failing.
+            {
+                string ign = Path.Combine(Path.GetDirectoryName(dir.TrimEnd('\\')), "dsa-ignored-test.txt");
+                IgnoreList.FileOverride = ign;
+                IgnoreList.Reset();
+                IgnoreList.Clear();
+                var s1 = new Suggestion { Name = "DSA test one", Safe = true };
+                s1.Targets.Add(new DeleteTarget { Path = Path.Combine(dir, "a"), Label = "a", Size = 10 });
+                var s2 = new Suggestion { Name = "DSA test two", Safe = true };
+                s2.Targets.Add(new DeleteTarget { Path = Path.Combine(dir, "b"), Label = "b", Size = 10 });
+                s2.Targets.Add(new DeleteTarget { Path = Path.Combine(dir, "c"), Label = "c", Size = 5 });
+                IgnoreList.Add("DSA test one", null);
+                IgnoreList.Add(null, Path.Combine(dir, "b"));
+                IgnoreList.Reset();     // read back from the file
+                var keptList = IgnoreList.Apply(new List<Suggestion> { s1, s2 });
+                bool ignoreOk = keptList.Count == 1 && keptList[0].Name == "DSA test two" && keptList[0].Targets.Count == 1 && keptList[0].Size == 5 && IgnoreList.Count == 2;
+                IgnoreList.Clear();
+                IgnoreList.FileOverride = null;
+                IgnoreList.Reset();
+                try { File.Delete(ign); } catch (Exception) { }
+
+                var nowUtc = DateTime.UtcNow;
+                var oldApp = new InstalledApp { InstallDate = nowUtc.AddDays(-400).ToString("yyyyMMdd") };
+                var usedApp = new InstalledApp { InstallDate = nowUtc.AddDays(-400).ToString("yyyyMMdd"), LastUsed = nowUtc.AddDays(-2).ToFileTimeUtc() };
+                var staleApp = new InstalledApp { LastUsed = nowUtc.AddDays(-300).ToFileTimeUtc() };
+                var newApp = new InstalledApp { InstallDate = nowUtc.AddDays(-3).ToString("yyyyMMdd") };
+                bool unusedOk = AppsUsage.IsUnused(oldApp, nowUtc) && !AppsUsage.IsUnused(usedApp, nowUtc) && AppsUsage.IsUnused(staleApp, nowUtc) && !AppsUsage.IsUnused(newApp, nowUtc)
+                    && !AppsUsage.IsUnused(new InstalledApp(), nowUtc);
+                string pf = Environment.GetEnvironmentVariable("ProgramW6432") ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+                bool uaOk = AppsUsage.Rot13("{6Q809377-6NS0-444O-8957-N3773S02200R}\\Nccf\\n.rkr") == "{6D809377-6AF0-444B-8957-A3773F02200E}\\Apps\\a.exe"
+                    && string.Equals(AppsUsage.ExpandKnownFolder("{6D809377-6AF0-444B-8957-A3773F02200E}\\Apps\\a.exe"), pf.TrimEnd('\\') + "\\Apps\\a.exe", StringComparison.OrdinalIgnoreCase);
+                bool findsOk = true;
+                try { FindMoreSuggestions(new List<DirNode> { top }, new List<Suggestion>()); } catch (Exception) { findsOk = false; }
+                check(ignoreOk && unusedOk && uaOk && findsOk, string.Format(
+                    "more checks: ignore list ({0}), unused apps ({1}), UserAssist names ({2}), new suggestions run ({3})", ignoreOk, unusedOk, uaOk, findsOk));
+            }
+
             // Scan files: saved, opened read-only next to the live scan, never confused with it, then closed.
             {
                 string file = Path.Combine(Path.GetDirectoryName(dir.TrimEnd('\\')), Path.GetFileName(dir.TrimEnd('\\')) + Snapshot.ScanFileExtension);
