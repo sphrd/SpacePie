@@ -501,6 +501,11 @@ patterns (Part 3) are applied through the WinForms mapping below.
     /Users/alex), apps (installed apps' icons via their bundle ids, made-up sizes), Full Disk Access "granted", en_US number
     format, state in a temp folder. Window 1280x694 pt -> 2560x1388 px, scaled by 0.625 to 1600x867 (dialog 875x461) with
     sips. Then `make_demo_mac.py --remove`. The Windows CI demo step (1600x867 at 125 %) is gone again (crops were bad).
+  - "why is CI taking so long?": ~15 min per push: the macOS job waited for Windows (`needs: build`, only for a shared
+    release) and ~9.5 min were accuracy checks (robocopy / du+find) and window screenshots on cold runner disks. Now the
+    two jobs run in parallel, a `release` job (tags only) downloads both artifacts and publishes them with their SHA-256
+    (job outputs), and the accuracy checks + screenshots run only on tags and `workflow_dispatch` (Actions > Run
+    workflow). Artifacts: `SpacePie`, `SpacePie-macOS` (dmg only), `SpacePie-windows-shots`, `SpacePie-macOS-shots`.
   - "add the self certificate for mac ... put sphrd as name": ad-hoc signatures pin permissions (Full Disk Access) to one
     build's cdhash, so every update lost them. Self-signed code-signing certificate CN=sphrd (RSA 3072, to 2036; made with
     openssl, kept in ~/.spacepie-signing on the owner's Mac, imported into the login keychain, codesign "Always Allow"):
