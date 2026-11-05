@@ -53,8 +53,13 @@ enum Demo {
             [(home + "/Downloads/Office-Installer.pkg", 2_100 * MB), (home + "/Downloads/driver-pack-2.zip", 1_200 * MB), (home + "/Downloads/Blender-4.2.zip", 480 * MB)], contents: false)
         add("User caches", true, "Files apps keep to start and work faster. Rebuilt when needed; quit apps first. Files in use are skipped.",
             [(lib + "/Caches", 3_200 * MB)])
-        add("node_modules folders", true, "JavaScript packages of projects. Restored with npm install (or yarn / pnpm).",
-            ["web-shop", "portfolio", "chat-app", "dashboard"].enumerated().map { (home + "/Projects/" + $0.element + "/node_modules", Int64(900 - 180 * $0.offset) * MB) }, contents: false)
+        var modules: [(String, Int64)] = []
+        let projects = ["web-shop", "portfolio", "chat-app", "dashboard"]
+        for (i, name) in projects.enumerated() {
+            let size: Int64 = Int64(900 - 180 * i) * MB
+            modules.append((home + "/Projects/" + name + "/node_modules", size))
+        }
+        add("node_modules folders", true, "JavaScript packages of projects. Restored with npm install (or yarn / pnpm).", modules, contents: false)
         add("Homebrew cache", true, "Downloaded packages Homebrew keeps after installing them. Downloaded again when needed.", [(lib + "/Caches/Homebrew", 1_400 * MB)])
         add("Leftovers of removed apps", false, "Settings, caches and data of apps that are no longer on this Mac (matched by their app id). Check them before deleting.",
             [(lib + "/Application Support/com.example.photostudio", 410 * MB), (lib + "/Containers/com.example.notes", 160 * MB),
