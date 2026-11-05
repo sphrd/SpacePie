@@ -590,6 +590,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     }
 
     static func capacity(_ path: String) -> (Int64, Int64) {
+        if Demo.on { return Demo.capacity(path) }
         let url = URL(fileURLWithPath: path)
         guard let v = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey]) else { return (0, 0) }
         let total = Int64(v.volumeTotalCapacity ?? 0)
@@ -603,6 +604,15 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     }
 
     private func loadDrives() {
+        if Demo.on {   // pictures: made-up drives, never this Mac's
+            for v in Demo.volumes {
+                let r = findRoot(v.path) ?? { let n = ScanRoot(path: v.path); roots.append(n); return n }()
+                r.isDrive = true; r.isSystem = v.system; r.label = v.label
+                refreshCapacity(r)
+            }
+            sortRoots()
+            return
+        }
         let keys: [URLResourceKey] = [.volumeNameKey, .volumeIsLocalKey, .volumeIsInternalKey, .volumeIsRemovableKey, .volumeIsEjectableKey, .volumeIsBrowsableKey]
         let urls = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
         var ready: [(String, URLResourceValues)] = []

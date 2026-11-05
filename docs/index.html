@@ -182,7 +182,7 @@
   /* gallery + lightbox */
   .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
   .gallery figure { margin: 0; }
-  .gallery .shot-btn img { aspect-ratio: 16 / 9; object-fit: cover; object-position: top left; }
+  .gallery .shot-btn img { aspect-ratio: 1600 / 867; object-fit: contain; object-position: center; background: var(--bg); }
   .gallery figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
   .lightbox { position: fixed; inset: 0; z-index: 20; background: rgba(20,24,30,.94); display: none; align-items: center; justify-content: center; flex-direction: column; padding: 56px 16px 20px; }
   .lightbox.open { display: flex; }
@@ -517,16 +517,16 @@
           <figcaption>Treemap of a drive</figcaption>
         </figure>
         <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" data-caption="Suggestions: how much can be freed, with a checkbox tree of every location (macOS)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" alt="SpacePie cleanup suggestions on macOS: how much space can be freed, with a checkbox tree of every location" width="1344" height="760" loading="lazy" decoding="async">
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" data-caption="Suggestions: how much can be freed, with a checkbox tree of every location (demo data)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" alt="SpacePie cleanup suggestions on macOS: how much space can be freed, with a checkbox tree of every location" width="1600" height="867" loading="lazy" decoding="async">
           </button>
-          <figcaption>Cleanup suggestions (macOS)</figcaption>
+          <figcaption>Cleanup suggestions</figcaption>
         </figure>
         <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" data-caption="Apps: every installed app with its logo and size; expanded, it shows all its files (macOS)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" alt="SpacePie Apps view on macOS: installed apps with their logos and sizes, one expanded to show all its files" width="1344" height="760" loading="lazy" decoding="async">
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" data-caption="Apps: every installed app with its logo and size; expanded, it shows all its files (demo data)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" alt="SpacePie Apps view on macOS: installed apps with their logos and sizes, one expanded to show all its files" width="1600" height="867" loading="lazy" decoding="async">
           </button>
-          <figcaption>Installed apps and their files (macOS)</figcaption>
+          <figcaption>Installed apps and their files</figcaption>
         </figure>
         <figure>
           <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" data-caption="Duplicates: groups of identical files and the space their extra copies take (demo data)">
@@ -535,14 +535,14 @@
           <figcaption>Duplicate files</figcaption>
         </figure>
         <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" data-caption="Deleting: the red progress strip while the list empties (demo data)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" alt="SpacePie deleting files: the progress strip counts files removed and space freed while the list empties" width="1600" height="867" loading="lazy" decoding="async">
+          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" data-caption="Deleting: the red progress strip counts the files removed and the space freed (demo data)">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" alt="SpacePie deleting files: the progress strip counts files removed and space freed" width="1600" height="867" loading="lazy" decoding="async">
           </button>
           <figcaption>Deleting, with progress and Stop</figcaption>
         </figure>
         <figure>
           <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" data-caption="The confirmation before a permanent delete, listing every item (demo data)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" alt="SpacePie confirmation dialog before a permanent delete, listing every item and the total size" width="956" height="605" loading="lazy" decoding="async">
+            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" alt="SpacePie confirmation dialog before a permanent delete, listing every item and the total size" width="875" height="461" loading="lazy" decoding="async">
           </button>
           <figcaption>The confirmation lists every item</figcaption>
         </figure>

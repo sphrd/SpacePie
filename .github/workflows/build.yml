@@ -107,29 +107,6 @@ jobs:
           path: ${{ runner.temp }}/shots/*.png
           if-no-files-found: ignore
 
-      # README / website pictures: a demo tree of sparse files shown as a made-up drive (never a real computer).
-      - name: Demo screenshots (README and website)
-        shell: pwsh
-        continue-on-error: true
-        timeout-minutes: 8
-        run: |
-          # A screen large enough for the 1600 x 867 demo window (the runner starts at 1024 x 768).
-          try { Set-DisplayResolution -Width 1920 -Height 1080 -Force } catch { Write-Host "Set-DisplayResolution: $_" }
-          .\tools\make_demo.ps1 C:\Demo
-          $out = "$env:RUNNER_TEMP\demo-shots"
-          $p = Start-Process .\SpacePie.exe -ArgumentList '--cli','screenshot',"`"$out`"",'C:\Demo','--demo' -PassThru
-          if (-not $p.WaitForExit(360000)) { Stop-Process -Id $p.Id -Force }
-          .\tools\make_demo.ps1 C:\Demo -Remove
-          Get-ChildItem $out -ErrorAction SilentlyContinue | Select-Object Name
-
-      - name: Upload demo screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: SpacePie-windows-demo-shots
-          path: ${{ runner.temp }}/demo-shots/*.png
-          if-no-files-found: ignore
-
       - name: SHA-256 for the release notes
         id: hash
         shell: pwsh

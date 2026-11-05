@@ -349,6 +349,11 @@ extension MainWindowController {
     /// sizes in one pass over the scan on the main thread; bundles that were not scanned are measured in the background.
     /// The new list replaces the shown one in place and is saved for the next start.
     func loadApps(_ done: (() -> Void)? = nil) {
+        if Demo.on {   // pictures: made-up apps, never this Mac's
+            apps = Demo.apps(); appsFromCache = false; appsLoading = false
+            showApps(); updateButtons(); done?()
+            return
+        }
         let p = pApps!
         appsGen += 1
         let gen = appsGen

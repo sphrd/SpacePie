@@ -493,6 +493,14 @@ patterns (Part 3) are applied through the WinForms mapping below.
     Then: "so there should be no dialog even in that case" -> no banner and no dialog at all unless giving access would open
     folders (`unreadFixable`: no Full Disk Access / Windows `UnreadFixable`: not administrator); self-test hooks
     `unreadCanGrant` / `UnreadCanElevate`.
+  - "retake all the screenshots for the website and readme. the ones from windows have bad crops, take them from my mac":
+    all nine README / site pictures now come from the Mac app: `tools/make_demo_mac.py` mounts an 8 GB sparse APFS image as
+    /Volumes/Data with the Windows demo layout as sparse files (plus 12 small real node_modules folders to delete);
+    `SpacePie.app/Contents/MacOS/SpacePie --cli demo-shots <out> /Volumes/Data` (use build.sh's app: the debug binary says
+    v0.0.0) sets `Demo.on`: made-up drives (Macintosh HD / Data / Backup with made-up capacities), suggestions (paths under
+    /Users/alex), apps (installed apps' icons via their bundle ids, made-up sizes), Full Disk Access "granted", en_US number
+    format, state in a temp folder. Window 1280x694 pt -> 2560x1388 px, scaled by 0.625 to 1600x867 (dialog 875x461) with
+    sips. Then `make_demo_mac.py --remove`. The Windows CI demo step (1600x867 at 125 %) is gone again (crops were bad).
   - "add the self certificate for mac ... put sphrd as name": ad-hoc signatures pin permissions (Full Disk Access) to one
     build's cdhash, so every update lost them. Self-signed code-signing certificate CN=sphrd (RSA 3072, to 2036; made with
     openssl, kept in ~/.spacepie-signing on the owner's Mac, imported into the login keychain, codesign "Always Allow"):

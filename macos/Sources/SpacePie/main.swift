@@ -215,8 +215,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: CI screenshots
 
+    private var demoShots: DemoShotRun?
+
     private func startScreenshots(_ dir: String) {
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        if Demo.on {
+            let run = DemoShotRun(self, dir)
+            demoShots = run
+            main.onScanFinished = { [weak self] in
+                guard let self = self else { return }
+                self.main.onScanFinished = nil
+                run.start()
+            }
+            return
+        }
         let run = ShotRun(self, dir)
         shots = run
         // The splash is not shown in this mode: rendered from its view.
@@ -280,6 +292,25 @@ if args.count >= 2 && args[1] == "--cli" {
         app.run()
         exit(0)
     }
+    if args.count == 5 && args[2] == "demo-shots" {
+        // README / website pictures from the demo volume (tools/make_demo_mac.py): nothing of this Mac is shown, and
+        // nothing is written to the app's own data.
+        Demo.on = true
+        Fmt.setLocale(Locale(identifier: "en_US"))
+        let state = NSTemporaryDirectory() + "spacepie-demo-state"
+        try? FileManager.default.removeItem(atPath: state)
+        Snapshot.folderOverride = state + "/snapshots"
+        HashCache.fileOverride = state + "/hashes.bin"
+        History.folderOverride = state + "/history"
+        IgnoreList.fileOverride = state + "/ignored.txt"
+        AppsCache.fileOverride = state + "/apps.plist"
+        let app = NSApplication.shared
+        let d = AppDelegate(initialPath: args[4], screenshotDir: args[3])
+        app.delegate = d
+        app.setActivationPolicy(.regular)
+        app.run()
+        exit(0)
+    }
     if args.count == 4 && args[2] == "selftest" {
         let dir = SelfTest.prepare(args[3])
         // The self-test keeps its snapshots and hash cache next to its scratch folder.
@@ -297,6 +328,7 @@ if args.count >= 2 && args[1] == "--cli" {
     print("       SpacePie --cli suggest <folder>")
     print("       SpacePie --cli screenshot <out-folder> <folder>")
     print("       SpacePie --cli selftest <scratch-folder>")
+    print("       SpacePie --cli demo-shots <out-folder> /Volumes/Data   (after python3 tools/make_demo_mac.py)")
     print("       SpacePie --cli update-install <SpacePie-macOS.dmg>")
     exit(2)
 }

@@ -51,6 +51,7 @@ enum FullDiskAccess {
 
     /// True when the app can read a file only Full Disk Access opens (checked each time: it can be granted meanwhile).
     static var granted: Bool {
+        if Demo.on { return true }
         for p in ["/Library/Application Support/com.apple.TCC/TCC.db", PathUtil.home + "/Library/Safari/Bookmarks.plist"] {
             let fd = open(p, O_RDONLY | O_CLOEXEC)
             if fd >= 0 { close(fd); return true }

@@ -143,11 +143,11 @@ little and lights up together with all its subfolders in the outer rings)
 
 ![Treemap: the same drive as rectangles sized by space, folders with their subfolders inside (demo data)](assets/screenshot-treemap.png)
 
-![This PC: every drive with its used and free space (demo data)](assets/screenshot-this-pc.png)
+![This Mac / This PC: every drive with its used and free space (demo data)](assets/screenshot-this-pc.png)
 
-![Suggestions: how much can be freed, with a checkbox tree of every location (macOS)](assets/screenshot-suggestions.png)
+![Suggestions: how much can be freed, with a checkbox tree of every location (demo data)](assets/screenshot-suggestions.png)
 
-![Apps: every installed app with its logo and size; expanded, it shows all its files (macOS)](assets/screenshot-apps.png)
+![Apps: every installed app with its logo and size; expanded, it shows all its files (demo data)](assets/screenshot-apps.png)
 
 ![Duplicates: groups of identical files and the space their extra copies take (demo data)](assets/screenshot-duplicates.png)
 
@@ -181,7 +181,7 @@ little and lights up together with all its subfolders in the outer rings)
 - Links are never followed, so nothing outside what you picked is touched; very
   long paths work; caches are emptied and files in use are skipped.
 
-![Deleting: the red progress strip while the list empties (demo data)](assets/screenshot-deleting.png)
+![Deleting: the red progress strip counts the files removed and the space freed (demo data)](assets/screenshot-deleting.png)
 
 ![The delete list, opened from its button left of Delete permanently (demo data)](assets/screenshot-delete-list.png)
 
@@ -345,6 +345,8 @@ Both apps take their version from `src/Program.cs` and their colours from `src/T
 - `--cli scan <folder>` prints sizes (Windows: add `--mft` for the master file table, `--files` for the largest files)
 - `--cli selftest <scratch folder>` runs the end-to-end self-test (exit code 0 = passed)
 - `--cli screenshot <out folder> <folder>` saves a picture of every view
+- macOS: `python3 tools/make_demo_mac.py`, then `--cli demo-shots <out folder> /Volumes/Data` takes the README and
+  website pictures from a demo volume with made-up drives, suggestions and apps (`make_demo_mac.py --remove` after)
 - `--splash` shows the start-up screen until you click it or press Esc
 
 Every push is built and tested on Windows and macOS by GitHub Actions

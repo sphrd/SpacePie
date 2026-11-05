@@ -317,6 +317,9 @@ enum Fmt {
 
     private static let countFormatter: NumberFormatter = { let f = NumberFormatter(); f.numberStyle = .decimal; return f }()
 
+    /// Pictures for the README use one fixed number format (1,940), whatever this Mac's region is.
+    static func setLocale(_ l: Locale) { countFormatter.locale = l }
+
     static func count(_ n: Int64) -> String { countFormatter.string(from: NSNumber(value: n)) ?? "\(n)" }
 
     static func count(_ n: Int) -> String { count(Int64(n)) }

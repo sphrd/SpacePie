@@ -291,6 +291,7 @@ extension MainWindowController {
     // MARK: catalogue (runs on a background thread while the trees are held still)
 
     func findSuggestions(_ scanned: [DirNode], volumes: [String] = []) -> [Suggestion] {
+        if Demo.on { return Demo.suggestions() }   // pictures: never this Mac's caches
         let home = PathUtil.home
         let lib = home + "/Library"
         let caches = lib + "/Caches"
