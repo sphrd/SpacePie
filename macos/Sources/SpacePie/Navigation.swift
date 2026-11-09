@@ -35,13 +35,13 @@ final class DropView: FlatView {
     }
 }
 
-/// The row above the folder contents: Back, Forward, Up and Rescan as small icon buttons, then the path bar.
+/// The row above the folder contents: Back, Forward, Up and Rescan as small icon buttons, then the path bar. A narrow
+/// list pane (or a large zoom): the buttons flow onto more lines, the path bar onto a line of its own.
 final class NavRow: NSView, PageStrip {
     private let buttons: [RoundButton]
     private let crumbs: Breadcrumb
     override var isFlipped: Bool { true }
-    private var rowHeight: CGFloat { max(crumbs.stripHeight, buttons.first?.preferredSize.height ?? 0) }
-    var stripHeight: CGFloat { rowHeight + 4 }
+    var stripHeight: CGFloat { arrange(superview?.bounds.width ?? bounds.width, apply: false) }
 
     init(_ buttons: [RoundButton], _ crumbs: Breadcrumb) {
         self.buttons = buttons; self.crumbs = crumbs
@@ -55,16 +55,24 @@ final class NavRow: NSView, PageStrip {
 
     override func layout() {
         super.layout()
-        let h = rowHeight, gap: CGFloat = 6
-        var x: CGFloat = 0
+        _ = arrange(bounds.width, apply: true)
+    }
+
+    /// Lays the row out for the width (when apply) and returns its height.
+    private func arrange(_ rowW: CGFloat, apply: Bool) -> CGFloat {
+        let gap: CGFloat = 6, ch = crumbs.stripHeight
+        let h = max(ch, buttons.first?.preferredSize.height ?? 0)
+        var x: CGFloat = 0, y: CGFloat = 0
         for b in buttons {
             let p = b.preferredSize
-            b.frame = NSRect(x: x, y: ((h - p.height) / 2).rounded(), width: p.width, height: p.height)
+            if x > 0 && x + p.width > rowW { x = 0; y += h + 4 }
+            if apply { b.frame = NSRect(x: x, y: y + ((h - p.height) / 2).rounded(), width: p.width, height: p.height) }
             x += p.width + gap
         }
         x += 4
-        let ch = crumbs.stripHeight
-        crumbs.frame = NSRect(x: x, y: ((h - ch) / 2).rounded(), width: max(20, bounds.width - x), height: ch)
+        if rowW - x < 120 { x = 0; y += h + 4 }
+        if apply { crumbs.frame = NSRect(x: x, y: y + ((h - ch) / 2).rounded(), width: max(20, rowW - x), height: ch) }
+        return y + h + 4
     }
 
     override func draw(_ dirtyRect: NSRect) { T.SURFACE.setFill(); bounds.fill() }

@@ -38,12 +38,15 @@ namespace SpacePie
                     Application.DoEvents();
                     var bar = new Control[] { btnBack, btnForward, btnUp, btnRescan, btnExplorer, btnAddList, btnBasket, btnDelete, btnOpenScan, btnExport, measure };
                     bool overlap = false;
+                    var bad = new List<string>();
                     for (int i = 0; i < bar.Length; i++)
                         for (int j = i + 1; j < bar.Length; j++)
-                            if (bar[i].Visible && bar[j].Visible && bar[i].Parent == bar[j].Parent && bar[i].Bounds.IntersectsWith(bar[j].Bounds)) overlap = true;
-                    foreach (var c in bar) if (c.Visible && c.Right > c.Parent.ClientSize.Width + 1) overlap = true;   // or out of the window
+                            if (bar[i].Visible && bar[j].Visible && bar[i].Parent == bar[j].Parent && bar[i].Bounds.IntersectsWith(bar[j].Bounds))
+                            { overlap = true; bad.Add(bar[i].Text + " x " + bar[j].Text); }
+                    foreach (var c in bar)   // or out of the window (the navigation buttons: out of their row)
+                        if (c.Visible && c.Right > c.Parent.ClientSize.Width + 1) { overlap = true; bad.Add(c.Text + " out " + c.Right + ">" + c.Parent.ClientSize.Width); }
                     bool font = Math.Abs(Theme.FONT.Size - 10f * z) < 0.01f && ReferenceEquals(contents.Font, Theme.FONT);
-                    if (overlap || !font) { ok = false; detail += string.Format(" {0}: overlap {1}, font {2}", z, overlap, font); }
+                    if (overlap || !font) { ok = false; detail += string.Format(" {0}: overlap {1} ({2}), font {3}", z, overlap, string.Join(", ", bad), font); }
                 }
                 SetZoom(before);
                 Application.DoEvents();
