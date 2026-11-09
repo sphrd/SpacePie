@@ -130,7 +130,8 @@ jobs:
           path: SpacePie.exe
 
   macos:
-    runs-on: macos-14
+    # macos-14 was retired on 2026-11-02.
+    runs-on: macos-15
     outputs:
       sha: ${{ steps.hash.outputs.sha }}
     steps:
