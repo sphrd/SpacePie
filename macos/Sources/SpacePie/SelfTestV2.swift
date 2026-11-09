@@ -66,8 +66,12 @@ extension SelfTestRun {
                 let bar: [NSView] = [w.btnBack, w.btnForward, w.btnUp, w.btnRescan, w.btnFinder, w.btnAddList, w.btnBasket, w.btnDelete,
                                      w.btnOpenScan, w.btnExport, w.measure]
                 var overlap = false
-                for i in bar.indices { for j in bar.indices where j > i && bar[i].frame.intersects(bar[j].frame) { overlap = true } }
-                if bar.contains(where: { $0.frame.maxX > r.bounds.width + 1 }) { overlap = true }   // or out of the window
+                for i in bar.indices {
+                    for j in bar.indices where j > i && !bar[i].isHidden && !bar[j].isHidden && bar[i].superview === bar[j].superview
+                        && bar[i].frame.intersects(bar[j].frame) { overlap = true }
+                }
+                // Or out of the window (the navigation buttons: out of their row).
+                if bar.contains(where: { $0.frame.maxX > ($0.superview?.bounds.width ?? r.bounds.width) + 1 }) { overlap = true }
                 if !scaled || overlap { ok = false; detail += " \(z): scaled \(scaled), overlap \(overlap)" }
             }
             w.setZoom(before)

@@ -35,6 +35,41 @@ final class DropView: FlatView {
     }
 }
 
+/// The row above the folder contents: Back, Forward, Up and Rescan as small icon buttons, then the path bar.
+final class NavRow: NSView, PageStrip {
+    private let buttons: [RoundButton]
+    private let crumbs: Breadcrumb
+    override var isFlipped: Bool { true }
+    private var rowHeight: CGFloat { max(crumbs.stripHeight, buttons.first?.preferredSize.height ?? 0) }
+    var stripHeight: CGFloat { rowHeight + 4 }
+
+    init(_ buttons: [RoundButton], _ crumbs: Breadcrumb) {
+        self.buttons = buttons; self.crumbs = crumbs
+        super.init(frame: .zero)
+        for b in buttons { addSubview(b) }
+        addSubview(crumbs)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); needsLayout = true }
+
+    override func layout() {
+        super.layout()
+        let h = rowHeight, gap: CGFloat = 6
+        var x: CGFloat = 0
+        for b in buttons {
+            let p = b.preferredSize
+            b.frame = NSRect(x: x, y: ((h - p.height) / 2).rounded(), width: p.width, height: p.height)
+            x += p.width + gap
+        }
+        x += 4
+        let ch = crumbs.stripHeight
+        crumbs.frame = NSRect(x: x, y: ((h - ch) / 2).rounded(), width: max(20, bounds.width - x), height: ch)
+    }
+
+    override func draw(_ dirtyRect: NSRect) { T.SURFACE.setFill(); bounds.fill() }
+}
+
 /// Getting around and knowing what you look at: Back / Forward through the folders opened, the path bar above the
 /// folder contents, and the banner naming folders that could not be read.
 extension MainWindowController {
@@ -58,9 +93,11 @@ extension MainWindowController {
         unreadBanner.onClose = { [unowned self] in
             if let c = self.current, self.isAttached(c), !self.unreadClosed.contains(where: { $0 === c.top }) { self.unreadClosed.append(c.top) }
         }
-        // Top to bottom: banner, path bar, caption, list.
+        // Top to bottom: banner, navigation row (Back, Forward, Up, Rescan, then the path bar), caption, list.
+        let navButtons = [btnBack, btnForward, btnUp, btnRescan]
+        for b in navButtons { b.compact = true }
         pContents.addAbove(unreadBanner)
-        pContents.addAbove(crumbs)
+        pContents.addAbove(NavRow(navButtons, crumbs))
         // The mouse's back and forward buttons (buttons 4 and 5).
         mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { [weak self] e in
             guard let self = self, e.window === self.window else { return e }

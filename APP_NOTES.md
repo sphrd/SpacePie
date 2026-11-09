@@ -551,8 +551,10 @@ patterns (Part 3) are applied through the WinForms mapping below.
 ## Deviations from the agent file (kept to preserve existing behavior)
 
 - Window opens at 1280x760 (at most 85 % of the screen's working area, centred in it; min 900x520). The app is a
-  three-pane explorer, not the single-column form of §2.5. Layout: toolbar (path row + action row), scan bar (while
-  scanning), tree | list | chart panels, status line.
+  three-pane explorer, not the single-column form of §2.5. Layout: toolbar (path row + action row; Show in Explorer /
+  Finder starts at the list pane's left edge and the delete buttons end at its right edge, flowing from the left when the
+  window is too narrow), scan bar (while scanning), tree | list | chart panels, status line. Back, Forward, Up (arrow) and
+  Rescan folder are compact icon buttons in a row above the folder contents, in front of the path bar.
 - The path box is editable (type a path + Enter), so only its chevron opens the drive list, not the whole box.
 - Deletion has no Cancel on the overlay: the deleter never had cancellation; adding it would change behavior.
 - Folder/file icons are muted glyphs instead of shell icons (yellow shell folders would add a hue).
@@ -568,7 +570,7 @@ patterns (Part 3) are applied through the WinForms mapping below.
   (`getmntinfo`), so on `/` the data volume under `/System/Volumes/Data` is not counted twice (its content is reached
   through the firmlinks `/Users`, `/Applications`...). Drives: `mountedVolumeURLs` with `skipHiddenVolumes`, local and
   browsable only; refreshed on mount/unmount. Free space uses `volumeAvailableCapacityForImportantUsage`.
-  macOS-only differences: "Choose..." instead of "Browse...", "Show in Finder", "Full Disk Access..." instead of "Run
+  macOS-only differences: "Show in Finder", "Full Disk Access..." instead of "Run
   as administrator" (opens the privacy setting), About and Check for Updates in the app menu of the system menu bar,
   Cmd+R rescan, Cmd+Backspace delete, Cmd+Up up. Unsigned (no Developer ID): first launch needs right-click > Open.
   The updater downloads `DiskSpaceAnalyzer-macOS.dmg`, verifies it, mounts it, copies the app next to the running one
@@ -848,3 +850,7 @@ patterns (Part 3) are applied through the WinForms mapping below.
   admin-only deletes after one password prompt (macOS); zoom (Ctrl/Cmd +/-/0); no freeze during live updates or after the
   instant restart; scan progress by size on disk; small soft logo glow; chart hover grows a section with its subfolders;
   no unreadable-folders notice when access can't open them; macOS signed with the self-signed "sphrd" certificate.
+
+- v2.2.1 (2026-11-09): Back, Forward, Up (arrow) and Rescan folder as small icon buttons in front of the path bar; the toolbar's
+  selection buttons line up with the list pane; Location: / Choose... on both platforms; chart hover moves each outer ring
+  out by one step (even gaps, only the hovered section lighter); no text under the logo while scanning.

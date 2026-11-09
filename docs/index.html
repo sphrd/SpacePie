@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SpacePie: fast, free disk space analyzer and cleaner for Windows and macOS</title>
+<title>SpacePie - Fast, free disk space analyzer and cleaner for Windows and macOS</title>
 <meta name="description" content="SpacePie is a fast, free and open-source disk space analyzer and cleaner for Windows and macOS. See where your space went, find big, old and duplicate files, uninstall apps completely and free space safely. One small app, nothing to install.">
 <meta name="google-site-verification" content="sp-hpuyUZw8Ah5Xj3ek5iqd3DTt6-d7TZOI0vQNX47M">
 <meta name="theme-color" content="#222831">
 <link rel="canonical" href="https://sphrd.github.io/SpacePie/">
 <link rel="icon" href="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png">
 <meta property="og:type" content="website">
-<meta property="og:title" content="SpacePie: fast, free disk space analyzer and cleaner">
-<meta property="og:description" content="Open-source disk space analyzer and cleaner for Windows and macOS. One small app, nothing to install.">
+<meta property="og:title" content="SpacePie - Fast, free disk space analyzer and cleaner">
+<meta property="og:description" content="Fast, free disk space analyzer and cleaner for Windows and macOS. One small app, nothing to install.">
 <meta property="og:url" content="https://sphrd.github.io/SpacePie/">
 <meta property="og:image" content="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/social-preview.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -70,15 +70,19 @@
   .skip:focus { left: 16px; top: 12px; background: var(--surface); padding: 8px 14px; border-radius: 8px; z-index: 10; }
 
   /* top bar */
-  .top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 5; }
-  .top .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
-  .brand { display: flex; align-items: center; gap: 10px; color: var(--fg); font-weight: 600; font-size: 17px; }
+  .top { border-bottom: 1px solid var(--border); background: var(--bg); position: sticky; top: 0; z-index: 5; }  
+  .top .wrap { display: flex; align-items: center;  height: 60px; }
+  .brand { display: flex; align-items: center; gap: 5px; color: var(--fg); font-weight: 600; font-size: 18px; }
   .brand:hover { color: var(--fg); }
+  .brand .name { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; }
   .brand img { width: 26px; height: 26px; }
+  .brand .by { display: flex; align-items: center; column-gap: 6px; }
+  .brand .by small { font-size: 10px; }
+  .brand .by em { font-size: 14px; }
   .top nav { display: flex; gap: 22px; margin-left: auto; font-size: 15px; }
   .top nav a { color: var(--muted); }
   .top nav a:hover { color: var(--fg); }
-  .top .btn { padding: 7px 16px; font-size: 15px; }
+  .top .btn { margin-left: 24px; padding: 7px 16px; font-size: 15px; }
 
   /* buttons */
   .btn { display: inline-flex; flex-direction: column; justify-content: center; padding: 11px 22px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--fg); font-weight: 600; line-height: 1.3; transition: background-color .15s; }
@@ -268,7 +272,13 @@
 
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="#top"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png" alt="" width="26" height="26">SpacePie</a>
+    <a class="brand" href="#top">
+      <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/app.png" alt="" width="26" height="26">
+      <span class="name">
+        <span>SpacePie</span>
+        <span class="by"><small>by</small><em>sphrd</em></span>
+      </span>
+    </a>
     <nav aria-label="Sections">
       <a class="opt" href="#how">How it works</a>
       <a href="#features">Features</a>
@@ -693,7 +703,7 @@
   var bars = Array.prototype.slice.call(document.querySelectorAll(".scanbar"));
   function checkDone() {
     bars = bars.filter(function (b) {
-      if (b.getBoundingClientRect().bottom < window.innerHeight * 0.35) { b.classList.add("done"); return false; }
+      if (b.getBoundingClientRect().bottom < window.innerHeight * 1) { setTimeout(function() { b.classList.add("done"); }, 3000); return false; }
       return true;
     });
     if (!bars.length) window.removeEventListener("scroll", checkDone);

@@ -446,6 +446,20 @@ namespace SpacePie
             g.SmoothingMode = sm;
         }
 
+        /// <summary>Arrow (up to the parent folder): a vertical shaft with an open head, pointing up.</summary>
+        public static void DrawArrowUp(Graphics g, Rectangle r, Color c)
+        {
+            var sm = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            float cx = r.X + r.Width / 2f, cy = r.Y + r.Height / 2f, a = r.Width * 0.40f;
+            using (var pen = new Pen(c, Math.Max(1.6f, 1.8f * Scale)) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+            {
+                g.DrawLine(pen, cx, cy + a, cx, cy - a);
+                g.DrawLines(pen, new[] { new PointF(cx - a * 0.8f, cy - a * 0.15f), new PointF(cx, cy - a), new PointF(cx + a * 0.8f, cy - a * 0.15f) });
+            }
+            g.SmoothingMode = sm;
+        }
+
         // ------------------------------------------------------------------ window manager
 
         [DllImport("dwmapi.dll")]

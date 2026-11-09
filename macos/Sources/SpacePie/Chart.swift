@@ -190,7 +190,7 @@ final class PieChart: NSView {
     private func ringInner(_ level: Int) -> CGFloat { innerOuterRatio + 0.02 + 0.15 * CGFloat(level - 1) }
     private func ringOuter(_ level: Int) -> CGFloat { innerOuterRatio + 0.15 * CGFloat(level) }
 
-    /// Pixels a hovered section (and everything in the rings beyond it) grows outwards.
+    /// Pixels a hovered section grows outwards; each ring beyond it moves out by as much again.
     static let hoverGrow: CGFloat = 4
 
     /// Hovered: the section under the pointer and, recursively, the sections of its subfolders in the outer rings.
@@ -223,7 +223,7 @@ final class PieChart: NSView {
             y += 16
         }
         y += 16
-        let grow: CGFloat = 6
+        let grow: CGFloat = PieChart.hoverGrow * 3   // the slice and both outer rings each step out once
         var d = min(bounds.width - 2 * pad - 2 * grow, bounds.height - y - pad - 2 * grow)
         d = max(60, d)
         let top = y + max(0, (bounds.height - y - pad - d) / 3)
@@ -312,16 +312,21 @@ final class PieChart: NSView {
                 }
                 start += sweep
             }
-            // Hovered sections last, a little larger and lighter, over their neighbours.
+            // Hovered sections last, over their neighbours. They grow outwards only: each ring beyond the hovered section
+            // moves out by one more step, so the gaps between the rings stay the same. Only the section under the pointer
+            // is drawn lighter.
             var lit: [Int] = []
             for (i, a) in arcs.enumerated() {
                 if arcLit(i) { lit.append(i); continue }
                 fillBand(R * ringInner(a.level), R * ringOuter(a.level), a.start, a.sweep, a.color)
             }
             let g = PieChart.hoverGrow
+            let litLevel = hoverArc >= 0 ? arcs[hoverArc].level : 0
             for i in lit {
                 let a = arcs[i]
-                fillBand(R * ringInner(a.level) - g / 2, R * ringOuter(a.level) + g, a.start, a.sweep, PieChart.blend(a.color, .white, 0.3))
+                let k = CGFloat(a.level - litLevel)
+                fillBand(R * ringInner(a.level) + k * g, R * ringOuter(a.level) + (k + 1) * g, a.start, a.sweep,
+                         i == hoverArc ? PieChart.blend(a.color, .white, 0.3) : a.color)
             }
             // Thin separators in the panel colour between visible slices.
             if slices.filter({ $0.size > 0 }).count > 1 {

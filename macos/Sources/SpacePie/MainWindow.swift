@@ -109,7 +109,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     lazy var btnAccess = RoundButton("Full Disk Access...", .secondary) { [unowned self] in self.openFullDiskAccess() }
     lazy var btnBack = RoundButton(icon: { (r: NSRect, c: NSColor) in Theme.drawArrow(r, c, left: true) }, { [unowned self] in self.goBack() })
     lazy var btnForward = RoundButton(icon: { (r: NSRect, c: NSColor) in Theme.drawArrow(r, c, left: false) }, { [unowned self] in self.goForward() })
-    lazy var btnUp = RoundButton("Up", .secondary) { [unowned self] in self.goUp() }
+    lazy var btnUp = RoundButton(icon: { (r: NSRect, c: NSColor) in Theme.drawArrow(r, c, dx: 0, dy: -1) }, { [unowned self] in self.goUp() })
     lazy var btnRescan = RoundButton(refresh: { [unowned self] in self.rescanSelected() })
     lazy var btnFinder = RoundButton("Show in Finder", .secondary) { [unowned self] in self.showInFinder() }
     lazy var btnAddList = RoundButton("Add to delete list", .secondary) { [unowned self] in self.addSelectionToBasket() }
@@ -143,6 +143,8 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     let contextMenu = NSMenu()
     lazy var updates = UpdateController(parent: window)
     var split2Positioned = false
+    /// layoutRoot is running / was asked again meanwhile (the list pane changed size while the toolbar was laid out).
+    private var inLayoutRoot = false, layoutRootAgain = false
     /// Zoom of everything in the window (⌘+ / ⌘- / ⌘0); remembered between starts.
     var zoom: CGFloat = MainWindowController.savedZoom
 
@@ -314,7 +316,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         measure.tip = "Size: file lengths, as Finder shows them. Size on disk: the space really used (blocks, files not downloaded from iCloud)"
         measure.selectedIndex = DirNode.onDisk ? 1 : 0
         measure.onChange = { [unowned self] i in self.setMeasure(i == 1) }
-        for v: NSView in [pathLabel, pathPanel, btnBrowse, btnScan, btnAccess, btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnDelete,
+        for v: NSView in [pathLabel, pathPanel, btnBrowse, btnScan, btnAccess, btnFinder, btnAddList, btnDelete,
                           btnBasket, btnOpenScan, btnExport, measure, scanBar, statusLabel, liveLabel, driveLabel, versionLink] {
             root.addSubview(v)
         }
@@ -460,6 +462,14 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     }
 
     @objc func layoutRoot() {
+        if inLayoutRoot { layoutRootAgain = true; return }
+        inLayoutRoot = true
+        defer { inLayoutRoot = false }
+        var passes = 0
+        repeat { layoutRootAgain = false; layoutRootPass(); passes += 1 } while layoutRootAgain && passes < 3
+    }
+
+    private func layoutRootPass() {
         // Zoom: the content view's coordinates are scaled, so every view and its text is drawn larger or smaller (sharp,
         // not a bitmap scale); the layout below works in those zoomed points.
         let want = NSSize(width: (root.frame.width / zoom).rounded(), height: (root.frame.height / zoom).rounded())
@@ -478,21 +488,37 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         pathPanel.frame = NSRect(x: px, y: y, width: max(120, btnBrowse.frame.minX - gap - px), height: h)
         pathPanel.needsLayout = true
         y += h + 8
-        var x = m
-        for btn in [btnBack, btnForward, btnUp, btnRescan, btnFinder, btnAddList, btnBasket, btnDelete] {
-            if btn === btnBasket { x += 10 }
-            let p = btn.preferredSize
-            let bw = btn.isIcon ? h : p.width
-            // A narrow window (or a large zoom): the buttons flow onto another row instead of leaving the window.
-            if x > m && x + bw > b.width - m { x = m; y += h + 8 }
-            btn.frame = NSRect(x: x, y: y, width: bw, height: h)
-            x += bw + gap
-        }
         let ms = measure.preferredSize, es = btnExport.preferredSize, os = btnOpenScan.preferredSize
-        // The right-hand group (Open scan, Export, the measure switch) moves to a row of its own when the window (or a
-        // larger zoom) leaves too little room beside the action row; nothing overlaps.
-        let rightW = os.width + gap + es.width + 16 + ms.width
-        if x - gap + 16 > b.width - m - rightW { y += h + 8 }
+        let groupGap: CGFloat = 16
+        let rightW = os.width + gap + es.width + groupGap + ms.width
+        let sel = [btnFinder, btnAddList, btnBasket, btnDelete]
+        let pref = sel.map { $0.preferredSize.width }
+        let deleteW = pref[1] + groupGap + pref[2] + gap + pref[3]
+        // Show in Finder at the list pane's left edge, the delete buttons ending at its right edge (or, when the pane is
+        // too narrow for all of them, just right of Show in Finder).
+        var paneL = m, paneR = b.width - m - rightW - groupGap
+        if listPanel.frame.width > 0 {
+            paneL = m + NavRail.width + 10 + listPanel.frame.minX
+            paneR = paneL + listPanel.frame.width
+        }
+        let deleteR = max(paneR, paneL + pref[0] + gap + deleteW)
+        if deleteR + groupGap + rightW <= b.width - m {
+            btnFinder.frame = NSRect(x: paneL, y: y, width: pref[0], height: h)
+            btnDelete.frame = NSRect(x: deleteR - pref[3], y: y, width: pref[3], height: h)
+            btnBasket.frame = NSRect(x: btnDelete.frame.minX - gap - pref[2], y: y, width: pref[2], height: h)
+            btnAddList.frame = NSRect(x: btnBasket.frame.minX - groupGap - pref[1], y: y, width: pref[1], height: h)
+        } else {
+            // A narrow window (or a large zoom): the buttons flow from the left, onto more rows when needed.
+            var x = m
+            for (i, btn) in sel.enumerated() {
+                if btn === btnBasket { x += groupGap - gap }
+                if x > m && x + pref[i] > b.width - m { x = m; y += h + 8 }
+                btn.frame = NSRect(x: x, y: y, width: pref[i], height: h)
+                x += pref[i] + gap
+            }
+            // The right-hand group (Open scan, Export, the measure switch) moves to a row of its own when there is no room.
+            if x - gap + groupGap > b.width - m - rightW { y += h + 8 }
+        }
         measure.frame = NSRect(x: b.width - m - ms.width, y: y, width: ms.width, height: h)
         btnExport.frame = NSRect(x: measure.frame.minX - 16 - es.width, y: y, width: es.width, height: h)
         btnOpenScan.frame = NSRect(x: btnExport.frame.minX - gap - os.width, y: y, width: os.width, height: h)
@@ -530,6 +556,10 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         splitView.bounds.width - 180
     }
     func windowDidResize(_ notification: Notification) { layoutRoot() }
+    /// The toolbar's selection buttons follow the list pane's edges (divider dragged, window resized, zoom).
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        if (notification.object as AnyObject?) === split2 { layoutRoot() }
+    }
 
     // MARK: Zoom (View menu: Actual Size ⌘0, Zoom In ⌘+, Zoom Out ⌘-)
 

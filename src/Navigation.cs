@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 
@@ -29,8 +30,7 @@ namespace SpacePie
             btnBack.Glyph = (g, r, c) => Theme.DrawArrow(g, r, c, true);
             btnForward = Btn("Forward", ButtonKind.Secondary, "Forward again (Alt+Right)", GoForward);
             btnForward.Glyph = (g, r, c) => Theme.DrawArrow(g, r, c, false);
-            toolbar.Controls.Add(btnBack);
-            toolbar.Controls.Add(btnForward);
+            btnBack.Compact = btnForward.Compact = true;
 
             crumbs = new Breadcrumb();
             crumbs.PartClicked += o =>
@@ -46,8 +46,29 @@ namespace SpacePie
             unreadAdmin = unreadBanner.AddButton("Run as administrator", "Restart elevated: administrators can read these folders (and drives are read from the master file table)", tips, RestartAsAdmin);
             unreadAdmin.Visible = !isAdmin;
             unreadBanner.Closed += (s, e) => { if (current != null && IsAttached(current)) unreadClosed.Add(current.Top); };
-            // Top to bottom: banner, path bar, caption, list (the last docked control is the topmost).
-            pContents.Root.Controls.Add(crumbs);
+            // Top to bottom: banner, navigation row (Back, Forward, Up, Rescan, then the path bar), caption, list
+            // (the last docked control is the topmost).
+            var navRow = new Panel { Dock = DockStyle.Top, BackColor = Theme.SURFACE };
+            var navButtons = new[] { btnBack, btnForward, btnUp, btnRescan };
+            crumbs.Dock = DockStyle.None;
+            navRow.Controls.AddRange(navButtons);
+            navRow.Controls.Add(crumbs);
+            navRow.Layout += (s, e) =>
+            {
+                int gap = S(6), x = 0;
+                int h = Math.Max(crumbs.Font.Height + S(12), navButtons[0].GetPreferredSize(Size.Empty).Height);
+                foreach (var b in navButtons)
+                {
+                    var p = b.GetPreferredSize(Size.Empty);
+                    b.Bounds = new Rectangle(x, (h - p.Height) / 2, p.Width, p.Height);
+                    x += p.Width + gap;
+                }
+                x += S(4);
+                int ch = crumbs.Font.Height + S(12);
+                crumbs.Bounds = new Rectangle(x, (h - ch) / 2, Math.Max(S(20), navRow.ClientSize.Width - x), ch);
+                if (navRow.Height != h + S(4)) navRow.Height = h + S(4);
+            };
+            pContents.Root.Controls.Add(navRow);
             pContents.Root.Controls.Add(unreadBanner);
         }
 

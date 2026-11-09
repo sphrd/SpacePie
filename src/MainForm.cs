@@ -73,6 +73,8 @@ namespace SpacePie
         readonly Segmented measure;
         readonly Panel toolbar;
         readonly Panel mainArea;
+        /// <summary>The list pane (middle); the toolbar's selection buttons line up with its edges.</summary>
+        readonly RoundedPanel listPanel;
         readonly SplitContainer split2;
         readonly PieChart chart;
         readonly Segmented chartMode;
@@ -126,7 +128,7 @@ namespace SpacePie
 
             // Toolbar: path row, then the actions that work on the selection
             Splash.Status("Listing drives");
-            pathLabel = new Label { Text = "Drive / folder:", AutoSize = true, ForeColor = Theme.FG, BackColor = Theme.BG, Font = Theme.FONT };
+            pathLabel = new Label { Text = "Location:", AutoSize = true, ForeColor = Theme.FG, BackColor = Theme.BG, Font = Theme.FONT };
             pathBox = new PathInput();
             foreach (var d in DriveInfo.GetDrives())
                 if (d.IsReady) pathBox.Choices.Add(d.Name);
@@ -134,13 +136,15 @@ namespace SpacePie
             pathBox.ChoiceCommitted += (s, e) => StartScan();
             tips.SetToolTip(pathBox.Box, "Drive or folder to analyze (you can also drag a folder onto the window)");
 
-            btnBrowse = Btn("Browse...", ButtonKind.Secondary, "Choose a folder", Browse);
+            btnBrowse = Btn("Choose...", ButtonKind.Secondary, "Choose a folder", Browse);
             btnScan = Btn("Scan", ButtonKind.Primary, "Analyze the drive or folder (Enter)", StartScan);
             btnAdmin = Btn("Run as administrator", ButtonKind.Secondary, "Restart elevated to read folders that need admin rights", RestartAsAdmin);
             btnAdmin.Visible = !isAdmin;
             btnUp = Btn("Up", ButtonKind.Secondary, "Go to the parent folder (Backspace)", GoUp);
+            btnUp.Glyph = Theme.DrawArrowUp;
             btnRescan = Btn("Rescan folder", ButtonKind.Secondary, "Rescan the selected folder (F5)", RescanSelected);
             btnRescan.Glyph = Theme.DrawRefresh;
+            btnUp.Compact = btnRescan.Compact = true;
             btnExplorer = Btn("Show in Explorer", ButtonKind.Secondary, "Open the selected item in Windows Explorer", ShowInExplorer);
             btnAddList = Btn("Add to delete list", ButtonKind.Secondary, "Collect the selected items in the delete list; review them there, then delete them together (Ctrl+D)", AddSelectionToBasket);
             btnDelete = Btn("Delete permanently", ButtonKind.Danger, "Permanently delete the selected items, bypassing the Recycle Bin (Ctrl+Shift+D)", DeleteSelected);
@@ -157,7 +161,7 @@ namespace SpacePie
             tips.SetToolTip(measure, "Size: file lengths, as Explorer shows them. Size on disk: the space really used (compression, clusters, online-only cloud files)");
 
             toolbar = new Panel { Dock = DockStyle.Top, BackColor = Theme.BG };
-            toolbar.Controls.AddRange(new Control[] { pathLabel, pathBox, btnBrowse, btnScan, btnAdmin, btnUp, btnRescan, btnExplorer, btnAddList, btnBasket, btnDelete, btnExport, btnOpenScan, measure });
+            toolbar.Controls.AddRange(new Control[] { pathLabel, pathBox, btnBrowse, btnScan, btnAdmin, btnExplorer, btnAddList, btnBasket, btnDelete, btnExport, btnOpenScan, measure });
             toolbar.Layout += (s, e) => LayoutToolbar();
 
             // Context menu
@@ -211,7 +215,7 @@ namespace SpacePie
             contents.BarColumn = 2;
             // Folders expand in place (tree-list): the arrow, or Right / Left on the keyboard.
             contents.GlyphClicked += ContentsGlyph;
-            var listPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill, TrackFocus = true };
+            listPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill };
             BuildViews(listPanel);
             BuildNavigation();
 
@@ -255,6 +259,9 @@ namespace SpacePie
             mainArea.Controls.Add(split2);
             mainArea.Controls.Add(new Panel { Dock = DockStyle.Left, Width = S(10), BackColor = Theme.BG });
             mainArea.Controls.Add(viewTabs);
+            // The toolbar's selection buttons follow the list pane's edges (window size, splitter, zoom).
+            listPanel.SizeChanged += (s, e) => toolbar.PerformLayout();
+            split2.LocationChanged += (s, e) => toolbar.PerformLayout();
 
             // Status line
             var status = new Panel { Dock = DockStyle.Bottom, Height = Theme.FONT_9.Height + S(16), BackColor = Theme.BG };
@@ -362,6 +369,7 @@ namespace SpacePie
                 // The chart pane is 4/5 as wide as it is tall (a large chart, the list keeps more room; at least 380 px).
                 int chartW = Math.Max(S(220), Math.Min(split2.Height * 4 / 5, split2.Width - S(380) - split2.SplitterWidth));
                 split2.SplitterDistance = Math.Max(S(200), split2.Width - chartW - split2.SplitterWidth);
+                toolbar.PerformLayout();
                 LoadDrives();
                 RefreshTree(null);
                 ShowPage();
@@ -461,25 +469,46 @@ namespace SpacePie
             int px = pathLabel.Right + gap;
             pathBox.Bounds = new Rectangle(px, 0, Math.Max(S(120), btnBrowse.Left - gap - px), h);
 
-            int x = 0, y = h + S(8);
-            foreach (var b in btnBack != null ? new[] { btnBack, btnForward, btnUp, btnRescan, btnExplorer, btnAddList, btnBasket, btnDelete } : new[] { btnUp, btnRescan, btnExplorer, btnAddList, btnBasket, btnDelete })
-            {
-                if (b == btnBasket) x += groupGap - gap;
-                var p = b.GetPreferredSize(Size.Empty);
-                // A narrow window (or a large zoom): the buttons flow onto another row instead of leaving the window.
-                if (x > 0 && x + p.Width > w) { x = 0; y += h + S(8); }
-                b.Bounds = new Rectangle(x, y, p.Width, h);
-                x += p.Width + gap;
-            }
+            int y = h + S(8);
             var ms = measure.GetPreferredSize(Size.Empty);
-            var es0 = btnExport.GetPreferredSize(Size.Empty);
-            var os0 = btnOpenScan.GetPreferredSize(Size.Empty);
-            // The right-hand group moves to a row of its own when a narrow window (or a large zoom) leaves no room for it.
-            if (x - gap + groupGap > w - (os0.Width + gap + es0.Width + groupGap + ms.Width)) y += h + S(8);
-            measure.Bounds = new Rectangle(w - ms.Width, y, ms.Width, h);
             var es = btnExport.GetPreferredSize(Size.Empty);
-            btnExport.Bounds = new Rectangle(measure.Left - groupGap - es.Width, y, es.Width, h);
             var os = btnOpenScan.GetPreferredSize(Size.Empty);
+            int rightW = os.Width + gap + es.Width + groupGap + ms.Width;
+            var sel = new[] { btnExplorer, btnAddList, btnBasket, btnDelete };
+            var pref = sel.Select(b => b.GetPreferredSize(Size.Empty)).ToArray();
+            int deleteW = pref[1].Width + groupGap + pref[2].Width + gap + pref[3].Width;
+            // Show in Explorer at the list pane's left edge, the delete buttons ending at its right edge (or, when the pane
+            // is too narrow for all of them, just right of Show in Explorer).
+            int paneL = 0, paneR = w - rightW - groupGap;
+            if (listPanel != null && listPanel.IsHandleCreated && toolbar.IsHandleCreated && listPanel.Width > 0)
+            {
+                paneL = toolbar.PointToClient(listPanel.PointToScreen(Point.Empty)).X;
+                paneR = paneL + listPanel.Width;
+            }
+            int deleteR = Math.Max(paneR, paneL + pref[0].Width + gap + deleteW);
+            if (paneL >= 0 && deleteR + groupGap + rightW <= w)
+            {
+                btnExplorer.Bounds = new Rectangle(paneL, y, pref[0].Width, h);
+                btnDelete.Bounds = new Rectangle(deleteR - pref[3].Width, y, pref[3].Width, h);
+                btnBasket.Bounds = new Rectangle(btnDelete.Left - gap - pref[2].Width, y, pref[2].Width, h);
+                btnAddList.Bounds = new Rectangle(btnBasket.Left - groupGap - pref[1].Width, y, pref[1].Width, h);
+            }
+            else
+            {
+                // A narrow window (or a large zoom): the buttons flow from the left, onto more rows when needed.
+                int x = 0;
+                for (int i = 0; i < sel.Length; i++)
+                {
+                    if (sel[i] == btnBasket) x += groupGap - gap;
+                    if (x > 0 && x + pref[i].Width > w) { x = 0; y += h + S(8); }
+                    sel[i].Bounds = new Rectangle(x, y, pref[i].Width, h);
+                    x += pref[i].Width + gap;
+                }
+                // The right-hand group moves to a row of its own when there is no room for it.
+                if (x - gap + groupGap > w - rightW) y += h + S(8);
+            }
+            measure.Bounds = new Rectangle(w - ms.Width, y, ms.Width, h);
+            btnExport.Bounds = new Rectangle(measure.Left - groupGap - es.Width, y, es.Width, h);
             btnOpenScan.Bounds = new Rectangle(btnExport.Left - gap - os.Width, y, os.Width, h);
             int total = y + h + S(10);
             if (toolbar.Height != total) toolbar.Height = total;
@@ -880,7 +909,7 @@ namespace SpacePie
             string sub = r != null && r.Total > 0
                 ? string.Format("{0} used of {1}  -  {2} free", Fmt.Size(r.Total - r.Free), Fmt.Size(r.Total), Fmt.Size(r.Free))
                 : (r != null ? r.Path : "");
-            chart.ShowLogo(r != null ? r.DisplayName : "", sub, "Scanning... the chart appears when the scan is done.", true);
+            chart.ShowLogo(r != null ? r.DisplayName : "", sub, "", true);
         }
 
         /// <summary>Nothing scanned yet: the chart pane shows the app logo; it morphs into the chart once the scan is done.</summary>
@@ -890,9 +919,8 @@ namespace SpacePie
             string sub = r.Total > 0
                 ? string.Format("{0} used of {1}  -  {2} free", Fmt.Size(r.Total - r.Free), Fmt.Size(r.Total), Fmt.Size(r.Free))
                 : r.Path;
-            chart.ShowLogo(r.DisplayName, sub, r.Scanning
-                ? "Scanning... the chart appears when the scan is done."
-                : "Not scanned yet. Press Scan, or double-click the drive.", r.Scanning || scanning);
+            // While it scans the logo's working loop says enough: no text under it.
+            chart.ShowLogo(r.DisplayName, sub, r.Scanning ? "" : "Not scanned yet. Press Scan, or double-click the drive.", r.Scanning || scanning);
         }
 
         /// <summary>Blocking work (permanent delete): full-window overlay.</summary>

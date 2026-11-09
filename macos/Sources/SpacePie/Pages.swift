@@ -221,15 +221,15 @@ extension MainWindowController {
         rowSlice = [:]
         let r = scanRoot ?? active
         let sub = r.map { $0.total > 0 ? "\(Fmt.size($0.used)) used of \(Fmt.size($0.total))  -  \(Fmt.size($0.free)) free" : $0.path } ?? ""
-        let note = scanning || holdChart ? "Scanning... the chart appears when the scan is done." : "Updating... the chart appears when the scan is up to date."
-        chart.showLogo(r?.displayName ?? "", sub, note, working: true)
+        // The logo's working loop says enough: no text under it.
+        chart.showLogo(r?.displayName ?? "", sub, "", working: true)
     }
 
     /// Nothing scanned yet: the chart pane shows the app logo; it morphs into the chart once the scan is done.
     func updateChartUnscanned(_ r: ScanRoot) {
         rowSlice = [:]
         let sub = r.total > 0 ? "\(Fmt.size(r.used)) used of \(Fmt.size(r.total))  -  \(Fmt.size(r.free)) free" : r.path
-        chart.showLogo(r.displayName, sub, r.scanning ? "Scanning... the chart appears when the scan is done." : "Not scanned yet. Press Scan, or double-click the drive.",
+        chart.showLogo(r.displayName, sub, r.scanning ? "" : "Not scanned yet. Press Scan, or double-click the drive.",
                        working: r.scanning || scanning)
     }
 

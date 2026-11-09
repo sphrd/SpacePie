@@ -188,7 +188,7 @@ namespace SpacePie
             }
         }
 
-        /// <summary>Pixels (at 100 %) a hovered section, and everything in the rings beyond it, grows outwards.</summary>
+        /// <summary>Pixels (at 100 %) a hovered section grows outwards; each ring beyond it moves out by as much again.</summary>
         const int HoverGrow = 4;
 
         /// <summary>Hovered: the section under the pointer and, recursively, the sections of its subfolders in the outer rings.</summary>
@@ -260,7 +260,7 @@ namespace SpacePie
             y += Theme.S(16);
 
             // The donut takes the rest of the pane, centred, leaving room for the hover pop-out.
-            int grow = Theme.S(6);
+            int grow = Theme.S(HoverGrow * 3);   // the slice and both outer rings each step out once
             int d = Math.Min(Width - 2 * pad - 2 * grow, Height - y - pad - 2 * grow);
             d = Math.Max(Theme.S(60), d);
             int top = y + Math.Max(0, (Height - y - pad - d) / 3);
@@ -368,7 +368,9 @@ namespace SpacePie
                     }
                     start += sweep;
                 }
-                // Hovered sections last, a little larger and lighter, over their neighbours.
+                // Hovered sections last, over their neighbours. They grow outwards only: each ring beyond the hovered
+                // section moves out by one more step, so the gaps between the rings stay the same. Only the section
+                // under the pointer is drawn lighter.
                 var litArcs = new List<int>();
                 for (int i = 0; i < arcs.Count; i++)
                 {
@@ -377,10 +379,13 @@ namespace SpacePie
                     FillBand(g, c0, R * RingInner(a.Level), R * RingOuter(a.Level), a.Start, a.Sweep, a.Color);
                 }
                 float grow = Theme.S(HoverGrow);
+                int litLevel = hoverArc >= 0 ? arcs[hoverArc].Level : 0;
                 foreach (int i in litArcs)
                 {
                     var a = arcs[i];
-                    FillBand(g, c0, R * RingInner(a.Level) - grow / 2, R * RingOuter(a.Level) + grow, a.Start, a.Sweep, Blend(a.Color, Color.White, 0.3f));
+                    int k = a.Level - litLevel;
+                    FillBand(g, c0, R * RingInner(a.Level) + k * grow, R * RingOuter(a.Level) + (k + 1) * grow, a.Start, a.Sweep,
+                        i == hoverArc ? Blend(a.Color, Color.White, 0.3f) : a.Color);
                 }
                 // Thin separators in the panel colour between visible slices.
                 int visible = 0;
