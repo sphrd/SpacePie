@@ -22,6 +22,10 @@ for name, hexv in re.findall(r"public static readonly Color (\w+) = Hex\(0x([0-9
     if name in own:
         continue
     lines.append(f"    static let {name} = rgb(0x{hexv.lower()})")
+# Number tokens (upper-case names, e.g. HOVER_MIX).
+for name, val in re.findall(r"public const float ([A-Z][A-Z0-9_]+) = ([0-9.]+)f;", theme):
+    if name not in own:
+        lines.append(f"    static let {name}: CGFloat = {val}")
 m = re.search(r"public static readonly Color\[\] CHART = \{([^}]*)\}", theme)
 if not m:
     raise SystemExit("CHART not found in src/Theme.cs")

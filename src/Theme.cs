@@ -18,6 +18,7 @@ namespace SpacePie
         public static readonly Color MUTED = Hex(0xaab4c0);
         public static readonly Color DISABLED_FG = Hex(0x6b7480);
         public static readonly Color ACCENT = Hex(0x4da3ff);
+        public static readonly Color BG_GLOW = Hex(0x305996);
         public static readonly Color ACCENT_ACTIVE = Hex(0x7bbcff);
         public static readonly Color ACCENT_LIGHT = Hex(0xcfe4ff);
         // ---- LOGO COLOURS: edit here. This is the only place; tools/make_icon.ps1 reads these three lines for the
@@ -48,6 +49,10 @@ namespace SpacePie
         public static readonly Color[] CHART = { Hex(0x4da3ff), Hex(0xa6cfff), Hex(0x2f78cc), Hex(0x7bbcff), Hex(0x1f5aa0), Hex(0xcfe4ff), Hex(0x5b95d6), Hex(0x8fb8e8) };
         public static readonly Color CHART_FREE = Hex(0x4a525e);
         public static readonly Color CHART_OTHER = Hex(0x6b7480);
+        // Chart / treemap hover: the hovered section is tinted towards this soft yellow (HOVER_MIX of it), and a hovered
+        // treemap folder also gets an outline in it. Change the hue here; macOS takes it from here too (gen_tokens.py).
+        public static readonly Color HOVER = Hex(0xf6ff00);
+        public const float HOVER_MIX = 0.45f;
 
         // Not readonly: SetZoom makes them again at the zoom (Ctrl+Plus / Ctrl+Minus / Ctrl+0).
         public static Font FONT = new Font("Segoe UI", 10f);
@@ -128,6 +133,74 @@ namespace SpacePie
             return p;
         }
 
+        /// <summary>Rounded rectangle with a radius per corner (0 = square): top left, top right, bottom right, bottom left.</summary>
+        public static GraphicsPath RoundRect(RectangleF r, float tl, float tr, float br, float bl)
+        {
+            var p = new GraphicsPath();
+            float m = Math.Min(r.Width, r.Height) / 2;
+            tl = Math.Min(tl, m); tr = Math.Min(tr, m); br = Math.Min(br, m); bl = Math.Min(bl, m);
+            if (tl >= 0.5f) p.AddArc(r.X, r.Y, 2 * tl, 2 * tl, 180, 90); else p.AddLine(r.X, r.Y, r.X, r.Y);
+            if (tr >= 0.5f) p.AddArc(r.Right - 2 * tr, r.Y, 2 * tr, 2 * tr, 270, 90); else p.AddLine(r.Right, r.Y, r.Right, r.Y);
+            if (br >= 0.5f) p.AddArc(r.Right - 2 * br, r.Bottom - 2 * br, 2 * br, 2 * br, 0, 90); else p.AddLine(r.Right, r.Bottom, r.Right, r.Bottom);
+            if (bl >= 0.5f) p.AddArc(r.X, r.Bottom - 2 * bl, 2 * bl, 2 * bl, 90, 90); else p.AddLine(r.X, r.Bottom, r.X, r.Bottom);
+            p.CloseFigure();
+            return p;
+        }
+
+        /// <summary>Default reach of the outward curves along the pane's edge where a selected tab merges into its pane.</summary>
+        public static int TabFlare { get { return S(8); } }
+
+        /// <summary>
+        /// A selected tab merged into the pane beside it (the side it joins has no corners): rounded (radius) on the far
+        /// side, square on the joining side, where its two edges curve outward (flare) into the pane's edge, which lies at
+        /// 'edge'. Each curve is a quarter ellipse: it leaves the tab's side 'across' away from the pane's edge (where the
+        /// neighbours end: the end of the views bar pills, the bottom of the toolbar buttons) and meets the pane's edge
+        /// 'along' further out (the gap to the next row / button), so it fills exactly the space between the neighbours.
+        /// joinRight: the tab's right side joins a pane on its right (views bar); otherwise its bottom joins a pane
+        /// below it (Delete list). flareStart / flareEnd: the curve above / left and below / right of the tab (off when
+        /// the tab is level with the pane's corner). Returned open: the joining side is left out, so drawing it with a pen
+        /// outlines the tab without a line across the joint, and filling it closes it along the pane's edge.
+        /// </summary>
+        public static GraphicsPath TabPath(RectangleF body, float radius, float edge, bool joinRight, bool flareStart, bool flareEnd, float along, float across)
+        {
+            float a = Math.Max(1, along), c = Math.Max(1, across);
+            var p = new GraphicsPath();
+            if (joinRight)
+            {
+                float x0 = body.X, y0 = body.Y, y1 = body.Bottom, d = 2 * radius;
+                if (flareStart) p.AddArc(edge - 2 * c, y0 - 2 * a, 2 * c, 2 * a, 0, 90);
+                else p.AddLine(edge, y0, edge, y0);
+                p.AddArc(x0, y0, d, d, 270, -90);
+                p.AddArc(x0, y1 - d, d, d, 180, -90);
+                if (flareEnd) p.AddArc(edge - 2 * c, y1, 2 * c, 2 * a, 270, 90);
+                else p.AddLine(edge, y1, edge, y1);
+            }
+            else
+            {
+                float x0 = body.X, x1 = body.Right, y0 = body.Y, d = 2 * radius;
+                if (flareStart) p.AddArc(x0 - 2 * a, edge - 2 * c, 2 * a, 2 * c, 90, -90);
+                else p.AddLine(x0, edge, x0, edge);
+                p.AddArc(x0, y0, d, d, 180, 90);
+                p.AddArc(x1 - d, y0, d, d, 270, 90);
+                if (flareEnd) p.AddArc(x1, edge - 2 * c, 2 * a, 2 * c, 180, -90);
+                else p.AddLine(x1, edge, x1, edge);
+            }
+            return p;
+        }
+
+        /// <summary>Paints a TabPath: fill, then the 1 px outline (none across the joint).</summary>
+        public static void FillTab(Graphics g, GraphicsPath path, Color fill, Color outline)
+        {
+            var sm = g.SmoothingMode;
+            var pm = g.PixelOffsetMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            using (var b = new SolidBrush(fill)) g.FillPath(b, path);
+            using (var pen = new Pen(outline, 1f)) g.DrawPath(pen, path);
+            g.SmoothingMode = sm;
+            g.PixelOffsetMode = pm;
+        }
+
         /// <summary>Anti-aliased rounded rectangle with a 1 px outline (pass outline == fill for none).</summary>
         public static void FillRound(Graphics g, Rectangle r, int radius, Color fill, Color outline)
         {
@@ -200,14 +273,14 @@ namespace SpacePie
         {
             if (alpha <= 0) return;
             var c = new PointF(circle.X + circle.Width / 2f, circle.Y + circle.Height / 2f);
-            float r = circle.Width / 2f, reach = r * GlowReach;
+            float r = circle.Width / 2f / 1.5f, reach = (circle.Width / 2f) * GlowReach;
             if (!limit.IsEmpty)
                 reach = Math.Min(reach, Math.Min(Math.Min(c.X - limit.Left, limit.Right - c.X), Math.Min(c.Y - limit.Top, limit.Bottom - c.Y)));
             if (reach > r + 1)
             {
                 var sm = g.SmoothingMode;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                DrawRimGlow(g, c, r, reach, ACCENT, (int)Math.Round(glowAlpha * Math.Min(1f, alpha)));
+                DrawRimGlow(g, c, r, reach, BG_GLOW, (int)Math.Round(glowAlpha * Math.Min(1f, alpha)));
                 g.SmoothingMode = sm;
             }
             DrawLogo(g, circle, alpha);

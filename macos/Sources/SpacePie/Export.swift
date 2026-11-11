@@ -77,7 +77,7 @@ extension MainWindowController {
                 self.alert("Could not save the export", e)
                 return
             }
-            self.statusLabel.stringValue = format == 3 ? "Saved the whole scan of \(savedPath) to \(url.path). Open it again with Open scan..."
+            self.statusLabel.stringValue = format == 3 ? "Saved the whole scan of \(savedPath) to \(url.path). Open it again with Import..."
                 : "Exported to " + url.path
             if format == 0 { NSWorkspace.shared.open(url) }
         })

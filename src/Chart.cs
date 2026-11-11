@@ -47,6 +47,7 @@ namespace SpacePie
         float startAngle = -90;  // where the first slice begins (12 o'clock)
         int hover = -1;          // slice drawn as hovered (by the mouse here, or set from the list)
         int reported = -1;       // slice last reported through HoverChanged (mouse on the chart only)
+        DirNode reportedDir;     // folder of the outer ring / treemap tile last reported with it
         Rectangle pieRect;
 
         // Logo state (drive not scanned yet / scan running) and the logo -> chart morph.
@@ -67,8 +68,18 @@ namespace SpacePie
         const double AnimMs = 650;
         float anim = 1;          // 0 = logo, 1 = chart
 
-        /// <summary>Raised when the mouse moves onto another slice (or off the chart: -1).</summary>
+        /// <summary>Raised when the mouse moves onto another slice or subfolder section (or off the chart: -1).</summary>
         public event Action<int> HoverChanged;
+        /// <summary>Folder of the hovered outer-ring section or inner treemap tile (null on a slice itself).</summary>
+        public DirNode HoverDir { get { return reportedDir; } }
+
+        void Report(int slice, DirNode dir)
+        {
+            if (slice == reported && dir == reportedDir) return;
+            reported = slice;
+            reportedDir = dir;
+            if (HoverChanged != null) HoverChanged(slice);
+        }
         public event Action<ChartSlice> SliceClicked;
 
         public PieChart()
@@ -118,6 +129,7 @@ namespace SpacePie
             slices = new List<ChartSlice>();
             total = 0;
             hover = reported = -1;
+            reportedDir = null;
             logoMode = true;
             animTimer.Stop();
             animClock.Reset();
@@ -157,6 +169,7 @@ namespace SpacePie
             startAngle = -90;
             hover = -1;
             reported = -1;
+            reportedDir = null;
             // Coming from the logo: morph it into the chart instead of switching at once.
             if (logoMode && total > 0 && Visible && IsHandleCreated)
             {
@@ -235,9 +248,36 @@ namespace SpacePie
         public void SetHover(int index)
         {
             if (index >= slices.Count || Animating) index = -1;
-            if (index == hover && hoverTile < 0) return;
-            hoverTile = -1;
+            if (index == hover && hoverTile < 0 && hoverArc < 0) return;
+            hoverTile = hoverArc = -1;
             hover = index;
+            Invalidate();
+        }
+
+        /// <summary>
+        /// Highlights a folder inside the slice (a row of an expanded folder in the list) without raising HoverChanged: its
+        /// section in the outer rings, or its tile in the treemap; when it is too small or too deep to be drawn, the
+        /// nearest of its parents that is (in the end the slice itself).
+        /// </summary>
+        public void SetHoverDir(int slice, DirNode dir)
+        {
+            if (slice < 0 || slice >= slices.Count || Animating) { SetHover(-1); return; }
+            int arc = -1, tile = -1;
+            if (treemap)
+            {
+                if (tilesDirty && mapRect.Width > 0) LayoutTiles();
+                for (var d = dir; d != null && tile < 0; d = d.Parent)
+                    for (int i = 0; i < tiles.Count; i++)
+                        if (tiles[i].Level > 0 && tiles[i].Slice == slice && tiles[i].Dir == d) { tile = i; break; }
+            }
+            else
+            {
+                for (var d = dir; d != null && arc < 0; d = d.Parent)
+                    for (int i = 0; i < arcs.Count; i++)
+                        if (arcs[i].Owner == slice && arcs[i].Dir == d) { arc = i; break; }
+            }
+            if (slice == hover && arc == hoverArc && tile == hoverTile) return;
+            hover = slice; hoverArc = arc; hoverTile = tile;
             Invalidate();
         }
 
@@ -356,14 +396,14 @@ namespace SpacePie
                         if (rings > 0)
                         {
                             bool litSlice = i == hover && hoverArc < 0;
-                            var col = litSlice ? Blend(slices[i].Color, Color.White, 0.25f) : slices[i].Color;
+                            var col = litSlice ? Blend(slices[i].Color, Theme.HOVER, Theme.HOVER_MIX) : slices[i].Color;
                             FillBand(g, c0, R * HoleRatio, R * InnerOuterRatio + (litSlice ? Theme.S(HoverGrow) : 0), start, Math.Max(sweep, 0.01f), col);
                         }
                         else
                         {
                             var rr = r;
                             if (i == hover) rr.Inflate(Theme.S(HoverGrow), Theme.S(HoverGrow));
-                            using (var b = new SolidBrush(i == hover ? Blend(slices[i].Color, Color.White, 0.2f) : slices[i].Color)) g.FillPie(b, rr, start, Math.Max(sweep, 0.01f));
+                            using (var b = new SolidBrush(i == hover ? Blend(slices[i].Color, Theme.HOVER, Theme.HOVER_MIX) : slices[i].Color)) g.FillPie(b, rr, start, Math.Max(sweep, 0.01f));
                         }
                     }
                     start += sweep;
@@ -385,7 +425,7 @@ namespace SpacePie
                     var a = arcs[i];
                     int k = a.Level - litLevel;
                     FillBand(g, c0, R * RingInner(a.Level) + k * grow, R * RingOuter(a.Level) + (k + 1) * grow, a.Start, a.Sweep,
-                        i == hoverArc ? Blend(a.Color, Color.White, 0.3f) : a.Color);
+                        i == hoverArc ? Blend(a.Color, Theme.HOVER, Theme.HOVER_MIX) : a.Color);
                 }
                 // Thin separators in the panel colour between visible slices.
                 int visible = 0;
@@ -515,22 +555,14 @@ namespace SpacePie
             bool hc = canGoUp && InCenter(e.Location);
             Cursor = hc || ha >= 0 || (h >= 0 && slices[h].Dir != null) ? Cursors.Hand : Cursors.Default;
             if (h != hover || ha != hoverArc || hc != hoverCenter) { hover = h; hoverArc = ha; hoverCenter = hc; Invalidate(); }
-            if (h != reported)
-            {
-                reported = h;
-                if (HoverChanged != null) HoverChanged(h);
-            }
+            Report(h, h >= 0 && ha >= 0 ? arcs[ha].Dir : null);
         }
 
         protected override void OnMouseLeave(EventArgs e)
         {
             base.OnMouseLeave(e);
             if (hover != -1 || hoverArc != -1 || hoverCenter || hoverTile != -1) { hover = -1; hoverArc = -1; hoverTile = -1; hoverCenter = false; hoverUp = false; Invalidate(); }
-            if (reported != -1)
-            {
-                reported = -1;
-                if (HoverChanged != null) HoverChanged(-1);
-            }
+            Report(-1, null);
         }
 
         protected override void OnMouseUp(MouseEventArgs e)

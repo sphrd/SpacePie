@@ -164,7 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let file = sub("File")
         item(file, "Choose Folder...", #selector(chooseFolder(_:)), "o", target: self)
-        item(file, "Open Scan...", #selector(MainWindowController.menuBarOpenScan(_:)), "o", [.command, .shift])
+        item(file, "Import Scan...", #selector(MainWindowController.menuBarOpenScan(_:)), "o", [.command, .shift])
         item(file, "Export...", #selector(MainWindowController.menuBarExport(_:)), "e", [.command, .shift])
         file.addItem(.separator())
         item(file, "Close Window", #selector(NSWindow.performClose(_:)), "w")

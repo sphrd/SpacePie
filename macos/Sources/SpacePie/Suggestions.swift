@@ -131,6 +131,14 @@ extension MainWindowController {
         pSuggest?.stale = true
     }
 
+    /// A scan is done (or a saved scan is up to date): look for space that can be freed right away in the background
+    /// (next to the installed apps), so the Suggestions view is ready when it is opened.
+    func findSuggestionsAfterScan() {
+        guard let p = pSuggest, selfTestDir == nil, !shotMode else { return }
+        p.stale = false
+        fillSuggestions(quiet: true)
+    }
+
     /// The suggestions shown in the view.
     var shownSuggestions: [Suggestion] { (suggestions ?? []).filter { $0.size > 0 && !$0.targets.isEmpty } }
 

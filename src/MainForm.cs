@@ -148,12 +148,23 @@ namespace SpacePie
             btnExplorer = Btn("Show in Explorer", ButtonKind.Secondary, "Open the selected item in Windows Explorer", ShowInExplorer);
             btnAddList = Btn("Add to delete list", ButtonKind.Secondary, "Collect the selected items in the delete list; review them there, then delete them together (Ctrl+D)", AddSelectionToBasket);
             btnDelete = Btn("Delete permanently", ButtonKind.Danger, "Permanently delete the selected items, bypassing the Recycle Bin (Ctrl+Shift+D)", DeleteSelected);
-            // The delete list is always one click away, just left of Delete permanently (it is not in the views bar).
+            // The delete list is always one click away, just left of Delete permanently (also in the views bar while
+            // DeleteListInViewsBar is on).
             btnBasket = Btn("Delete list", ButtonKind.Warn, "Review everything collected for deletion, then move it to the Recycle Bin or delete it permanently",
                 () => { if (pBasket != null) viewTabs.SelectedIndex = pages.IndexOf(pBasket); });
             btnExport = Btn("Export...", ButtonKind.Secondary, "Save the scan as an HTML report, a CSV file, or a scan file to open again later", ExportScan);
-            btnOpenScan = Btn("Open scan...", ButtonKind.Secondary, "Open a scan saved with Export (" + Snapshot.ScanFileExtension + "): browse it read-only, next to the drives", OpenScanDialog);
-
+            btnOpenScan = Btn("Import...", ButtonKind.Secondary, "Import a scan saved with Export (" + Snapshot.ScanFileExtension + "): browse it read-only, next to the drives", OpenScanDialog);
+            btnBrowse.Icon = Icons.Folder;
+            btnScan.Icon = Icons.Scan;
+            btnAdmin.Icon = Icons.Shield;
+            btnExplorer.Icon = Icons.Reveal;
+            btnAddList.Icon = Icons.TrashAdd;
+            btnAddList.Fore = Theme.WARN;   // the delete list's colour (its views bar row)
+            btnBasket.Icon = Icons.Trash;
+            btnBasket.ExtraRight = 4;   // about a space after "Delete list": a little more room on its right
+            btnDelete.Icon = Icons.Danger;
+            btnOpenScan.Icon = Icons.Import;
+            btnExport.Icon = Icons.Export;
 
             measure = new Segmented("Size", "Size on disk");
             measure.SelectedIndex = DirNode.OnDisk ? 1 : 0;
@@ -224,7 +235,7 @@ namespace SpacePie
             chart = new PieChart { Dock = DockStyle.Fill };
             chart.SliceClicked += sl => { if (sl.Dir != null && !busy) SelectDir(sl.Dir); };
             chart.CenterClicked += () => { if (ActivePage == pContents) GoUp(); };
-            chart.HoverChanged += i => ActivePage.List.SetHighlight(i >= 0 && i < chart.Slices.Count ? chart.Slices[i].Rows : null);
+            chart.HoverChanged += i => ActivePage.List.SetHighlight(RowsForChartHover(i, chart.HoverDir));
             var chartPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill };
             chartPanel.Controls.Add(chart);
             // Pie or treemap, top right of the chart pane; the choice is remembered (a marker file).
@@ -254,13 +265,20 @@ namespace SpacePie
             split2.Panel2.BackColor = Theme.BG;
             split2.Panel1.Controls.Add(listPanel);
             split2.Panel2.Controls.Add(chartPanel);
-            // Views bar on the left, then the list and the chart.
+            // Views bar on the left (it also spans the gap to the list, which its selected tab bridges), then the list and
+            // the chart.
             mainArea = new Panel { Dock = DockStyle.Fill, BackColor = Theme.BG };
             mainArea.Controls.Add(split2);
-            mainArea.Controls.Add(new Panel { Dock = DockStyle.Left, Width = S(10), BackColor = Theme.BG });
             mainArea.Controls.Add(viewTabs);
+            viewTabs.PaneRadius = S(12);
+            viewTabs.PaneBounds = () =>
+            {
+                if (!listPanel.IsHandleCreated || !viewTabs.IsHandleCreated) return Rectangle.Empty;
+                return new Rectangle(viewTabs.PointToClient(listPanel.PointToScreen(Point.Empty)), listPanel.Size);
+            };
+            viewTabs.JointChanged += (s, e) => UpdateJoints();
             // The toolbar's selection buttons follow the list pane's edges (window size, splitter, zoom).
-            listPanel.SizeChanged += (s, e) => toolbar.PerformLayout();
+            listPanel.SizeChanged += (s, e) => { toolbar.PerformLayout(); viewTabs.Invalidate(); UpdateJoints(); };
             split2.LocationChanged += (s, e) => toolbar.PerformLayout();
 
             // Status line
@@ -448,24 +466,42 @@ namespace SpacePie
             return b;
         }
 
+        /// <summary>
+        /// Trial: the delete list is a row of the views bar (WARN, like Suggestions has its own colour), so the views bar
+        /// tab merges into the pane for it, and the toolbar has no Delete list button. False: the button is back, left
+        /// of Delete permanently, and turns into the delete list's tab.
+        /// </summary>
+        const bool DeleteListInViewsBar = true;
+
         void LayoutToolbar()
         {
-            int w = toolbar.ClientSize.Width, gap = S(6), groupGap = S(16);
+            int w = toolbar.ClientSize.Width, gap = S(6), groupGap = S(16), stackGap = S(10);
             var bs = btnScan.GetPreferredSize(Size.Empty);
             int h = Math.Max(bs.Height, pathBox.PreferredHeight);
+            btnBasket.Visible = !DeleteListInViewsBar;
 
-            int right = w;
+            // The list pane's edges: the Location row and Show in Explorer start at its left edge, the delete buttons end at
+            // its right edge.
+            int paneL = 0, paneR = -1;
+            if (listPanel != null && listPanel.IsHandleCreated && toolbar.IsHandleCreated && listPanel.Width > 0)
+            {
+                paneL = Math.Max(0, toolbar.PointToClient(listPanel.PointToScreen(Point.Empty)).X);
+                paneR = paneL + listPanel.Width;
+            }
+
+            int right = w, adminW = 0;
             if (btnAdmin.Visible)
             {
                 var a = btnAdmin.GetPreferredSize(Size.Empty);
                 btnAdmin.Bounds = new Rectangle(w - a.Width, 0, a.Width, h);
                 right = btnAdmin.Left - groupGap;
+                adminW = a.Width + groupGap;
             }
             var sb = btnScan.GetPreferredSize(Size.Empty);
             btnScan.Bounds = new Rectangle(right - sb.Width, 0, sb.Width, h);
             var bb = btnBrowse.GetPreferredSize(Size.Empty);
             btnBrowse.Bounds = new Rectangle(btnScan.Left - gap - bb.Width, 0, bb.Width, h);
-            pathLabel.Location = new Point(0, (h - pathLabel.Height) / 2);
+            pathLabel.Location = new Point(paneL, (h - pathLabel.Height) / 2);
             int px = pathLabel.Right + gap;
             pathBox.Bounds = new Rectangle(px, 0, Math.Max(S(120), btnBrowse.Left - gap - px), h);
 
@@ -474,35 +510,49 @@ namespace SpacePie
             var es = btnExport.GetPreferredSize(Size.Empty);
             var os = btnOpenScan.GetPreferredSize(Size.Empty);
             int rightW = os.Width + gap + es.Width + groupGap + ms.Width;
-            var sel = new[] { btnExplorer, btnAddList, btnBasket, btnDelete };
-            var pref = sel.Select(b => b.GetPreferredSize(Size.Empty)).ToArray();
-            int deleteW = pref[1].Width + groupGap + pref[2].Width + gap + pref[3].Width;
-            // Show in Explorer at the list pane's left edge, the delete buttons ending at its right edge (or, when the pane
-            // is too narrow for all of them, just right of Show in Explorer).
-            int paneL = 0, paneR = w - rightW - groupGap;
-            if (listPanel != null && listPanel.IsHandleCreated && toolbar.IsHandleCreated && listPanel.Width > 0)
+            // Add to delete list, (Delete list,) Delete permanently sit together, a little apart.
+            var stack = DeleteListInViewsBar ? new[] { btnAddList, btnDelete } : new[] { btnAddList, btnBasket, btnDelete };
+            var ex = btnExplorer.GetPreferredSize(Size.Empty);
+            var spref = stack.Select(b => b.GetPreferredSize(Size.Empty).Width).ToArray();
+            int deleteW = spref.Sum() + stackGap * (stack.Length - 1);
+
+            // The window never gets narrower than both toolbar rows need on one line each (both start at the pane).
+            int row1 = paneL + pathLabel.Width + gap + S(120) + gap + bb.Width + gap + sb.Width + adminW;
+            int row2 = paneL + ex.Width + groupGap + deleteW + groupGap + rightW;
+            int minW = Math.Max(row1, row2) + Padding.Horizontal + (Width - ClientSize.Width);
+            var wa = Screen.FromControl(this).WorkingArea;
+            minW = Math.Min(Math.Max(minW, S(900)), wa.Width);
+            if (MinimumSize.Width != minW) MinimumSize = new Size(minW, MinimumSize.Height);
+
+            // The delete buttons end at the pane's right edge (or, when the right-hand group leaves no room for that, as
+            // far right as they fit; when even that is too narrow they flow from the left).
+            if (paneR < 0) paneR = w - rightW - groupGap;
+            int minR = paneL + ex.Width + groupGap + deleteW;
+            int deleteR = Math.Min(Math.Max(paneR, minR), w - rightW - groupGap);
+            if (deleteR >= minR)
             {
-                paneL = toolbar.PointToClient(listPanel.PointToScreen(Point.Empty)).X;
-                paneR = paneL + listPanel.Width;
-            }
-            int deleteR = Math.Max(paneR, paneL + pref[0].Width + gap + deleteW);
-            if (paneL >= 0 && deleteR + groupGap + rightW <= w)
-            {
-                btnExplorer.Bounds = new Rectangle(paneL, y, pref[0].Width, h);
-                btnDelete.Bounds = new Rectangle(deleteR - pref[3].Width, y, pref[3].Width, h);
-                btnBasket.Bounds = new Rectangle(btnDelete.Left - gap - pref[2].Width, y, pref[2].Width, h);
-                btnAddList.Bounds = new Rectangle(btnBasket.Left - groupGap - pref[1].Width, y, pref[1].Width, h);
+                btnExplorer.Bounds = new Rectangle(paneL, y, ex.Width, h);
+                int x = deleteR;
+                for (int i = stack.Length - 1; i >= 0; i--)
+                {
+                    x -= spref[i];
+                    stack[i].Bounds = new Rectangle(x, y, spref[i], h);
+                    x -= stackGap;
+                }
             }
             else
             {
                 // A narrow window (or a large zoom): the buttons flow from the left, onto more rows when needed.
+                var sel = new[] { btnExplorer }.Concat(stack).ToArray();
+                var pref = new[] { ex.Width }.Concat(spref).ToArray();
                 int x = 0;
                 for (int i = 0; i < sel.Length; i++)
                 {
-                    if (sel[i] == btnBasket) x += groupGap - gap;
-                    if (x > 0 && x + pref[i].Width > w) { x = 0; y += h + S(8); }
-                    sel[i].Bounds = new Rectangle(x, y, pref[i].Width, h);
-                    x += pref[i].Width + gap;
+                    if (i == 1) x += groupGap - gap;
+                    else if (i > 1) x += stackGap - gap;
+                    if (x > 0 && x + pref[i] > w) { x = 0; y += h + S(8); }
+                    sel[i].Bounds = new Rectangle(x, y, pref[i], h);
+                    x += pref[i] + gap;
                 }
                 // The right-hand group moves to a row of its own when there is no room for it.
                 if (x - gap + groupGap > w - rightW) y += h + S(8);
@@ -512,6 +562,66 @@ namespace SpacePie
             btnOpenScan.Bounds = new Rectangle(btnExport.Left - gap - os.Width, y, os.Width, h);
             int total = y + h + S(10);
             if (toolbar.Height != total) toolbar.Height = total;
+            MergeBasketButton(y, h, stackGap);
+        }
+
+        // Where the Delete list button joins the list pane (pane coordinates), while the delete list is open.
+        bool basketJoined, basketCurveLeft, basketCurveRight;
+        int basketJoinFrom, basketJoinTo;
+
+        /// <summary>
+        /// While the delete list is open its button is that view's tab: on the toolbar's last row, right above the list
+        /// pane, it reaches down across the gap and merges into the pane's top edge. Its sides curve out from the level of
+        /// the neighbouring buttons' bottoms and meet the pane right under the gaps beside it (Theme.TabPath).
+        /// </summary>
+        void MergeBasketButton(int lastRowY, int h, int sideGap)
+        {
+            bool open = pBasket != null && viewTabs != null && ActivePage == pBasket;
+            btnBasket.Selected = open && !DeleteListInViewsBar;
+            basketJoined = false;
+            int f = sideGap, rad = S(12);   // the curves reach as far out as the gap to the neighbouring buttons
+            var face = btnBasket.Bounds;   // just laid out at its normal size
+            if (btnBasket.Selected && face.Y == lastRowY && listPanel != null && listPanel.IsHandleCreated && toolbar.IsHandleCreated)
+            {
+                var pane = new Rectangle(toolbar.PointToClient(listPanel.PointToScreen(Point.Empty)), listPanel.Size);
+                int below = pane.Top - face.Bottom;
+                if (below >= 0 && below <= S(24) && face.Left >= pane.Left && face.Right <= pane.Right)
+                {
+                    basketCurveLeft = below >= S(3) && face.Left - f >= pane.Left + rad;
+                    basketCurveRight = below >= S(3) && face.Right + f <= pane.Right - rad;
+                    btnBasket.Bounds = new Rectangle(face.Left - f, face.Top, face.Width + 2 * f, h + below);
+                    btnBasket.SetMerge(below, f, basketCurveLeft, basketCurveRight);
+                    basketJoinFrom = (basketCurveLeft ? face.Left - f : face.Left) - pane.Left;
+                    basketJoinTo = (basketCurveRight ? face.Right + f : face.Right) - pane.Left;
+                    basketJoined = true;
+                }
+            }
+            if (!basketJoined)
+            {
+                btnBasket.SetMerge(0, 0, false, false);
+                btnBasket.Bounds = face;
+            }
+            UpdateJoints();
+        }
+
+        /// <summary>The open view's tab merges into the list pane: the Delete list button above it, or the views bar row.</summary>
+        void UpdateJoints()
+        {
+            if (listPanel == null || viewTabs == null) return;
+            if (basketJoined)
+            {
+                listPanel.SetJoint(DockStyle.Top, basketJoinFrom, basketJoinTo, basketCurveLeft, basketCurveRight);
+                return;
+            }
+            int top, bottom;
+            bool curveTop, curveBottom;
+            if (!listPanel.IsHandleCreated || !viewTabs.IsHandleCreated || !viewTabs.Joint(out top, out bottom, out curveTop, out curveBottom))
+            {
+                listPanel.SetJoint(DockStyle.None);
+                return;
+            }
+            int dy = listPanel.PointToClient(viewTabs.PointToScreen(Point.Empty)).Y, f = Theme.TabFlare;
+            listPanel.SetJoint(DockStyle.Left, (curveTop ? top - f : top) + dy, (curveBottom ? bottom + f : bottom) + dy, curveTop, curveBottom);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
@@ -665,6 +775,7 @@ namespace SpacePie
             // A drive is scanned: list the installed apps right away in the background (their sizes come from this scan),
             // so the Apps tab is ready when it is opened.
             if (r.IsDrive && !s.Cancelled && (apps == null || appsFromCache) && !appsLoading && SelfTestDir == null) FillApps();
+            if (!s.Cancelled) FindSuggestionsAfterScan();
             if (!s.Cancelled) SystemAfterScan(r.IsDrive);
         }
 

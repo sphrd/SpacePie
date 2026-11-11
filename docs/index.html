@@ -51,7 +51,7 @@
 </script>
 <style>
   :root {
-    --bg: #222831; --surface: #2d333d; --border: #3a414c; --fg: #ffffff; --muted: #aab4c0;
+    --bg: #0e1318; --surface: #1d2127; --border: #2c313a; --fg: #ffffff; --muted: #aab4c0;
     --accent: #4da3ff; --accent-active: #7bbcff; --accent-light: #cfe4ff; --free: #4cc38a;
     --logo-tl: #3d6bcc; --logo-r: #5e88e6; --logo-bl: #81a2eb;
   }
@@ -94,8 +94,8 @@
   /* hero */
   .hero { position: relative; text-align: center; padding: 64px 0 40px; overflow: hidden; }
   .logo-box { position: relative; width: 168px; height: 168px; margin: 0 auto 24px; }
-  .logo-box::before { content: ""; position: absolute; left: 50%; top: 50%; width: 230%; height: 230%; transform: translate(-50%, -50%); border-radius: 50%;
-    background: radial-gradient(closest-side, rgba(77,163,255,.18), rgba(77,163,255,0)); pointer-events: none; }
+  .logo-box::before { content: ""; position: absolute; left: 50%; top: 50%; width: 999999%; height: 400%; transform: translate(-50%, -50%); border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(77,163,255,.15), rgba(77,163,255,0)); pointer-events: none; }
   .logo-box svg, .logo-box canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   h1 { font-size: 56px; line-height: 1.05; margin: 0 0 12px; letter-spacing: -.5px; }
   .tagline { color: var(--muted); font-size: 21px; margin: 0 auto; max-width: 760px; }
@@ -108,12 +108,12 @@
 
   /* 2px divider with a still highlight in its middle (nothing moves: nothing is loading there) */
   .divider { height: 2px; border-radius: 1px;
-    background: linear-gradient(90deg, var(--border) 0%, var(--border) 34%, var(--accent) 50%, var(--border) 66%, var(--border) 100%); }
+    background: linear-gradient(90deg, var(--border) 10%, var(--accent) 50%, var(--border) 90%); }
   /* the scan card's progress line: a highlight glides along it while "scanning"; scrolled past, the scan is done */
   .sweep { position: relative; height: 2px; background: var(--border); border-radius: 1px; overflow: hidden; transition: background-color .5s ease; }
-  .sweep::after { content: ""; position: absolute; top: 0; left: -130px; width: 130px; height: 100%;
-    background: linear-gradient(90deg, rgba(77,163,255,0), var(--accent), rgba(77,163,255,0)); animation: sweep 1.6s linear infinite; }
-  @keyframes sweep { from { left: -130px; } to { left: 100%; } }
+  .sweep::after { content: ""; position: absolute; top: 0; left: -250px; width: 250px; height: 100%;
+    background: linear-gradient(90deg, rgba(77,163,255,0) 0%, var(--accent) 99%, rgba(77,163,255,0) 99.1%); animation: sweep 1.6s linear infinite; }
+  @keyframes sweep { from { left: -260px; } to { left: 100%; } }
   .scanbar.done .sweep { background-color: var(--accent); }
   .scanbar.done .sweep::after { animation: none; display: none; }
   .scanbar .tick { display: none; width: 16px; height: 16px; flex: none; color: var(--accent); }
@@ -295,9 +295,9 @@
     <div class="wrap">
       <div class="logo-box">
         <svg viewBox="0 0 200 200" role="img" aria-label="SpacePie logo: a pie chart shaped like Pac-Man facing left">
-          <path fill="#3d6bcc" d="M100 100 L16.86 52 A96 96 0 0 1 110.03 4.53 Z"/>
+          <path fill="#3d6bcc" d="M100 100 L16.86 52      A96 96 0 0 1 110.03 4.53 Z"/>
           <path fill="#81a2eb" d="M100 100 L110.03 195.47 A96 96 0 0 1 16.86 148 Z"/>
-          <path fill="#5e88e6" d="M100 100 L100 4 A96 96 0 0 1 100 196 Z"/>
+          <path fill="#5e88e6" d="M100 100 L100 4         A96 96 0 0 1 100 196 Z"/>
         </svg>
       </div>
       <h1>SpacePie</h1>
@@ -349,7 +349,7 @@
         <div class="card step free">
           <span class="step-num">3</span>
           <h3>Free space</h3>
-          <p>Follow the suggestions or collect items on the <strong>Delete list</strong> (always one click away: the amber button left of <strong>Delete permanently</strong>), review them together, then move them to the Recycle Bin / Trash or delete them permanently. A confirmation listing every item always comes first.</p>
+          <p>Follow the suggestions or collect items on the <strong>Delete list</strong> (always one click away: the amber row at the bottom of the views bar), review them together, then move them to the Recycle Bin / Trash or delete them permanently. A confirmation listing every item always comes first.</p>
         </div>
       </div>
     </section>
@@ -373,7 +373,7 @@
     <section id="views" aria-labelledby="views-h">
       <p class="eyebrow">Seeing where the space went</p>
       <h2 id="views-h">Every view you need, one click away</h2>
-      <p class="lead">The chart always shows the open list, as a pie chart or a treemap, and hovering a slice highlights its row and the other way round. Every item of at least 2&nbsp;% of the total gets a slice of its own, in true proportion; smaller items together form one grey slice.</p>
+      <p class="lead">The chart always shows the open list, as a pie chart or a treemap, and hovering a slice highlights its row and the other way round, also for subfolders in the outer rings, the treemap and expanded rows. Every item of at least 2&nbsp;% of the total gets a slice of its own, in true proportion; smaller items together form one grey slice.</p>
       <div class="grid chart-notes">
         <div class="card"><h3>Pie or treemap</h3><p>A pie chart with subfolders in two outer rings, or a treemap of rectangles sized by space with folders nested inside. One click to switch; the choice is remembered.</p></div>
         <div class="card"><h3>Knows what it is</h3><p>Well-known folders and files (the Windows component store, <code>hiberfil.sys</code>, browser and developer caches, iPhone backups, Xcode data, <code>node_modules</code>&hellip;) are named, with whether they can go and where to clean them up properly.</p></div>
@@ -385,11 +385,11 @@
         <div class="card"><span class="tab-label green">Suggestions</span><p>How much can be freed, in large print, and what: the Recycle Bin / Trash on every drive, temporary files, user and system caches and logs, developer caches, the <code>node_modules</code> folders of your own projects, mail attachments, unfinished downloads, unused disk images, old updates, leftovers of removed apps and more, each with what deleting it means. Check exactly what you want; safe items start checked, items to review first start unchecked. <strong>Never suggest this</strong> hides an item for good.</p></div>
         <div class="card"><span class="tab-label">Apps</span><p>Every installed app with its own logo and its real size on disk. Expand an app to see everything that belongs to it: program folder, settings and caches, shared data, shortcuts and, on Windows, registry keys. <strong>Uninstall&hellip;</strong> removes the app and asks to delete whatever is left. <strong>Not opened for 6 months</strong> lists the apps you no longer use.</p></div>
         <div class="card"><span class="tab-label">System</span><p>Windows: update leftovers in the component store, restore points, hibernation and page files, WSL / Docker virtual disks, a registry check of broken entries, and every drive's free space and health. macOS: Time Machine local snapshots, purgeable space, iPhone / iPad backups and every volume's health (SMART status).</p></div>
-        <div class="card"><span class="tab-label">Files</span><p>The largest files, with a name search (<code>*.iso</code>, <code>invoice</code>) and filters by type, size and date: not changed, or <strong>not opened</strong>, for months or years. Search the open folder or everything scanned at once. Instant, from memory.</p></div>
+        <div class="card"><span class="tab-label">Files</span><p>The largest files, with a name search (<code>*.iso</code>, <code>invoice</code>; <code>*.</code> finds files without an extension) and filters by type, size and date: not changed, or <strong>not opened</strong>, for months or years. Search the open folder or everything scanned at once. Instant, from memory.</p></div>
         <div class="card"><span class="tab-label">File types</span><p>Space by extension or by category: videos, images, archives, disk images, installers and more.</p></div>
         <div class="card"><span class="tab-label">Duplicates</span><p>Files with identical content. <strong>Select extra copies</strong> keeps the newest of each group, or <strong>Replace with links</strong> keeps every file where it is but stores the data once (Windows hard links, APFS clones on macOS). A repeat search only reads new or changed files.</p></div>
         <div class="card"><span class="tab-label">Changes</span><p>Which folders grew or shrank since the previous scan, or between any two scans: a timeline shows the used space at every scan, and one small copy per day is kept to compare with.</p></div>
-        <div class="card"><span class="tab-label">Delete list</span><p>Always one click away: the amber button left of <strong>Delete permanently</strong>. Collect items from any view, review them together, then <strong>Move to Recycle Bin / Trash</strong> (can be undone) or <strong>Delete permanently</strong> (frees the space now).</p></div>
+        <div class="card"><span class="tab-label">Delete list</span><p>Always one click away: the amber row at the bottom of the views bar. Collect items from any view, review them together, then <strong>Move to Recycle Bin / Trash</strong> (can be undone) or <strong>Delete permanently</strong> (frees the space now).</p></div>
       </div>
     </section>
 
@@ -428,7 +428,7 @@
       <p class="lead">SpacePie remembers earlier scans so you can see where new space went, and lets you save a scan to look at later or send to someone.</p>
       <div class="grid four">
         <div class="card"><h3>Changes over time</h3><p>Compare the previous scan or any two scans. A timeline shows the used space at every scan; the list shows which folders grew or shrank.</p></div>
-        <div class="card"><h3>Save and open scans</h3><p><strong>Export</strong> a folder as an HTML report, as CSV, or as a <code>.spacepie</code> scan file that <strong>Open scan&hellip;</strong> shows again later, read-only, next to the drives.</p></div>
+        <div class="card"><h3>Save and open scans</h3><p><strong>Export</strong> a folder as an HTML report, as CSV, or as a <code>.spacepie</code> scan file that <strong>Import&hellip;</strong> shows again later, read-only, next to the drives.</p></div>
         <div class="card"><h3>Preview and properties</h3><p>Space shows a preview (Quick Look on macOS); Alt+Enter opens the Windows Properties dialog (Get Info, &#8984;I, on macOS).</p></div>
         <div class="card"><h3>Updates itself</h3><p>It checks for a new version at startup and installs it in a click. <strong>About</strong> lists the keyboard shortcuts and how to get the fastest, most complete scans.</p></div>
       </div>

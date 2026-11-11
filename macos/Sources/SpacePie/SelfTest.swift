@@ -90,8 +90,8 @@ final class SelfTestRun {
         steps.then {
             self.check(w.pages.first === w.pContents && w.pages.count > 1 && w.pages[1] === w.pSuggest && w.pageIndex == 0 && w.activePage === w.pContents && w.viewTabs.titles.first == "Contents",
                        "start: Contents is the first tab and the one open, Suggestions second")
-            self.check(w.pages.count > 2 && w.pages[2] === w.pApps && w.viewTabs.titles == w.railPages.map { $0.title }
-                       && w.viewTabs.frame.width == NavRail.width && w.viewTabs.frame.minX == 0,
+            self.check(w.pages.count > 2 && w.pages[2] === w.pApps && w.viewTabs.titles.map { NavRail.split($0).label } == w.railPages.map { $0.title }
+                       && w.viewTabs.frame.width == w.viewTabs.width && w.viewTabs.frame.minX == 0,
                        "start: Apps is the third view; the rail on the left lists the views (\(w.viewTabs.titles.joined(separator: ", ")))")
             if let i = w.pages.firstIndex(where: { $0 === w.pSuggest }) { w.pageIndex = i }
         }
@@ -125,12 +125,13 @@ final class SelfTestRun {
             }
             self.check(at != nil && opened && w.pContents.items.count == rowsBefore,
                        "tree-list: Right opens a folder in place (\(rowsBefore) -> \(rowsOpen) rows, selection kept), Left closes it")
-            // The delete list is not in the rail: its toolbar button opens it, and the rail then shows no selection.
+            // The Delete list button opens the delete list; the rail then selects its row (deleteListInRail) or none.
             w.btnBasket.onClick?()
-            let basketShown = w.activePage === w.pBasket && w.viewTabs.selectedIndex == -1
+            let basketRow = w.railPages.firstIndex { $0 === w.pBasket } ?? -1
+            let basketShown = w.activePage === w.pBasket && w.viewTabs.selectedIndex == basketRow
             w.viewTabs.onChange?(0)
             self.check(basketShown && w.activePage === w.pContents && w.viewTabs.selectedIndex == 0,
-                       "rail: the Delete list button opens the delete list (no rail row selected); the rail's first row opens Contents again")
+                       "rail: the Delete list button opens the delete list (rail row \(basketRow)); the rail's first row opens Contents again")
             // Folders opened by the app do not switch views.
             if let i = w.pages.firstIndex(where: { $0 === w.pSuggest }) { w.pageIndex = i }
             if let r = self.root { w.selectDir(r) }

@@ -42,6 +42,7 @@ extension MainWindowController {
 
     func updateBasketTitle() {
         let title = basket.isEmpty ? "Delete list" : "Delete list (\(Fmt.count(basket.count)))"
+        if let bi = railPages.firstIndex(where: { $0 === pBasket }) { viewTabs.setTitle(bi, title) }
         if btnBasket.title == title { return }
         btnBasket.title = title
         layoutRoot()

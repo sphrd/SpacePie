@@ -58,7 +58,7 @@ namespace SpacePie
                 Alert(AlertIcon.Warn, "Could not save the export", error.Message, null, null, "OK");
                 return;
             }
-            statusLabel.Text = format == 4 ? "Saved the whole scan of " + (r != null ? r.Path : scope.Top.FullPath) + " to " + file + ". Open it again with Open scan..." : "Exported to " + file;
+            statusLabel.Text = format == 4 ? "Saved the whole scan of " + (r != null ? r.Path : scope.Top.FullPath) + " to " + file + ". Open it again with Import..." : "Exported to " + file;
             if (format == 1) try { Process.Start(file); } catch (Exception) { }
         }
 

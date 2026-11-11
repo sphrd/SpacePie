@@ -8,8 +8,9 @@ namespace SpacePie
 {
     /// <summary>
     /// Vertical bar of views on the left of the window: one row per view, a line icon with its name to the right. The
-    /// current view sits on a SURFACE pill with an ACCENT marker on its left edge and ACCENT icon and name; the others are
-    /// MUTED (FG on hover). A title ending in " (n)" shows n as a badge at the end of the row. When the window is too low
+    /// current view is a SURFACE tab with an ACCENT marker on its left edge and ACCENT icon and name, which runs right and
+    /// merges into the pane beside the bar (PaneBounds) with outward curves; the others are MUTED (FG and a BORDER pill on
+    /// hover). A title ending in " (n)" shows n as a badge at the end of the row. When the window is too low
     /// for every row, the bar scrolls (mouse wheel) and shows a thin scroll pill. Items can be hidden (a view opened from
     /// elsewhere, like the delete list); while such a view is shown no row is highlighted. Indexes are the page indexes.
     /// </summary>
@@ -20,16 +21,58 @@ namespace SpacePie
         readonly HashSet<int> hidden = new HashSet<int>();
         int selected, hover = -1, scroll;
         public event EventHandler SelectedIndexChanged;
+        /// <summary>The pane the selected tab merges into: its bounds in this control's coordinates (null: none).</summary>
+        public Func<Rectangle> PaneBounds;
+        /// <summary>Corner radius of that pane.</summary>
+        public int PaneRadius = Theme.S(12);
+        /// <summary>Raised when the selected tab moves on the pane's edge (another view, scrolling, resizing).</summary>
+        public event EventHandler JointChanged;
 
         public NavRail(params string[] titles)
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             SetStyle(ControlStyles.Selectable, false);
             this.titles = titles;
-            Font = Theme.FONT_9;
+            Font = Theme.FONT;
             BackColor = Theme.BG;
-            Width = Theme.S(150);
+            FitWidth();
         }
+
+        /// <summary>Space between the rows and the pane on the right (the selected tab bridges it).</summary>
+        static int GapToPane { get { return Theme.S(6); } }
+        static int IconSize { get { return Theme.S(20); } }
+        static int PadLeft { get { return Theme.S(12); } }
+        static int IconGap { get { return Theme.S(10); } }
+        static int PadRight { get { return Theme.S(12); } }
+
+        /// <summary>As wide as the longest name needs (zoom included), plus the gap to the pane.</summary>
+        void FitWidth()
+        {
+            int text = 0;
+            for (int i = 0; i < titles.Length; i++)
+            {
+                if (hidden.Contains(i)) continue;
+                string label, badge;
+                Split(titles[i], out label, out badge);
+                int w = TextRenderer.MeasureText(label, Font, Size.Empty, TextFormatFlags.NoPadding).Width;
+                // A row that can show a count keeps room for a two-digit one, so the bar does not change width with it.
+                if (badgeRows.Contains(i)) w += BadgeWidth("99");
+                text = Math.Max(text, w);
+            }
+            Width = PadLeft + IconSize + IconGap + text + PadRight + GapToPane;
+        }
+
+        readonly HashSet<int> badgeRows = new HashSet<int>();
+
+        /// <summary>Row i can show a count badge ("Delete list (4)"): the bar keeps room for it.</summary>
+        public void ReserveBadge(int i) { badgeRows.Add(i); FitWidth(); }
+
+        static int BadgeWidth(string badge)
+        {
+            return Math.Max(Theme.S(20), TextRenderer.MeasureText(badge, Theme.FONT_9, Size.Empty, TextFormatFlags.NoPadding).Width + Theme.S(10));
+        }
+
+        protected override void OnFontChanged(EventArgs e) { base.OnFontChanged(e); FitWidth(); Invalidate(); }
 
         public int SelectedIndex
         {
@@ -41,7 +84,28 @@ namespace SpacePie
                 Reveal(value);
                 Invalidate();
                 if (SelectedIndexChanged != null) SelectedIndexChanged(this, EventArgs.Empty);
+                RaiseJoint();
             }
+        }
+
+        void RaiseJoint() { if (JointChanged != null) JointChanged(this, EventArgs.Empty); }
+
+        /// <summary>
+        /// The selected tab on the pane's edge: its rows from top to bottom (this control's coordinates) and whether it
+        /// curves into the pane above and below (not when it is level with one of the pane's rounded corners).
+        /// </summary>
+        public bool Joint(out int top, out int bottom, out bool curveTop, out bool curveBottom)
+        {
+            top = bottom = 0; curveTop = curveBottom = false;
+            var r = ItemRect(selected);
+            if (r.IsEmpty || PaneBounds == null) return false;
+            var pane = PaneBounds();
+            top = Math.Max(r.Top, pane.Top); bottom = Math.Min(r.Bottom, pane.Bottom);
+            if (bottom - top < Theme.S(8)) return false;
+            int f = Theme.TabFlare;
+            curveTop = top - f >= pane.Top + PaneRadius;
+            curveBottom = bottom + f <= pane.Bottom - PaneRadius;
+            return true;
         }
 
         public void SetTitle(int i, string text) { titles[i] = text; Invalidate(); }
@@ -50,7 +114,7 @@ namespace SpacePie
         public void SetColor(int i, Color c) { colors[i] = c; Invalidate(); }
 
         /// <summary>Leaves view i out of the bar (it is opened from elsewhere).</summary>
-        public void Hide(int i) { hidden.Add(i); Invalidate(); }
+        public void Hide(int i) { hidden.Add(i); FitWidth(); Invalidate(); }
 
         int ItemHeight { get { return Theme.S(36); } }
         int Gap { get { return Theme.S(2); } }
@@ -70,7 +134,7 @@ namespace SpacePie
         Rectangle ItemRect(int i)
         {
             int s = Slot(i);
-            return s < 0 ? Rectangle.Empty : new Rectangle(0, s * (ItemHeight + Gap) - scroll, Width - Theme.S(4), ItemHeight);
+            return s < 0 ? Rectangle.Empty : new Rectangle(0, s * (ItemHeight + Gap) - scroll, Width - GapToPane, ItemHeight);
         }
 
         void Reveal(int i)
@@ -86,6 +150,7 @@ namespace SpacePie
         {
             base.OnResize(e);
             scroll = Math.Max(0, Math.Min(MaxScroll, scroll));
+            RaiseJoint();
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
@@ -96,6 +161,7 @@ namespace SpacePie
             scroll = s;
             hover = HitTest(e.Location);
             Invalidate();
+            RaiseJoint();
         }
 
         /// <summary>Label and badge of a title: "Delete list (4)" -> "Delete list" and "4".</summary>
@@ -124,7 +190,16 @@ namespace SpacePie
                 bool sel = i == selected;
                 if (sel)
                 {
-                    Theme.FillRound(g, r, Theme.S(8), Theme.SURFACE, Theme.SURFACE);
+                    int top, bottom;
+                    bool curveTop, curveBottom;
+                    if (Joint(out top, out bottom, out curveTop, out curveBottom))
+                    {
+                        // Merged into the pane: rounded on the left, running right across the gap into the pane's edge.
+                        var body = new RectangleF(0.5f, r.Y + 0.5f, Width, r.Height - 1);
+                        using (var path = Theme.TabPath(body, Theme.S(8), Width, true, curveTop, curveBottom, Theme.TabFlare, GapToPane))
+                            Theme.FillTab(g, path, Theme.SURFACE, Theme.BORDER);
+                    }
+                    else Theme.FillRound(g, r, Theme.S(8), Theme.SURFACE, Theme.SURFACE);
                     Color mark = hasOwn ? own : Theme.ACCENT;
                     Theme.FillRound(g, new Rectangle(r.X, r.Y + Theme.S(9), Theme.S(3), r.Height - Theme.S(18)), Theme.S(2), mark, mark);
                 }
@@ -132,20 +207,21 @@ namespace SpacePie
                 Color c = sel ? (hasOwn ? own : Theme.ACCENT) : hasOwn ? (i == hover ? Theme.FG : own) : i == hover ? Theme.FG : Theme.MUTED;
                 string label, badge;
                 Split(titles[i], out label, out badge);
-                int ic = Theme.S(18);
-                var ir = new Rectangle(r.X + Theme.S(12), r.Y + (r.Height - ic) / 2, ic, ic);
+                int ic = IconSize;
+                var ir = new Rectangle(r.X + PadLeft, r.Y + (r.Height - ic) / 2, ic, ic);
                 DrawIcon(g, label, ir, c);
-                int textRight = r.Right - Theme.S(6);
+                int textRight = r.Right - Theme.S(4);
                 if (badge != null)
                 {
-                    int bw = Math.Max(Theme.S(20), TextRenderer.MeasureText(badge, Theme.FONT_9, Size.Empty, TextFormatFlags.NoPadding).Width + Theme.S(10));
+                    int bw = BadgeWidth(badge);
                     var br = new Rectangle(r.Right - Theme.S(8) - bw, r.Y + (r.Height - Theme.S(18)) / 2, bw, Theme.S(18));
-                    Theme.FillRound(g, br, br.Height / 2, Theme.ACCENT, Theme.ACCENT);
+                    Color pill = hasOwn ? own : Theme.ACCENT;
+                    Theme.FillRound(g, br, br.Height / 2, pill, pill);
                     TextRenderer.DrawText(g, badge, Theme.FONT_9, br, Theme.BG,
                         TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
                     textRight = br.Left - Theme.S(4);
                 }
-                var tr = new Rectangle(ir.Right + Theme.S(10), r.Y, Math.Max(0, textRight - ir.Right - Theme.S(10)), r.Height);
+                var tr = new Rectangle(ir.Right + IconGap, r.Y, Math.Max(0, textRight - ir.Right - IconGap), r.Height);
                 CutText.Draw(g, this, label, Font, tr, c, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
             }
             // Thin scroll pill when not every row fits.
@@ -154,7 +230,7 @@ namespace SpacePie
                 int track = Height, ch = ContentHeight;
                 int ph = Math.Max(Theme.S(24), track * track / ch);
                 int py = (int)((long)(track - ph) * scroll / MaxScroll);
-                var pr = new Rectangle(Width - Theme.S(3), py, Theme.S(3), ph);
+                var pr = new Rectangle(Width - GapToPane + (GapToPane - Theme.S(3)) / 2, py, Theme.S(3), ph);
                 Theme.FillRound(g, pr, Theme.S(1), Theme.BORDER, Theme.BORDER);
             }
         }
@@ -214,16 +290,7 @@ namespace SpacePie
                         g.DrawLine(pen, x + s * 0.5f, y + s * 0.5f, x + s * 0.68f, y + s * 0.60f);
                         break;
                     case "delete list":
-                        g.DrawLine(pen, x + s * 0.14f, y + s * 0.24f, x + s * 0.86f, y + s * 0.24f);
-                        g.DrawLine(pen, x + s * 0.40f, y + s * 0.12f, x + s * 0.60f, y + s * 0.12f);
-                        using (var path = new GraphicsPath())
-                        {
-                            path.AddLines(new[] { new PointF(x + s * 0.22f, y + s * 0.24f), new PointF(x + s * 0.28f, y + s * 0.90f),
-                                new PointF(x + s * 0.72f, y + s * 0.90f), new PointF(x + s * 0.78f, y + s * 0.24f) });
-                            g.DrawPath(pen, path);
-                        }
-                        g.DrawLine(pen, x + s * 0.42f, y + s * 0.40f, x + s * 0.43f, y + s * 0.74f);
-                        g.DrawLine(pen, x + s * 0.58f, y + s * 0.40f, x + s * 0.57f, y + s * 0.74f);
+                        Icons.Trash(g, r, c);
                         break;
                     default:
                         g.DrawEllipse(pen, x + s * 0.2f, y + s * 0.2f, s * 0.6f, s * 0.6f);

@@ -48,7 +48,15 @@ final class PieChart: NSView {
     var onCenterClick: (() -> Void)?
     private let startAngle: CGFloat = -90
 
+    /// Called when the mouse moves onto another slice or subfolder section (or off the chart: -1).
     var onHover: ((Int) -> Void)?
+    /// Folder of the hovered outer-ring section or inner treemap tile (nil on a slice itself).
+    private(set) var hoverDir: DirNode?
+    private func report(_ slice: Int, _ dir: DirNode?) {
+        if slice == reported && dir === hoverDir { return }
+        reported = slice; hoverDir = dir
+        onHover?(slice)
+    }
     var onClick: ((ChartSlice) -> Void)?
     override var isFlipped: Bool { true }
 
@@ -72,7 +80,7 @@ final class PieChart: NSView {
             if treemapOn == newValue { return }
             treemapOn = newValue
             tilesDirty = true
-            hover = -1; reported = -1; hoverTile = -1; hoverArc = -1; hoverUp = false
+            hover = -1; reported = -1; hoverDir = nil; hoverTile = -1; hoverArc = -1; hoverUp = false
             needsDisplay = true
         }
     }
@@ -103,7 +111,7 @@ final class PieChart: NSView {
 
     func showLogo(_ title: String, _ subtitle: String, _ note: String, working: Bool = false) {
         self.title = title; self.subtitle = subtitle; logoNote = note
-        slices = []; arcs = []; rings = 0; total = 0; hover = -1; hoverArc = -1; reported = -1
+        slices = []; arcs = []; rings = 0; total = 0; hover = -1; hoverArc = -1; reported = -1; hoverDir = nil
         tiles = []; tilesDirty = true; hoverTile = -1; hoverUp = false
         logoMode = true
         animTimer?.invalidate(); animTimer = nil; anim = 1
@@ -143,7 +151,7 @@ final class PieChart: NSView {
                 a += sweep
             }
         }
-        hover = -1; reported = -1
+        hover = -1; reported = -1; hoverDir = nil
         if logoMode && total > 0 && window != nil {
             morphs += 1
             anim = 0
@@ -207,6 +215,30 @@ final class PieChart: NSView {
     func setHover(_ i: Int) {
         let v = (i >= slices.count || animating) ? -1 : i
         if v != hover || hoverArc != -1 || hoverTile != -1 { hover = v; hoverArc = -1; hoverTile = -1; needsDisplay = true }
+    }
+
+    /// Highlights a folder inside the slice (a row of an expanded folder in the list), without calling onHover: its
+    /// section in the outer rings, or its tile in the treemap; when it is too small or too deep to be drawn, the nearest
+    /// of its parents that is (in the end the slice itself).
+    func setHoverDir(_ slice: Int, _ dir: DirNode) {
+        guard slice >= 0, slice < slices.count, !animating else { setHover(-1); return }
+        var arc = -1, tile = -1
+        var d: DirNode? = dir
+        if treemapOn {
+            if tilesDirty && mapRect.width > 0 { layoutTiles() }
+            while let x = d, tile < 0 {
+                tile = tiles.firstIndex { $0.level > 0 && $0.slice == slice && $0.dir === x } ?? -1
+                d = x.parent
+            }
+        } else {
+            while let x = d, arc < 0 {
+                arc = arcs.firstIndex { $0.owner == slice && $0.dir === x } ?? -1
+                d = x.parent
+            }
+        }
+        if slice == hover && arc == hoverArc && tile == hoverTile { return }
+        hover = slice; hoverArc = arc; hoverTile = tile
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -300,11 +332,11 @@ final class PieChart: NSView {
                 if !s.empty {
                     let lit = i == hover && hoverArc < 0
                     if rings > 0 {
-                        let col = lit ? PieChart.blend(s.color, .white, 0.25) : s.color
+                        let col = lit ? PieChart.blend(s.color, T.HOVER, T.HOVER_MIX) : s.color
                         fillBand(R * holeRatio, R * innerOuterRatio + (lit ? PieChart.hoverGrow : 0), start, max(0.01, sweep), col)
                     } else {
                         let rr = lit ? r.insetBy(dx: -PieChart.hoverGrow, dy: -PieChart.hoverGrow) : r
-                        (lit ? PieChart.blend(s.color, .white, 0.2) : s.color).setFill()
+                        (lit ? PieChart.blend(s.color, T.HOVER, T.HOVER_MIX) : s.color).setFill()
                         Theme.pie(rr, start: start, sweep: max(0.01, sweep)).fill()
                     }
                 } else if i == hover {
@@ -326,7 +358,7 @@ final class PieChart: NSView {
                 let a = arcs[i]
                 let k = CGFloat(a.level - litLevel)
                 fillBand(R * ringInner(a.level) + k * g, R * ringOuter(a.level) + (k + 1) * g, a.start, a.sweep,
-                         i == hoverArc ? PieChart.blend(a.color, .white, 0.3) : a.color)
+                         i == hoverArc ? PieChart.blend(a.color, T.HOVER, T.HOVER_MIX) : a.color)
             }
             // Thin separators in the panel colour between visible slices.
             if slices.filter({ $0.size > 0 }).count > 1 {
@@ -417,7 +449,7 @@ final class PieChart: NSView {
         let hc = canGoUp && inCenter(p)
         if hc || ha >= 0 || (h >= 0 && slices[h].dir != nil) { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
         if h != hover || ha != hoverArc || hc != hoverCenter { hover = h; hoverArc = ha; hoverCenter = hc; needsDisplay = true }
-        if h != reported { reported = h; onHover?(h) }
+        report(h, h >= 0 && ha >= 0 ? arcs[ha].dir : nil)
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -426,7 +458,7 @@ final class PieChart: NSView {
         if hover != -1 || hoverArc != -1 || hoverCenter || hoverTile != -1 || hoverUp {
             hover = -1; hoverArc = -1; hoverCenter = false; hoverTile = -1; hoverUp = false; needsDisplay = true
         }
-        if reported != -1 { reported = -1; onHover?(-1) }
+        report(-1, nil)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -580,7 +612,7 @@ extension PieChart {
                 T.BORDER.withAlphaComponent(alpha).setStroke()
                 edge.stroke()
             } else {
-                let col = hot ? PieChart.blend(t.color, .white, 0.25) : t.color
+                let col = hot ? PieChart.blend(t.color, T.HOVER, T.HOVER_MIX) : t.color
                 col.withAlphaComponent(alpha).setFill()
                 NSBezierPath(rect: rr).fill()
                 T.SURFACE.withAlphaComponent(alpha).setStroke()
@@ -596,6 +628,13 @@ extension PieChart {
             if t.level == 0 && t.dir == nil && rr.height >= lh * 2 + 8 {
                 Theme.drawText(Fmt.size(t.size), in: NSRect(x: tr.minX, y: tr.minY + lh, width: tr.width, height: lh), font: Theme.font9, color: fg)
             }
+        }
+        // The hovered folder's tile is mostly covered by its subfolders: an outline on top shows where it is.
+        if alpha >= 1 && hoverTile >= 0 && hoverTile < tiles.count {
+            let outline = NSBezierPath(rect: tiles[hoverTile].rect.insetBy(dx: 1, dy: 1))
+            outline.lineWidth = 2
+            T.HOVER.setStroke()
+            outline.stroke()
         }
         drawTreemapInfo(NSRect(x: area.minX, y: mapRect.maxY + 6, width: area.width, height: infoH - 6))
     }
@@ -659,7 +698,7 @@ extension PieChart {
         let shown = t >= 0 && tiles[t].level > 0 ? t : -1
         if up || (t >= 0 && tiles[t].dir != nil) { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
         if slice != hover || shown != hoverTile || up != hoverUp { hover = slice; hoverTile = shown; hoverUp = up; needsDisplay = true }
-        if slice != reported { reported = slice; onHover?(slice) }
+        report(slice, shown >= 0 ? tiles[shown].dir : nil)
     }
 
     private func treemapClick(_ p: NSPoint) {

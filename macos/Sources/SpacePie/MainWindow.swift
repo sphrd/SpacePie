@@ -117,15 +117,20 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     /// Opens the delete list (not in the rail); its title counts the items: "Delete list (4)".
     lazy var btnBasket = RoundButton("Delete list", .warn) { [unowned self] in self.showView(self.pBasket) }
     lazy var btnExport = RoundButton("Export...", .secondary) { [unowned self] in self.exportScan() }
-    lazy var btnOpenScan = RoundButton("Open scan...", .secondary) { [unowned self] in self.openScanDialog() }
+    lazy var btnOpenScan = RoundButton("Import...", .secondary) { [unowned self] in self.openScanDialog() }
     let measure = Segmented(["Size", "Size on disk"])
     let scanBar = ScanBar()
     let split2 = NSSplitView()
     /// The main area under the toolbar: the rail of views on the left, then the list | chart split.
     let rightPane = LayoutView()
     let listPanel = ContainerPanel()
-    // Keep in the order of buildViews() (Pages.swift), without the delete list (railPages).
-    let viewTabs = NavRail(["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes"])
+    // Keep in the order of buildViews() (Pages.swift); the delete list comes last, while deleteListInRail is on.
+    /// Trial (as DeleteListInViewsBar in src/MainForm.cs): the delete list is also a rail row (WARN, like Suggestions
+    /// has its own colour), so the rail tab merges into the pane for it; the toolbar button stays as a shortcut.
+    static let deleteListInRail = true
+    static let railTitles = ["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes"]
+        + (deleteListInRail ? ["Delete list"] : [])
+    let viewTabs = NavRail(MainWindowController.railTitles)
     let chartPanel = ContainerPanel()
     let chart = PieChart()
     /// Pie or treemap, top right of the chart pane; the choice is remembered (UserDefaults).
@@ -265,7 +270,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         let vf = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         // Wide enough for the rail of views, a list of about 400 px and a chart pane 4/5 as wide as the main area is high.
         let height = min(760, vf.height * 0.85)
-        let wanted = 2 * 15 + NavRail.width + 10 + 400 + 2 + (height - MainWindowController.chromeHeight) * 0.8
+        let wanted = 2 * 15 + NavRail(MainWindowController.railTitles).width + 400 + 2 + (height - MainWindowController.chromeHeight) * 0.8
         let size = NSSize(width: min(max(1280, wanted), vf.width * 0.92), height: height)
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         w.title = "SpacePie"
@@ -312,7 +317,18 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         btnDelete.tip = "Permanently delete the selected items, bypassing the Trash (⇧⌘D or ⌘⌫)"
         btnBasket.tip = "Show the delete list: the items collected with Add to delete list, to review and delete together"
         btnExport.tip = "Save the scan as an HTML report, a CSV file, or a scan file to open again later (⇧⌘E)"
-        btnOpenScan.tip = "Open a scan saved with Export (.\(Snapshot.scanFileExtension)): browse it read-only, next to the drives (⇧⌘O)"
+        btnOpenScan.tip = "Import a scan saved with Export (.\(Snapshot.scanFileExtension)): browse it read-only, next to the drives (⇧⌘O)"
+        btnBrowse.icon = Icons.folder
+        btnScan.icon = Icons.scan
+        btnAccess.icon = Icons.shield
+        btnFinder.icon = Icons.reveal
+        btnAddList.icon = Icons.trashAdd
+        btnAddList.foreColor = T.WARN   // the delete list's colour (its rail row)
+        btnBasket.icon = Icons.trash
+        btnBasket.extraRight = 4   // about a space after "Delete list": a little more room on its right
+        btnDelete.icon = Icons.danger
+        btnOpenScan.icon = Icons.importScan
+        btnExport.icon = Icons.export
         measure.tip = "Size: file lengths, as Finder shows them. Size on disk: the space really used (blocks, files not downloaded from iCloud)"
         measure.selectedIndex = DirNode.onDisk ? 1 : 0
         measure.onChange = { [unowned self] i in self.setMeasure(i == 1) }
@@ -339,7 +355,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             let t = p.table
             p.table.onKey = { [unowned self] e in self.handleKey(e, in: t) }
             p.table.onHot = { [unowned self, unowned p] r in
-                if self.activePage === p { self.chart.setHover(self.rowSlice[r] ?? -1) }
+                if self.activePage === p { self.hoverChart(p, r) }
             }
             p.onSorted = { [unowned self] pg in if self.activePage === pg { self.refreshChart() } }
             p.onSelection = { [unowned self] pg in self.lastView = pg.table; self.updateButtons() }
@@ -347,6 +363,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         }
         activePage.root.isHidden = false
         if let si = railPages.firstIndex(where: { $0 === pSuggest }) { viewTabs.setColor(si, T.SUGGEST) }
+        if let bi = railPages.firstIndex(where: { $0 === pBasket }) { viewTabs.setColor(bi, T.WARN); viewTabs.badgeRows.insert(bi) }
         listPanel.onLayout = { [unowned self] r in for p in self.pages { p.root.frame = r } }
         viewTabs.background = T.BG
         viewTabs.onChange = { [unowned self] i in
@@ -375,7 +392,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             self.chart.titleRightMargin = cs.width + 10
         }
         chart.onHover = { [unowned self] i in
-            self.activePage.table.setHighlight(i >= 0 && i < self.chart.slices.count ? self.chart.slices[i].rows : [])
+            self.activePage.table.setHighlight(self.rowsForChartHover(i, self.chart.hoverDir))
         }
         chart.onClick = { [unowned self] s in if let d = s.dir, self.isAttached(d) { self.selectDir(d) } }
         chart.onCenterClick = { [unowned self] in if self.activePage === self.pContents { self.goUp() } }
@@ -388,9 +405,15 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         split2.setHoldingPriority(NSLayoutConstraint.Priority(270), forSubviewAt: 1)
         rightPane.fill = T.BG
         rightPane.addSubview(viewTabs); rightPane.addSubview(split2)
+        // The rail spans the gap to the list pane; its selected tab bridges it and merges into the pane.
+        viewTabs.paneRadius = listPanel.radius
+        viewTabs.paneBounds = { [unowned self] in
+            self.listPanel.frame.width > 0 ? self.viewTabs.convert(self.listPanel.bounds, from: self.listPanel) : nil
+        }
+        viewTabs.onJointChange = { [unowned self] in self.updateJoints() }
         rightPane.onLayout = { [unowned self] r in
-            self.viewTabs.frame = NSRect(x: 0, y: 0, width: NavRail.width, height: r.height)
-            let x = NavRail.width + 10
+            self.viewTabs.frame = NSRect(x: 0, y: 0, width: self.viewTabs.width, height: r.height)
+            let x = self.viewTabs.width
             self.split2.frame = NSRect(x: x, y: 0, width: max(50, r.width - x), height: r.height)
             // Once the main area has its width: the chart pane 4/5 as wide as it is high, the list gets the rest.
             if !self.split2Positioned && r.width - x > 400 {
@@ -479,11 +502,20 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         var y: CGFloat = 12
         let h: CGFloat = 32
         let ap = btnAccess.preferredSize, sp = btnScan.preferredSize, bp = btnBrowse.preferredSize
+        btnBasket.isHidden = MainWindowController.deleteListInRail
+        // The list pane's edges: the Location row and Show in Finder start at its left edge, the delete buttons end at its
+        // right edge.
+        var paneL = m, paneR: CGFloat = -1
+        if listPanel.frame.width > 0 {
+            let pane = root.convert(listPanel.bounds, from: listPanel)
+            paneL = max(m, pane.minX)
+            paneR = pane.maxX
+        }
         btnAccess.frame = NSRect(x: b.width - m - ap.width, y: y, width: ap.width, height: h)
         btnScan.frame = NSRect(x: (btnAccess.isHidden ? b.width - m + 16 : btnAccess.frame.minX) - 16 - sp.width, y: y, width: sp.width, height: h)
         btnBrowse.frame = NSRect(x: btnScan.frame.minX - gap - bp.width, y: y, width: bp.width, height: h)
         pathLabel.sizeToFit()
-        pathLabel.frame.origin = NSPoint(x: m, y: y + (h - pathLabel.frame.height) / 2)
+        pathLabel.frame.origin = NSPoint(x: paneL, y: y + (h - pathLabel.frame.height) / 2)
         let px = pathLabel.frame.maxX + gap
         pathPanel.frame = NSRect(x: px, y: y, width: max(120, btnBrowse.frame.minX - gap - px), height: h)
         pathPanel.needsLayout = true
@@ -491,44 +523,99 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         let ms = measure.preferredSize, es = btnExport.preferredSize, os = btnOpenScan.preferredSize
         let groupGap: CGFloat = 16
         let rightW = os.width + gap + es.width + groupGap + ms.width
-        let sel = [btnFinder, btnAddList, btnBasket, btnDelete]
-        let pref = sel.map { $0.preferredSize.width }
-        let deleteW = pref[1] + groupGap + pref[2] + gap + pref[3]
-        // Show in Finder at the list pane's left edge, the delete buttons ending at its right edge (or, when the pane is
-        // too narrow for all of them, just right of Show in Finder).
-        var paneL = m, paneR = b.width - m - rightW - groupGap
-        if listPanel.frame.width > 0 {
-            paneL = m + NavRail.width + 10 + listPanel.frame.minX
-            paneR = paneL + listPanel.frame.width
+        // Add to delete list, (Delete list,) Delete permanently sit together, a little apart.
+        let stackGap: CGFloat = 10
+        let stack = MainWindowController.deleteListInRail ? [btnAddList, btnDelete] : [btnAddList, btnBasket, btnDelete]
+        let fw = btnFinder.preferredSize.width
+        let spref = stack.map { $0.preferredSize.width }
+        let deleteW = spref.reduce(0, +) + stackGap * CGFloat(stack.count - 1)
+        // The window never gets narrower than both toolbar rows need on one line each (both start at the pane; in
+        // window points: zoomed).
+        let row1 = paneL - m + pathLabel.frame.width + gap + 120 + gap + bp.width + gap + sp.width + (btnAccess.isHidden ? 0 : 16 + ap.width)
+        let row2 = paneL - m + fw + groupGap + deleteW + groupGap + rightW
+        if let win = window {
+            let vf = win.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            let minW = min(vf.width, max(900, ceil((max(row1, row2) + 2 * m) * zoom)))
+            if win.contentMinSize.width != minW { win.contentMinSize = NSSize(width: minW, height: win.contentMinSize.height) }
         }
-        let deleteR = max(paneR, paneL + pref[0] + gap + deleteW)
-        if deleteR + groupGap + rightW <= b.width - m {
-            btnFinder.frame = NSRect(x: paneL, y: y, width: pref[0], height: h)
-            btnDelete.frame = NSRect(x: deleteR - pref[3], y: y, width: pref[3], height: h)
-            btnBasket.frame = NSRect(x: btnDelete.frame.minX - gap - pref[2], y: y, width: pref[2], height: h)
-            btnAddList.frame = NSRect(x: btnBasket.frame.minX - groupGap - pref[1], y: y, width: pref[1], height: h)
+        // The delete buttons end at the pane's right edge (or, when the right-hand group leaves no room for that, as far
+        // right as they fit; when even that is too narrow they flow from the left).
+        if paneR < 0 { paneR = b.width - m - rightW - groupGap }
+        let minR = paneL + fw + groupGap + deleteW
+        let deleteR = min(max(paneR, minR), b.width - m - rightW - groupGap)
+        if deleteR >= minR {
+            btnFinder.frame = NSRect(x: paneL, y: y, width: fw, height: h)
+            var x = deleteR
+            for (i, btn) in stack.enumerated().reversed() {
+                x -= spref[i]
+                btn.frame = NSRect(x: x, y: y, width: spref[i], height: h)
+                x -= stackGap
+            }
         } else {
             // A narrow window (or a large zoom): the buttons flow from the left, onto more rows when needed.
+            let sel = [btnFinder] + stack, pref = [fw] + spref
             var x = m
             for (i, btn) in sel.enumerated() {
-                if btn === btnBasket { x += groupGap - gap }
+                if i == 1 { x += groupGap - gap } else if i > 1 { x += stackGap - gap }
                 if x > m && x + pref[i] > b.width - m { x = m; y += h + 8 }
                 btn.frame = NSRect(x: x, y: y, width: pref[i], height: h)
                 x += pref[i] + gap
             }
-            // The right-hand group (Open scan, Export, the measure switch) moves to a row of its own when there is no room.
+            // The right-hand group (Import, Export, the measure switch) moves to a row of its own when there is no room.
             if x - gap + groupGap > b.width - m - rightW { y += h + 8 }
         }
         measure.frame = NSRect(x: b.width - m - ms.width, y: y, width: ms.width, height: h)
         btnExport.frame = NSRect(x: measure.frame.minX - 16 - es.width, y: y, width: es.width, height: h)
         btnOpenScan.frame = NSRect(x: btnExport.frame.minX - gap - os.width, y: y, width: os.width, height: h)
+        let lastRowY = y
         y += h + 10
         if !scanBar.isHidden { scanBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
         if !deleteBar.isHidden { deleteBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
         if !workBar.isHidden { workBar.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: ScanBar.height); y += ScanBar.height }
         let statusH: CGFloat = 28
         rightPane.frame = NSRect(x: m, y: y, width: b.width - 2 * m, height: max(100, b.height - y - statusH))
+        mergeBasketButton(lastRowY, side: stackGap)
+        viewTabs.needsDisplay = true
         layoutStatus()
+    }
+
+    // Where the Delete list button joins the list pane (pane coordinates), while the delete list is open.
+    private var basketJoint: (from: CGFloat, to: CGFloat, curveLeft: Bool, curveRight: Bool)?
+
+    /// While the delete list is open its button is that view's tab (as MergeBasketButton in src/MainForm.cs): on the
+    /// toolbar's last row, right above the list pane, it reaches down across the gap and merges into the pane's top edge.
+    /// Its sides curve out from the level of the neighbouring buttons' bottoms and meet the pane right under the gaps
+    /// beside it (Theme.tabPath). Not while the rail has a row for the delete list (deleteListInRail).
+    func mergeBasketButton(_ lastRowY: CGFloat, side f: CGFloat) {
+        let open = !pages.isEmpty && activePage === pBasket && !MainWindowController.deleteListInRail
+        btnBasket.selected = open
+        basketJoint = nil
+        let face = btnBasket.frame   // just laid out at its normal size
+        if open && face.minY == lastRowY && listPanel.frame.width > 0 {
+            let pane = root.convert(listPanel.bounds, from: listPanel)
+            let below = pane.minY - face.maxY
+            if below >= 0 && below <= 24 && face.minX >= pane.minX && face.maxX <= pane.maxX {
+                let rad = listPanel.radius   // the curves reach as far out as the gap to the neighbours (f)
+                let cl = below >= 3 && face.minX - f >= pane.minX + rad, cr = below >= 3 && face.maxX + f <= pane.maxX - rad
+                btnBasket.frame = NSRect(x: face.minX - f, y: face.minY, width: face.width + 2 * f, height: face.height + below)
+                btnBasket.setMerge(below, side: f, curveLeft: cl, curveRight: cr)
+                basketJoint = ((cl ? face.minX - f : face.minX) - pane.minX, (cr ? face.maxX + f : face.maxX) - pane.minX, cl, cr)
+            }
+        }
+        if basketJoint == nil { btnBasket.setMerge(0, side: 0, curveLeft: false, curveRight: false) }
+        updateJoints()
+    }
+
+    /// The open view's tab merges into the list pane: the Delete list button above it, or the rail row.
+    func updateJoints() {
+        if let j = basketJoint {
+            listPanel.setJoint(.top, from: j.from, to: j.to, curveStart: j.curveLeft, curveEnd: j.curveRight)
+            return
+        }
+        guard let j = viewTabs.joint() else { listPanel.setJoint(.none); return }
+        let dy = listPanel.convert(NSPoint.zero, from: viewTabs).y, f = Theme.tabFlare
+        listPanel.setJoint(.left, from: (j.curveTop ? j.top - f : j.top) + dy, to: (j.curveBottom ? j.bottom + f : j.bottom) + dy,
+                           curveStart: j.curveTop, curveEnd: j.curveBottom)
     }
 
     func layoutStatus() {
@@ -756,6 +843,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
                         && ((target.isDrive && !s.cancelled) || self.activePage === self.pApps) { self.loadApps() }
                     // The System view too (snapshots, backups, drives).
                     if target.isDrive && !s.cancelled && self.selfTestDir == nil && !self.systemLoading { self.loadSystem() }
+                    if !s.cancelled { self.findSuggestionsAfterScan() }
                     if !s.cancelled { self.checkLowSpace(target) }
                     self.onScanFinished?()
                 }

@@ -45,9 +45,11 @@ to the Recycle Bin / Trash or permanently.
   are never downloaded by the scan.
 
 **Seeing where the space went** (the views are in a bar on the left, a row with an
-icon and a name each; the chart always shows the open list, and hovering a slice
-highlights its row and the other way round; a hovered slice or ring section grows a
-little and lights up together with all its subfolders in the outer rings)
+icon and a name each; the open view's row merges into the list beside it. The chart
+always shows the open list, and hovering a slice highlights its row and the other way
+round, also for subfolders in the outer rings, in the treemap and in expanded rows; a
+hovered slice or ring section grows a little and lights up in soft yellow, together
+with its subfolders in the outer rings)
 
 - **Pie or treemap:** the chart pane shows the open list as a pie chart or as a
   treemap (rectangles sized by space, folders with their subfolders inside), one
@@ -98,8 +100,8 @@ little and lights up together with all its subfolders in the outer rings)
   administrator may change are deleted after macOS asks for your password once
   (Windows: Run as administrator). Right-click a suggestion or a location and
   choose **Never suggest this** to hide it for good; **Ignored (n)...** lists
-  them and brings them back. Suggestions are looked up again whenever the disk
-  changes or you rescan.
+  them and brings them back. Suggestions are looked up right after a scan (while
+  the apps are read), and again whenever the disk changes or you rescan.
 - **Apps:** every installed app, with its own logo and its real size on disk
   (Windows: programs and Microsoft Store apps; macOS: apps in Applications).
   Expand an app (its arrow, or a double-click) to see everything that belongs to
@@ -124,7 +126,8 @@ little and lights up together with all its subfolders in the outer rings)
 - **System (macOS):** Time Machine local snapshots (delete one or all),
   purgeable space (macOS frees it when needed), iPhone / iPad backups, and every
   volume's free space and health (SMART status), with the same low-space warning.
-- **Files:** the largest files, with a name search (`*.iso`, `invoice`) and
+- **Files:** the largest files, with a name search (`*.iso`, `invoice`; `*` matches
+  every file, `*.` the files without an extension) and
   filters by type, size and date: not changed, or **not opened**, for months or
   years. Search the selected folder or **everything scanned** at once; folders
   with a matching name are listed too. Instant, from memory.
@@ -153,8 +156,8 @@ little and lights up together with all its subfolders in the outer rings)
 
 **Cleaning up**
 
-- **Delete list:** always one click away, the amber button left of **Delete permanently** (with the
-  number of items on the button). Collect items from any view, review them together, then
+- **Delete list:** always one click away, the amber row at the bottom of the views bar (with the
+  number of items on it); **Add to delete list** (amber too) puts the selection on it. Collect items from any view, review them together, then
   **Move to Recycle Bin / Trash** (can be undone) or **Delete permanently**
   (frees the space now). If some files are in use, the list keeps what is left,
   with its real size.
@@ -183,7 +186,7 @@ little and lights up together with all its subfolders in the outer rings)
 
 ![Deleting: the red progress strip counts the files removed and the space freed (demo data)](assets/screenshot-deleting.png)
 
-![The delete list, opened from its button left of Delete permanently (demo data)](assets/screenshot-delete-list.png)
+![The delete list, opened from its row in the views bar (demo data)](assets/screenshot-delete-list.png)
 
 ![The confirmation before a permanent delete, listing every item (demo data)](assets/screenshot-delete-confirm.png)
 
@@ -192,7 +195,7 @@ little and lights up together with all its subfolders in the outer rings)
 - **Preview and properties:** Space shows a preview (Quick Look on macOS);
   Alt+Enter opens the Windows Properties dialog (Get Info, ⌘I, on macOS).
 - **Save a scan:** **Export** a folder as an HTML report, as CSV, or as a scan
-  file (`.spacepie`) that **Open scan...** shows again later, read-only, next to the
+  file (`.spacepie`) that **Import...** shows again later, read-only, next to the
   drives: to keep a record, compare later, or send it to someone.
 - **Updates itself:** it checks for a new version at startup and installs it in
   a click, in place (on macOS also when it was opened from the disk image: then

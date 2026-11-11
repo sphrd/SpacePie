@@ -440,6 +440,7 @@ extension MainWindowController {
             // Up to date: the logo turns into the chart.
             if !chartOnHold { refreshChart() }
             checkLowSpace(r)
+            findSuggestionsAfterScan()
         }
     }
 

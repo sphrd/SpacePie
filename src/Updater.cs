@@ -196,6 +196,10 @@ namespace SpacePie
             {
                 form = new UpdateForm();
                 form.FormClosed += (s, e) => { if (cancel != null) cancel.Cancel(); };
+                // CenterParent only applies to ShowDialog; this window is modeless, so it is centred on the app here.
+                form.StartPosition = FormStartPosition.Manual;
+                var o = owner.WindowState == FormWindowState.Minimized ? owner.RestoreBounds : owner.Bounds;
+                form.Location = new Point(o.X + (o.Width - form.Width) / 2, o.Y + (o.Height - form.Height) / 2);
                 form.Show(owner);
             }
             else form.Activate();

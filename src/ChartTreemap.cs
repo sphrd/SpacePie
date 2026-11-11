@@ -50,6 +50,7 @@ namespace SpacePie
                 tilesDirty = true;
                 tiles.Clear();
                 hover = reported = hoverTile = hoverArc = -1;
+                reportedDir = null;
                 Invalidate();
             }
         }
@@ -193,7 +194,7 @@ namespace SpacePie
                     }
                     else
                     {
-                        var col = hot ? Blend(t.Color, Color.White, 0.25f) : t.Color;
+                        var col = hot ? Blend(t.Color, Theme.HOVER, Theme.HOVER_MIX) : t.Color;
                         using (var b = new SolidBrush(Fade(col, alpha))) g.FillRectangle(b, rr);
                         g.DrawRectangle(sep, rr.X, rr.Y, rr.Width - 1, rr.Height - 1);
                     }
@@ -207,6 +208,13 @@ namespace SpacePie
                     TextRenderer.DrawText(g, t.Label ?? "", Theme.FONT_9, tr, fg, one);
                     if (t.Level == 0 && t.Dir == null && rr.Height >= lh * 2 + Theme.S(8))
                         TextRenderer.DrawText(g, Fmt.Size(t.Size), Theme.FONT_9, new Rectangle(tr.X, tr.Y + lh, tr.Width, lh), fg, one);
+                }
+            // The hovered folder's tile is mostly covered by its subfolders: an outline on top shows where it is.
+            if (alpha >= 1 && hoverTile >= 0 && hoverTile < tiles.Count)
+                using (var pen = new Pen(Theme.HOVER, Math.Max(2f, 2 * Theme.Scale)) { Alignment = PenAlignment.Inset })
+                {
+                    var hr = Rectangle.Round(tiles[hoverTile].R);
+                    g.DrawRectangle(pen, hr.X, hr.Y, hr.Width - 1, hr.Height - 1);
                 }
             DrawTreemapInfo(g, new Rectangle(area.X, mapRect.Bottom + Theme.S(6), area.Width, infoH - Theme.S(6)));
         }
@@ -279,11 +287,7 @@ namespace SpacePie
             int tileShown = t >= 0 && tiles[t].Level > 0 ? t : -1;
             Cursor = up || (t >= 0 && tiles[t].Dir != null) ? Cursors.Hand : Cursors.Default;
             if (slice != hover || tileShown != hoverTile || up != hoverUp) { hover = slice; hoverTile = tileShown; hoverUp = up; Invalidate(); }
-            if (slice != reported)
-            {
-                reported = slice;
-                if (HoverChanged != null) HoverChanged(slice);
-            }
+            Report(slice, tileShown >= 0 ? tiles[tileShown].Dir : null);
         }
 
         void TreemapClick(Point p)

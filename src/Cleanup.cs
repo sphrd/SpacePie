@@ -38,6 +38,18 @@ namespace SpacePie
         /// <summary>The scanned data changed since the suggestions were found (scan, rescan, live change, delete).</summary>
         bool suggestionsDirty;
         DateTime lastSuggestFind = DateTime.MinValue;
+        bool suggestFinding;
+
+        /// <summary>
+        /// A scan is done: look for space that can be freed right away in the background (next to the installed apps),
+        /// so the Suggestions view is ready when it is opened.
+        /// </summary>
+        void FindSuggestionsAfterScan()
+        {
+            if (pSuggest == null || SelfTestDir != null || ShotDir != null) return;
+            pSuggest.Stale = false;
+            FillSuggestions();
+        }
 
         RoundButton btnSugDelete;
         Label sugHeadline;
@@ -83,6 +95,8 @@ namespace SpacePie
         {
             var p = pSuggest;
             if (suggestions != null && !suggestionsDirty) { ShowSuggestions(); return; }
+            // Already looking (started after the scan) and nothing changed since: that search shows its result.
+            if (suggestFinding && !suggestionsDirty) return;
             suggestionsDirty = false;
             lastSuggestFind = DateTime.UtcNow;
             // Keep the user's choices across a new search: ticks by path, expanded suggestions by name.
@@ -105,10 +119,12 @@ namespace SpacePie
             UpdateSuggestionButtons();
             var scanned = roots.Where(r => r.Node != null && !r.ReadOnly).Select(r => r.Node).ToList();
             List<Suggestion> found = null;
+            suggestFinding = true;
             Task.Factory.StartNew(() => { found = FindSuggestions(scanned); })
                 .ContinueWith(t =>
                 {
                     if (gen != suggestGen || IsDisposed) return;
+                    suggestFinding = false;
                     var before = suggestions;
                     suggestions = StableOrder(t.IsFaulted ? new List<Suggestion>() : found, before);
                     // Safe suggestions start ticked, "review first" ones unticked; earlier choices are kept.

@@ -11,8 +11,9 @@ extension MainWindowController {
 
     var activePage: Page { pages[min(max(0, pageIndex), pages.count - 1)] }
 
-    /// The views listed in the rail (all but the delete list, which opens from its toolbar button), in rail order.
-    var railPages: [Page] { pages.filter { $0 !== pBasket } }
+    /// The views listed in the rail, in rail order (the delete list only while deleteListInRail is on; otherwise it opens
+    /// from its toolbar button).
+    var railPages: [Page] { MainWindowController.deleteListInRail ? pages : pages.filter { $0 !== pBasket } }
 
     /// Shows view p (from the rail, the Delete list button or the app).
     func showView(_ p: Page) { if let i = pages.firstIndex(where: { $0 === p }) { pageIndex = i } }
@@ -21,7 +22,10 @@ extension MainWindowController {
     func syncRail() {
         let p = activePage
         viewTabs.selectedIndex = railPages.firstIndex { $0 === p } ?? -1
-        btnBasket.ring = p === pBasket
+        // The Delete list button is the delete list's tab (merged into the pane below it while it is open), unless the
+        // rail has a row for it.
+        btnBasket.selected = p === pBasket && !MainWindowController.deleteListInRail
+        layoutRoot()
     }
 
     func buildViews() {
@@ -47,7 +51,7 @@ extension MainWindowController {
 
         // Files: the whole index under the selected folder (or everything scanned), filtered; largest first.
         fileSearch.onChange = { [unowned self] in self.fillFiles() }
-        fileSearch.toolTip = "Part of a name, or a pattern with * and ?. Several patterns: separate them with ; (⌘F). Folders with a matching name are listed too."
+        fileSearch.toolTip = "Part of a name, or a pattern with * and ? (*. = no extension). Several patterns: separate them with ; (⌘F). Folders whose name contains the text are listed too; patterns find files only."
         fileScope.tip = "Search the folder open in Contents, or every scanned drive and folder at once"
         fileAge.tip = "Files not changed (modified), or not opened (nor changed), for at least this long. \"Opened\" uses the last-access time macOS records"
         for c in [fileScope, fileType, fileMinSize, fileAge] { c.onChange = { [unowned self] _ in self.fillFiles() } }
@@ -134,6 +138,36 @@ extension MainWindowController {
     func scope() -> DirNode? {
         if let c = current, isAttached(c) { return c }
         return active?.node ?? roots.first { $0.node != nil }?.node
+    }
+
+    /// Chart hover for a list row: the slice of a top-level row; for a row inside an expanded folder (Contents), the
+    /// folder's section in the outer rings or treemap (a file: the section of the folder it is in).
+    func hoverChart(_ p: Page, _ r: Int) {
+        if r < 0 || r >= p.items.count { chart.setHover(-1); return }
+        if let s = rowSlice[r] { chart.setHover(s); return }
+        let info = p.items[r]
+        guard p === pContents, let dir = info.dir ?? info.file?.dir else { chart.setHover(-1); return }
+        // The top-level folder row the row lies under gives the slice.
+        for (row, slice) in rowSlice {
+            guard let top = p.items[row].dir else { continue }
+            var d: DirNode? = dir
+            while let x = d { if x === top { chart.setHoverDir(slice, dir); return }; d = x.parent }
+        }
+        chart.setHover(-1)
+    }
+
+    /// List rows for the hovered chart part: a slice's rows; a subfolder section (outer ring or inner treemap tile) in
+    /// Contents: the folder's row, or the row of its nearest parent shown when it is not expanded.
+    func rowsForChartHover(_ slice: Int, _ dir: DirNode?) -> [Int] {
+        if slice < 0 || slice >= chart.slices.count { return [] }
+        guard let dir = dir, activePage === pContents else { return chart.slices[slice].rows }
+        let items = pContents.items
+        var d: DirNode? = dir
+        while let x = d {
+            if let r = items.firstIndex(where: { $0.dir === x }) { return [r] }
+            d = x.parent
+        }
+        return chart.slices[slice].rows
     }
 
     /// Slices for a list exactly as displayed, in row order: every row of at least 2 % of the total has a slice of its own

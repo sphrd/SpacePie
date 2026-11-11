@@ -8,7 +8,11 @@ namespace SpacePie
 {
     internal enum ButtonKind { Primary, Secondary, Warn, Danger }
 
-    /// <summary>Flat rounded button (radius 8). Click fires on release inside the button only.</summary>
+    /// <summary>
+    /// Flat rounded button (radius 8). Click fires on release inside the button only. Icon: a line icon before the text.
+    /// Selected (Delete list while its view is open): a SURFACE tab in the kind's colour with a marker on top; with
+    /// SetMerge it reaches down into the pane below (its bounds then include the curves on both sides).
+    /// </summary>
     internal sealed class RoundButton : Control
     {
         public ButtonKind Kind;
@@ -17,7 +21,18 @@ namespace SpacePie
         public bool Compact;
         /// <summary>Icon-only button (square): draws this glyph instead of the text, which stays for accessibility.</summary>
         public Action<Graphics, Rectangle, Color> Glyph;
-        bool hover, pressed;
+        /// <summary>Line icon drawn before the text.</summary>
+        public Action<Graphics, Rectangle, Color> Icon;
+        /// <summary>What shows behind its rounded corners (default: the parent's BackColor; set it when the button sits on
+        /// a box its parent paints, like the scan bar's).</summary>
+        public Color? Behind;
+        /// <summary>Extra margin after the text (logical pixels, scaled with the zoom), e.g. the width of a space.</summary>
+        public int ExtraRight;
+        /// <summary>Text and icon colour instead of the kind's (while enabled), e.g. WARN for Add to delete list.</summary>
+        public Color? Fore;
+        bool hover, pressed, selected;
+        int mergeBelow, mergeSide;
+        bool curveLeft, curveRight;
 
         public RoundButton(string text, ButtonKind kind)
         {
@@ -36,7 +51,51 @@ namespace SpacePie
             if (Glyph != null) return new Size(h, h);
             int w = TextRenderer.MeasureText(Text ?? "", font, Size.Empty, TextFormatFlags.NoPadding).Width;
             if (MinChars > 0) w = Math.Max(w, TextRenderer.MeasureText(new string('0', MinChars), font, Size.Empty, TextFormatFlags.NoPadding).Width);
-            return new Size(w + Theme.S(Compact ? 20 : 32), h);
+            // An icon makes the button look fuller, so it needs less padding on the sides.
+            if (Icon != null) return new Size(w + IconSize + IconGap + Theme.S(ExtraRight) + Theme.S(Compact ? 16 : 24), h);
+            return new Size(w + Theme.S(ExtraRight) + Theme.S(Compact ? 20 : 32), h);
+        }
+
+        int IconSize { get { return Theme.S(Compact ? 14 : 16); } }
+        int IconGap { get { return Theme.S(6); } }
+
+        /// <summary>Shown as the open view's tab (see the class summary).</summary>
+        public bool Selected { get { return selected; } set { if (selected != value) { selected = value; Invalidate(); } } }
+
+        /// <summary>
+        /// Selected and reaching 'below' pixels down into the pane under it; on the left / right its side curves out from
+        /// its bottom corner to the pane's edge 'side' pixels further out (the gap to the neighbouring button). 0 = not
+        /// merged. Set the bounds to match: 'side' wider on both sides, 'below' taller.
+        /// </summary>
+        public void SetMerge(int below, int side, bool curveLeft, bool curveRight)
+        {
+            if (below == mergeBelow && side == mergeSide && curveLeft == this.curveLeft && curveRight == this.curveRight) return;
+            mergeBelow = below; mergeSide = side; this.curveLeft = curveLeft; this.curveRight = curveRight;
+            UpdateRegion();
+            Invalidate();
+        }
+
+        protected override void OnSizeChanged(EventArgs e) { base.OnSizeChanged(e); UpdateRegion(); }
+
+        /// <summary>While merged the bounds are wider than the button, but only below it: neighbours keep their space.</summary>
+        void UpdateRegion()
+        {
+            var old = Region;
+            if (mergeBelow <= 0) { if (old != null) { Region = null; old.Dispose(); } return; }
+            var rg = new Region(Face);
+            rg.Union(new Rectangle(0, Height - mergeBelow, Width, mergeBelow));
+            Region = rg;
+            if (old != null) old.Dispose();
+        }
+
+        /// <summary>The button itself within the bounds (smaller than them while merged).</summary>
+        Rectangle Face
+        {
+            get
+            {
+                if (mergeBelow <= 0) return ClientRectangle;
+                return new Rectangle(mergeSide, 0, Width - 2 * mergeSide, Height - mergeBelow);
+            }
         }
 
         protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
@@ -61,7 +120,7 @@ namespace SpacePie
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
-            bool fire = pressed && Enabled && e.Button == MouseButtons.Left && ClientRectangle.Contains(e.Location);
+            bool fire = pressed && Enabled && e.Button == MouseButtons.Left && Face.Contains(e.Location);
             pressed = false;
             if (fire) OnClick(EventArgs.Empty);
         }
@@ -69,23 +128,52 @@ namespace SpacePie
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            g.Clear(Parent != null ? Parent.BackColor : Theme.BG);
+            g.Clear(Behind ?? (Parent != null ? Parent.BackColor : Theme.BG));
+            var face = Face;
             Color fill, fore;
             if (!Enabled) { fill = Theme.DISABLED_BG; fore = Theme.DISABLED_FG; }
+            else if (selected)
+            {
+                fill = Theme.SURFACE;
+                fore = Kind == ButtonKind.Warn ? Theme.WARN : Kind == ButtonKind.Danger ? Theme.DANGER : Kind == ButtonKind.Primary ? Theme.ACCENT : Theme.FG;
+            }
             else if (Kind == ButtonKind.Primary) { fill = hover ? Theme.ACCENT_ACTIVE : Theme.ACCENT; fore = Theme.BG; }
             else if (Kind == ButtonKind.Warn) { fill = hover ? Theme.WARN_FG : Theme.WARN; fore = Theme.BG; }
             else if (Kind == ButtonKind.Danger) { fill = hover ? Theme.DANGER_HOVER : Theme.DANGER; fore = Theme.BG; }
             else { fill = hover ? Theme.SECONDARY_HOVER : Theme.BORDER; fore = Theme.FG; }
-            Theme.FillRound(g, ClientRectangle, Theme.S(Compact ? 7 : 8), fill, fill);
+            if (Enabled && !selected && Fore.HasValue) fore = Fore.Value;
+            int radius = Theme.S(Compact ? 7 : 8);
+            if (selected && Enabled && mergeBelow > 0)
+            {
+                var body = new RectangleF(face.X + 0.5f, 0.5f, face.Width - 1, Height);
+                using (var path = Theme.TabPath(body, radius, Height, false, curveLeft, curveRight, mergeSide, mergeBelow))
+                    Theme.FillTab(g, path, fill, Theme.BORDER);
+            }
+            else Theme.FillRound(g, face, radius, fill, fill);
+            // The open view's marker (as in the views bar), along the top.
+            if (selected && Enabled)
+                Theme.FillRound(g, new Rectangle(face.X + Theme.S(9), face.Y, face.Width - Theme.S(18), Theme.S(3)), Theme.S(2), fore, fore);
             if (Glyph != null)
             {
-                int s = Math.Min(Width, Height) * 11 / 20;
-                Glyph(g, new Rectangle((Width - s) / 2, (Height - s) / 2, s, s), fore);
+                int s = Math.Min(face.Width, face.Height) * 11 / 20;
+                Glyph(g, new Rectangle(face.X + (face.Width - s) / 2, face.Y + (face.Height - s) / 2, s, s), fore);
                 return;
             }
-            TextRenderer.DrawText(g, Text, Compact ? Theme.FONT_9 : Font, ClientRectangle, fore,
-                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
-                TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis);
+            var font = Compact ? Theme.FONT_9 : Font;
+            const TextFormatFlags flags = TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
+            if (Icon == null)
+            {
+                TextRenderer.DrawText(g, Text, font, face, fore, flags | TextFormatFlags.HorizontalCenter);
+                return;
+            }
+            // Icon and text centred together (ExtraRight kept free after the text); the icon 1 px up, level with the
+            // text's middle (capitals, no descenders).
+            int tw = TextRenderer.MeasureText(g, Text ?? "", font, Size.Empty, TextFormatFlags.NoPadding).Width;
+            int isz = IconSize, x = face.X + Math.Max(Theme.S(8), (face.Width - isz - IconGap - tw - Theme.S(ExtraRight)) / 2);
+            Icon(g, new Rectangle(x, face.Y + (face.Height - isz) / 2 - Theme.S(1), isz, isz), fore);
+            int tx = x + isz + IconGap;
+            TextRenderer.DrawText(g, Text, font, new Rectangle(tx, face.Y, Math.Max(0, face.Right - Theme.S(6) - tx), face.Height), fore,
+                flags | TextFormatFlags.NoPadding);
         }
     }
 
@@ -315,12 +403,18 @@ namespace SpacePie
         }
     }
 
-    /// <summary>Rounded SURFACE panel with a BORDER outline that turns ACCENT while it holds the focus.</summary>
+    /// <summary>
+    /// Rounded SURFACE panel with a BORDER outline that turns ACCENT while it holds the focus. A selected tab can merge
+    /// into one edge (SetJoint): the outline is left out where it joins, and a corner the tab is level with is square.
+    /// </summary>
     internal class RoundedPanel : Panel
     {
         public int Radius;
         public bool TrackFocus;
         bool highlight;
+        DockStyle jointSide = DockStyle.None;
+        int jointFrom, jointTo;
+        bool jointCurveStart, jointCurveEnd;
 
         public RoundedPanel(int radius, int padding)
         {
@@ -340,11 +434,48 @@ namespace SpacePie
         protected override void OnEnter(EventArgs e) { base.OnEnter(e); if (TrackFocus) Highlight = true; }
         protected override void OnLeave(EventArgs e) { base.OnLeave(e); if (TrackFocus) Highlight = false; }
 
+        /// <summary>
+        /// A tab joins the Left or Top edge between from and to (panel coordinates; its outward curves included, when
+        /// curveStart / curveEnd say it has them); DockStyle.None: no tab.
+        /// </summary>
+        public void SetJoint(DockStyle side, int from = 0, int to = 0, bool curveStart = false, bool curveEnd = false)
+        {
+            if (side == jointSide && from == jointFrom && to == jointTo && curveStart == jointCurveStart && curveEnd == jointCurveEnd) return;
+            jointSide = side; jointFrom = from; jointTo = to; jointCurveStart = curveStart; jointCurveEnd = curveEnd;
+            Invalidate();
+        }
+
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            e.Graphics.Clear(Parent != null ? Parent.BackColor : Theme.BG);
-            Theme.FillRound(e.Graphics, new Rectangle(0, 0, Width, Height), Theme.S(Radius), BackColor,
-                highlight ? Theme.ACCENT : Theme.BORDER);
+            var g = e.Graphics;
+            g.Clear(Parent != null ? Parent.BackColor : Theme.BG);
+            int rad = Theme.S(Radius);
+            if (jointSide == DockStyle.None)
+            {
+                Theme.FillRound(g, new Rectangle(0, 0, Width, Height), rad, BackColor, highlight ? Theme.ACCENT : Theme.BORDER);
+                return;
+            }
+            bool left = jointSide == DockStyle.Left;
+            int length = left ? Height : Width;
+            // A tab level with a corner (no room for its curve there) makes that corner square.
+            bool atStart = jointFrom < rad, atEnd = jointTo > length - rad;
+            float tl = atStart ? 0 : rad, tr = !left && atEnd ? 0 : rad, bl = left && atEnd ? 0 : rad;
+            var sm = g.SmoothingMode;
+            var pm = g.PixelOffsetMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            using (var p = Theme.RoundRect(new RectangleF(0, 0, Width, Height), tl, tr, rad, bl))
+            using (var b = new SolidBrush(highlight ? Theme.ACCENT : Theme.BORDER)) g.FillPath(b, p);
+            using (var p = Theme.RoundRect(new RectangleF(1, 1, Width - 2, Height - 2), Math.Max(0, tl - 1), Math.Max(0, tr - 1), rad - 1, Math.Max(0, bl - 1)))
+            using (var b = new SolidBrush(BackColor)) g.FillPath(b, p);
+            g.SmoothingMode = sm;
+            g.PixelOffsetMode = pm;
+            // No outline across the joint. A curve ends 2 px along this edge (it runs nearly along it there); a straight
+            // tab edge meets it at its own outline (1 px), which may be this panel's own outer border row.
+            int a = Math.Max(0, jointFrom + (jointCurveStart ? 2 : 1)), z = Math.Min(length - 1, jointTo - (jointCurveEnd ? 2 : 1));
+            if (z > a)
+                using (var b = new SolidBrush(BackColor))
+                    g.FillRectangle(b, left ? new Rectangle(0, a, 1, z - a) : new Rectangle(a, 0, z - a, 1));
         }
 
         protected override void OnPaint(PaintEventArgs e) { }
@@ -745,6 +876,7 @@ namespace SpacePie
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = Theme.BG;
             spinner.BackColor = danger ? Theme.DANGER_BG : Theme.SURFACE;
+            CancelButton.Behind = spinner.BackColor;   // it sits on the box drawn here, not on BackColor
             if (danger) { spinner.Color = Theme.DANGER; CancelButton.Text = "Stop"; }
             Controls.Add(spinner);
             Controls.Add(CancelButton);

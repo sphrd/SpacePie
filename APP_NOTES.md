@@ -12,6 +12,7 @@ patterns (Part 3) are applied through the WinForms mapping below.
 | Main window (layout, wiring, all behavior) | `src/MainForm.cs` |
 | Theme tokens (palette, fonts), drawing helpers, DWM interop | `src/Theme.cs` |
 | Widgets: RoundButton, RoundedPanel, PathInput, PillScrollBar, ScrollHost, BusyOverlay, Spinner, ScanBar, DarkRenderer, Banner, Breadcrumb | `src/Widgets.cs` |
+| Line icons of the toolbar buttons (icon + text) | `src/Icons.cs`, `macos/Sources/SpacePie/Icons.swift` |
 | Views bar on the left (icon + name rows, scrolls) | `src/NavRail.cs` |
 | Full text on hover for anything drawn cut off (`CutText`, `EllipsisLabel`) | `src/CutText.cs` |
 | List view (rows, bars, header, empty-state hint) + sorting | `src/Controls.cs` |
@@ -777,6 +778,32 @@ patterns (Part 3) are applied through the WinForms mapping below.
   `current == null`): one row per scan root, "% used" column, chart of used space per drive; the path bar always starts
   with "This PC". `CutText` records every text drawn cut off per control and raises `Hover` with the full text; the main
   window shows it in its dark tooltip (list headers too, via the header's WM_MOUSEMOVE).
+- **Merged tabs:** the open view's tab merges into the list pane. The `NavRail` is 6 px wider than its rows (it spans the
+  old gap to the pane); its selected row stays a SURFACE pill with the left marker, but runs right into the pane with
+  outward curves (`Theme.TabPath` / `FillTab`: quarter ellipses that leave the tab where the neighbours end - the pills'
+  right ends, the toolbar buttons' bottoms - and meet the pane right under the gap beside it). While the delete list is open, `btnBasket`
+  (`RoundButton.Selected` + `SetMerge`) is that view's tab: SURFACE, WARN text, icon and top marker, reaching down into
+  the pane (its bounds widen by the curves; a window region keeps them off its neighbours). The pane
+  (`RoundedPanel.SetJoint`) leaves its outline out along the joint and squares a corner the tab is level with (the
+  first rail row). `MainForm.UpdateJoints` keeps both in step; the Mac app does the same (`PanelView.setJoint`,
+  `NavRail.joint()`, `RoundButton.setMerge`, `hitTest` instead of a region).
+- **Toolbar icons:** every top-bar button has a line icon before its text (`RoundButton.Icon`, `src/Icons.cs`):
+  folder (Choose), the logo's outline (Scan), shield (Run as administrator / Full Disk Access), open folder (Show in Explorer /
+  Finder), trash + plus (Add to delete list), trash (Delete list), warning triangle (Delete permanently), arrow into a
+  tray (Import, formerly "Open scan"), tray + arrow out (Export). Icon buttons have 12 px side padding instead of 16.
+- **Views bar width:** fitted to the longest view name (10 pt text, 20 px icons, 12 px after the name); the pill ends 6 px
+  from the pane. A row that can show a count (`ReserveBadge`) keeps room for a two-digit badge.
+- **Trial (`DeleteListInViewsBar` in `MainForm.cs`, `deleteListInRail` on macOS):** the delete list is the last row of
+  the views bar, in WARN (as Suggestions has SUGGEST), with its count badge in WARN; the views bar tab merges into the pane
+  for it and the toolbar has no Delete list button. Set the flag to false to get the button back (left of Delete
+  permanently, turning into the delete list's tab while it is open) and take the row out of the views bar.
+- **Toolbar:** the Location row and Show in Explorer start at the list pane's left edge; Add to delete list / (Delete
+  list /) Delete permanently are 10 px apart and end at its right edge; Delete list has 4 px extra room after its text
+  (`ExtraRight`). The window's minimum width is what both toolbar rows need on one line each, starting at the pane
+  (`LayoutToolbar` sets `MinimumSize`; `contentMinSize` on macOS), at least 900 px.
+- **Scan icon:** the logo's outline (a circle with the mouth open to the left, `Theme.LogoMouth`).
+- **Buttons on a painted box:** `RoundButton.Behind` is the colour behind its corners when the parent paints a box under it
+  (the scan bar's Cancel sits on SURFACE, not on the bar's BG BackColor, which left dark corners).
 - **Gotcha (scripted edits in PowerShell):** `@(@("a","b"))` flattens to `@("a","b")`, so a loop over "pairs" replaced
   single characters (every "r" -> "e" in Views.cs, "A" -> " " in MainForm.cs). Recovered from HEAD + a vocabulary of the
   other sources. Use Python (or `,@(...)`) for replacement lists.
@@ -854,3 +881,10 @@ patterns (Part 3) are applied through the WinForms mapping below.
 - v2.2.1 (2026-11-09): Back, Forward, Up (arrow) and Rescan folder as small icon buttons in front of the path bar; the toolbar's
   selection buttons line up with the list pane; Location: / Choose... on both platforms; chart hover moves each outer ring
   out by one step (even gaps, only the hovered section lighter); no text under the logo while scanning.
+- v2.3.0 (2026-11-11): the open view's row merges into the list pane (curves where it joins); the delete list is a row of
+  the views bar (amber, with its count) instead of a toolbar button; line icons on every toolbar button (Scan: the logo's
+  outline); Open scan is now Import; Add to delete list in amber; Location row and Show in Explorer start at the list
+  pane, Delete permanently ends at it; the window keeps the toolbar on two rows; views bar fitted to its names, larger
+  text; soft yellow chart hover; hovering a subfolder (ring, treemap tile, expanded row) highlights its row and the other
+  way round; Files: `*` matches files only, `*.` files without an extension; suggestions looked up right after a scan;
+  update window centred on the app; no dark corners on the scan bar's Cancel.

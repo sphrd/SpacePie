@@ -95,10 +95,12 @@ extension SelfTestRun {
         // MARK: System view
         steps.then {
             let want = ["Contents", "Suggestions", "Apps", "System", "Files", "File types", "Duplicates", "Changes"]
+                + (MainWindowController.deleteListInRail ? ["Delete list"] : [])
             let i = w.pages.firstIndex { $0 === w.pSystem } ?? -1
-            self.check(i == 3 && w.pages[2] === w.pApps && w.viewTabs.titles == w.railPages.map { $0.title } && w.viewTabs.titles == want
-                       && !w.railPages.contains { $0 === w.pBasket },
-                       "system: the System view comes right after Apps in the rail; the Delete list is not in it (\(w.viewTabs.titles.joined(separator: ", ")))")
+            self.check(i == 3 && w.pages[2] === w.pApps && w.viewTabs.titles.map { NavRail.split($0).label } == w.railPages.map { $0.title }
+                       && w.viewTabs.titles.map { NavRail.split($0).label } == want
+                       && w.railPages.contains { $0 === w.pBasket } == MainWindowController.deleteListInRail,
+                       "system: the System view comes right after Apps in the rail; the Delete list is last only while it is in the rail (\(w.viewTabs.titles.joined(separator: ", ")))")
             let snaps = SystemInfo.parseLocalSnapshots(SelfTestSamples.tmutil)
             self.check(snaps.map { $0.date } == ["2026-10-30-093012", "2026-11-01-180455"] && snaps.first?.name == "com.apple.TimeMachine.2026-10-30-093012.local"
                        && SystemInfo.parseLocalSnapshots(SelfTestSamples.tmutilOld).map { $0.date } == ["2019-11-02-101530"]

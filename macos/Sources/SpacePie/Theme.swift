@@ -40,6 +40,80 @@ enum Theme {
         }
     }
 
+    /// Rounded rectangle with a radius per corner (0 = square), in a flipped view: top left, top right, bottom right,
+    /// bottom left.
+    static func roundRect(_ r: NSRect, tl: CGFloat, tr: CGFloat, br: CGFloat, bl: CGFloat) -> NSBezierPath {
+        let m = min(r.width, r.height) / 2
+        let p = NSBezierPath()
+        func corner(_ a: NSPoint, _ b: NSPoint, _ rad: CGFloat) {
+            if rad < 0.5 { p.line(to: a) } else { p.appendArc(from: a, to: b, radius: min(rad, m)) }
+        }
+        p.move(to: NSPoint(x: r.minX, y: r.minY + min(tl, m)))
+        corner(NSPoint(x: r.minX, y: r.minY), NSPoint(x: r.maxX, y: r.minY), tl)
+        corner(NSPoint(x: r.maxX, y: r.minY), NSPoint(x: r.maxX, y: r.maxY), tr)
+        corner(NSPoint(x: r.maxX, y: r.maxY), NSPoint(x: r.minX, y: r.maxY), br)
+        corner(NSPoint(x: r.minX, y: r.maxY), NSPoint(x: r.minX, y: r.minY), bl)
+        p.close()
+        return p
+    }
+
+    /// Default reach of the outward curves along the pane's edge where a selected tab merges into its pane.
+    static let tabFlare: CGFloat = 8
+
+    /// Quarter ellipse from p0 to p1 whose tangents meet at `corner` (cubic Bézier, kappa 0.5523).
+    private static func quarter(_ p: NSBezierPath, to p1: NSPoint, corner c: NSPoint) {
+        let p0 = p.currentPoint, k: CGFloat = 0.5523
+        p.curve(to: p1, controlPoint1: NSPoint(x: p0.x + k * (c.x - p0.x), y: p0.y + k * (c.y - p0.y)),
+                controlPoint2: NSPoint(x: p1.x + k * (c.x - p1.x), y: p1.y + k * (c.y - p1.y)))
+    }
+
+    /// A selected tab merged into the pane beside it (same as Theme.TabPath in src/Theme.cs), in a flipped view: rounded
+    /// (radius) on the far side, square on the joining side, where its two edges curve outward into the pane's edge at
+    /// `edge`. Each curve is a quarter ellipse: it leaves the tab's side `across` away from the pane's edge (where the
+    /// neighbours end) and meets the pane's edge `along` further out (the gap to the next row / button). joinRight: its
+    /// right side joins a pane on its right (views rail); otherwise its bottom joins a pane below (Delete list).
+    /// curveStart / curveEnd: the curve above / left and below / right (off when the tab is level with a corner of the
+    /// pane). Open along the joint: stroking it outlines the tab without a line across the joint, filling closes it along
+    /// the pane's edge.
+    static func tabPath(_ body: NSRect, _ radius: CGFloat, edge: CGFloat, joinRight: Bool, curveStart: Bool, curveEnd: Bool,
+                        along: CGFloat = tabFlare, across: CGFloat = tabFlare) -> NSBezierPath {
+        let a = max(1, along), c = max(1, across)
+        let p = NSBezierPath()
+        if joinRight {
+            let x0 = body.minX, y0 = body.minY, y1 = body.maxY
+            if curveStart {
+                p.move(to: NSPoint(x: edge, y: y0 - a))
+                quarter(p, to: NSPoint(x: edge - c, y: y0), corner: NSPoint(x: edge, y: y0))
+            } else { p.move(to: NSPoint(x: edge, y: y0)) }
+            p.appendArc(from: NSPoint(x: x0, y: y0), to: NSPoint(x: x0, y: y1), radius: radius)
+            p.appendArc(from: NSPoint(x: x0, y: y1), to: NSPoint(x: edge, y: y1), radius: radius)
+            if curveEnd {
+                p.line(to: NSPoint(x: edge - c, y: y1))
+                quarter(p, to: NSPoint(x: edge, y: y1 + a), corner: NSPoint(x: edge, y: y1))
+            } else { p.line(to: NSPoint(x: edge, y: y1)) }
+        } else {
+            let x0 = body.minX, x1 = body.maxX, y0 = body.minY
+            if curveStart {
+                p.move(to: NSPoint(x: x0 - a, y: edge))
+                quarter(p, to: NSPoint(x: x0, y: edge - c), corner: NSPoint(x: x0, y: edge))
+            } else { p.move(to: NSPoint(x: x0, y: edge)) }
+            p.appendArc(from: NSPoint(x: x0, y: y0), to: NSPoint(x: x1, y: y0), radius: radius)
+            p.appendArc(from: NSPoint(x: x1, y: y0), to: NSPoint(x: x1, y: edge), radius: radius)
+            if curveEnd {
+                p.line(to: NSPoint(x: x1, y: edge - c))
+                quarter(p, to: NSPoint(x: x1 + a, y: edge), corner: NSPoint(x: x1, y: edge))
+            } else { p.line(to: NSPoint(x: x1, y: edge)) }
+        }
+        return p
+    }
+
+    /// Paints a tabPath: fill, then the 1 px outline (none across the joint).
+    static func fillTab(_ p: NSBezierPath, fill: NSColor, outline: NSColor) {
+        fill.setFill(); p.fill()
+        p.lineWidth = 1
+        outline.setStroke(); p.stroke()
+    }
+
     // ---- flair (busy states only), the same as src/Theme.cs: comet arc, glow, shared clock
 
     /// Animation clock (seconds) shared by spinners, the orbit and the splash, so they move in step.
@@ -114,10 +188,10 @@ enum Theme {
     /// is never cut off with a hard edge. glowAlpha ~0.22 on bg, ~0.16 on surface.
     static func drawLogoGlow(in circle: NSRect, alpha: CGFloat = 1, glowAlpha: CGFloat = 0.22, limit: NSRect? = nil) {
         guard alpha > 0 else { return }
-        let c = NSPoint(x: circle.midX, y: circle.midY), r = circle.width / 2
-        var reach = r * glowReach
+        let c = NSPoint(x: circle.midX, y: circle.midY), r = circle.width / 2 / 1.5
+        var reach = (circle.width / 2) * glowReach
         if let l = limit { reach = min(reach, c.x - l.minX, l.maxX - c.x, c.y - l.minY, l.maxY - c.y) }
-        if reach > r + 1 { drawRimGlow(at: c, inner: r, outer: reach, color: T.ACCENT, alpha: glowAlpha * min(1, alpha)) }
+        if reach > r + 1 { drawRimGlow(at: c, inner: r, outer: reach, color: T.BG_GLOW, alpha: glowAlpha * min(1, alpha)) }
         drawLogo(in: circle, alpha: alpha)
     }
 
@@ -337,16 +411,43 @@ class FlatView: NSView {
     override func draw(_ dirtyRect: NSRect) { fill.setFill(); dirtyRect.intersection(bounds).fill() }
 }
 
-/// Rounded panel: surface fill, 1 px border outline (accent while `highlight`).
+/// Rounded panel: surface fill, 1 px border outline (accent while `highlight`). A selected tab can merge into its left or
+/// top edge (setJoint, as RoundedPanel.SetJoint in src/Widgets.cs): no outline where it joins, and a corner the tab is
+/// level with is square.
 class PanelView: NSView {
     var highlight = false { didSet { needsDisplay = true } }
     var radius: CGFloat = 12
     var panelFill: NSColor = T.SURFACE
     var outline: NSColor = T.BORDER
     var backFill: NSColor = T.BG
+    enum JointSide { case none, left, top }
+    private var joint: (side: JointSide, from: CGFloat, to: CGFloat, curveStart: Bool, curveEnd: Bool) = (.none, 0, 0, false, false)
     override var isFlipped: Bool { true }
+
+    /// A tab joins the left or top edge between from and to (this view's coordinates, its curves included when
+    /// curveStart / curveEnd say it has them); .none: no tab.
+    func setJoint(_ side: JointSide, from: CGFloat = 0, to: CGFloat = 0, curveStart: Bool = false, curveEnd: Bool = false) {
+        let j = (side: side, from: from, to: to, curveStart: curveStart, curveEnd: curveEnd)
+        if j == joint { return }
+        joint = j
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         backFill.setFill(); bounds.fill()
-        Theme.fillRound(bounds, radius, fill: panelFill, outline: highlight ? T.ACCENT : outline)
+        let line = highlight ? T.ACCENT : outline
+        if joint.side == .none { Theme.fillRound(bounds, radius, fill: panelFill, outline: line); return }
+        let left = joint.side == .left
+        let length = left ? bounds.height : bounds.width
+        // A tab level with a corner (no room for its curve there) makes that corner square.
+        let atStart = joint.from < radius, atEnd = joint.to > length - radius
+        let tl: CGFloat = atStart ? 0 : radius, tr: CGFloat = !left && atEnd ? 0 : radius, bl: CGFloat = left && atEnd ? 0 : radius
+        line.setFill(); Theme.roundRect(bounds, tl: tl, tr: tr, br: radius, bl: bl).fill()
+        panelFill.setFill()
+        Theme.roundRect(bounds.insetBy(dx: 1, dy: 1), tl: max(0, tl - 1), tr: max(0, tr - 1), br: radius - 1, bl: max(0, bl - 1)).fill()
+        // No outline across the joint. A curve ends 2 px along this edge (it runs nearly along it there); a straight tab
+        // edge meets it at its own outline (1 px), which may be this panel's own outer border.
+        let a = max(0, joint.from + (joint.curveStart ? 2 : 1)), z = min(length - 1, joint.to - (joint.curveEnd ? 2 : 1))
+        if z > a { (left ? NSRect(x: 0, y: a, width: 1, height: z - a) : NSRect(x: a, y: 0, width: z - a, height: 1)).fill() }
     }
 }

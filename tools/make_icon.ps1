@@ -19,7 +19,7 @@ function Get-ThemeColor([string]$name) {
 $LOGO_TOP_LEFT = Get-ThemeColor 'LOGO_TOP_LEFT'
 $LOGO_RIGHT = Get-ThemeColor 'LOGO_RIGHT'
 $LOGO_BOTTOM_LEFT = Get-ThemeColor 'LOGO_BOTTOM_LEFT'
-$ACCENT = Get-ThemeColor 'ACCENT'
+$ACCENT = Get-ThemeColor 'BG_GLOW'
 $FG = Get-ThemeColor 'FG'
 $BG = Get-ThemeColor 'BG'
 
@@ -54,7 +54,7 @@ function New-IconBitmap([int]$size, [bool]$glow = $false) {
     if ($glow) {
         # Brand logo (README image): the soft accent glow behind a smaller logo, as on the splash and in the app.
         Draw-Glow $g (0.5 * $n) (0.5 * $n) (0.5 * $n) 46
-        $m = 0.32 * $n
+        $m = 0.1375 * $n
         Draw-Logo $g ($m / 2) ($m / 2) ($n - $m)
     } else { Draw-Logo $g 0 0 $n }
     $g.Dispose()

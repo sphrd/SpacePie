@@ -63,7 +63,7 @@ namespace SpacePie
                 "Not changed for 5 years", "Not opened for 3 months", "Not opened for 6 months", "Not opened for 1 year", "Not opened for 2 years");
             foreach (var c in new[] { fileScope, fileType, fileMinSize, fileAge }) c.SelectedIndexChanged += (s, e) => FillFiles();
             tips.SetToolTip(fileAge, "Files not changed (modified), or not opened (nor changed), for at least this long. \"Opened\" uses the last-access time Windows records");
-            tips.SetToolTip(fileSearch.Box, "Part of a name, or a pattern with * and ?. Several patterns: separate them with ; (Ctrl+F). Folders with a matching name are listed too.");
+            tips.SetToolTip(fileSearch.Box, "Part of a name, or a pattern with * and ? (*. = no extension). Several patterns: separate them with ; (Ctrl+F). Folders whose name contains the text are listed too; patterns find files only.");
             var files = NewList(new[] { "Name", "Size", "% of folder", "Folder", "Type", "Modified", "Last opened" },
                 new[] { "name", "size", "size", "folder", "cat", "mod", "used" }, new[] { 260, 90, 150, 360, 110, 140, 140 }, 2);
             pFiles = AddPage("Files", files, MakeBar(fileSearch, fileScope, fileType, fileMinSize, fileAge));
@@ -98,7 +98,12 @@ namespace SpacePie
             viewTabs = new NavRail(pages.Select(p => p.Title).ToArray()) { Dock = DockStyle.Left };
             viewTabs.SelectedIndexChanged += (s, e) => ShowPage();
             viewTabs.SetColor(pages.IndexOf(pSuggest), Theme.SUGGEST);
-            viewTabs.Hide(pages.IndexOf(pBasket));
+            if (DeleteListInViewsBar)
+            {
+                viewTabs.SetColor(pages.IndexOf(pBasket), Theme.WARN);
+                viewTabs.ReserveBadge(pages.IndexOf(pBasket));
+            }
+            else viewTabs.Hide(pages.IndexOf(pBasket));
             foreach (var p in pages) listPanel.Controls.Add(p.Root);
             pContents.Root.Visible = true;
         }
@@ -150,8 +155,7 @@ namespace SpacePie
             {
                 Hover(list, it != null ? RowHoverText(list, it) : null);
                 if (ActivePage.List != list) return;
-                int i;
-                chart.SetHover(it != null && rowSlice.TryGetValue(it, out i) ? i : -1);
+                HoverChartFor(list, it);
             };
             list.DoubleClick += (s, e) => OnListDoubleClick(p);
             list.MouseDown += (s, e) => Hover(list, null);
@@ -159,6 +163,51 @@ namespace SpacePie
             list.Enter += (s, e) => lastView = list;
             pages.Add(p);
             return p;
+        }
+
+        /// <summary>
+        /// Chart hover for a list row: the slice of a top-level row; for a row inside an expanded folder (Contents), the
+        /// folder's section in the outer rings or treemap (a file: the section of the folder it is in).
+        /// </summary>
+        void HoverChartFor(SizeListView list, ListViewItem it)
+        {
+            int slice;
+            if (it == null) { chart.SetHover(-1); return; }
+            if (rowSlice.TryGetValue(it, out slice)) { chart.SetHover(slice); return; }
+            var info = it.Tag as ItemInfo;
+            var dir = list != contents || info == null ? null : info.Dir ?? (info.File != null ? info.File.Dir : null);
+            if (dir == null) { chart.SetHover(-1); return; }
+            // The top-level folder row the row lies under gives the slice.
+            foreach (var kv in rowSlice)
+            {
+                var top = kv.Key.Tag as ItemInfo;
+                if (top == null || top.Dir == null) continue;
+                for (var d = dir; d != null; d = d.Parent)
+                    if (d == top.Dir) { chart.SetHoverDir(kv.Value, dir); return; }
+            }
+            chart.SetHover(-1);
+        }
+
+        /// <summary>
+        /// List rows for the hovered chart part: a slice's rows; a subfolder section (outer ring or inner treemap tile) in
+        /// Contents: the folder's row, or the row of its nearest parent shown when it is not expanded.
+        /// </summary>
+        IEnumerable<ListViewItem> RowsForChartHover(int slice, DirNode dir)
+        {
+            if (slice < 0 || slice >= chart.Slices.Count) return null;
+            if (dir == null || ActivePage != pContents) return chart.Slices[slice].Rows;
+            var byDir = new Dictionary<DirNode, ListViewItem>();
+            foreach (ListViewItem it in contents.Items)
+            {
+                var info = it.Tag as ItemInfo;
+                if (info != null && info.Dir != null && !byDir.ContainsKey(info.Dir)) byDir[info.Dir] = it;
+            }
+            for (var d = dir; d != null; d = d.Parent)
+            {
+                ListViewItem row;
+                if (byDir.TryGetValue(d, out row)) return new[] { row };
+            }
+            return chart.Slices[slice].Rows;
         }
 
         /// <summary>
@@ -233,6 +282,7 @@ namespace SpacePie
             else RefreshChart();
             lastView = p.List;
             UpdateButtons();
+            if (toolbar != null) toolbar.PerformLayout();   // the Delete list button is the delete list's tab
         }
 
         /// <summary>The chart follows the open view.</summary>

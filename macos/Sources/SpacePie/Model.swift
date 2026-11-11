@@ -211,7 +211,7 @@ enum FileIndex {
             for d in root.descendants() {
                 if d.parent == nil || (filter.minSize > 0 && d.size < filter.minSize) { continue }
                 let lower = d.name.lowercased()
-                if !filter.patterns.contains(where: { FileFilter.nameMatches(lower, $0) }) { continue }
+                if !filter.patterns.contains(where: { !FileFilter.isWildcard($0) && FileFilter.nameMatches(lower, $0) }) { continue }
                 count += 1
                 found.append(d)
             }
@@ -274,11 +274,17 @@ final class FileFilter {
         return true
     }
 
-    /// name and pattern in lower case.
+    /// name and pattern in lower case. Plain text matches anywhere in the name; with * or ? the whole name must match,
+    /// as on Windows: "*." is a name without an extension and "*.*" any name.
     static func nameMatches(_ name: String, _ pattern: String) -> Bool {
-        if !pattern.contains("*") && !pattern.contains("?") { return name.contains(pattern) }
-        return wildcard(Array(name.unicodeScalars), Array(pattern.unicodeScalars))
+        if !isWildcard(pattern) { return name.contains(pattern) }
+        if pattern == "*.*" { return true }
+        let n = pattern.hasSuffix(".") && !name.contains(".") ? name + "." : name
+        return wildcard(Array(n.unicodeScalars), Array(pattern.unicodeScalars))
     }
+
+    /// A pattern with * or ?: a file pattern (folders are found by plain text only).
+    static func isWildcard(_ pattern: String) -> Bool { pattern.contains("*") || pattern.contains("?") }
 
     private static func wildcard(_ s: [Unicode.Scalar], _ p: [Unicode.Scalar]) -> Bool {
         var si = 0, pi = 0, star = -1, mark = 0

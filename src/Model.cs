@@ -219,7 +219,7 @@ namespace SpacePie
                 {
                     if (d.Parent == null || (filter.MinSize > 0 && d.Size < filter.MinSize)) continue;
                     bool any = false;
-                    foreach (var p in filter.Patterns) if (FileFilter.NameMatches(d.Name, p)) { any = true; break; }
+                    foreach (var p in filter.Patterns) if (!FileFilter.IsWildcard(p) && FileFilter.NameMatches(d.Name, p)) { any = true; break; }
                     if (!any) continue;
                     matchCount++;
                     found.Add(d);
@@ -299,12 +299,21 @@ namespace SpacePie
             return true;
         }
 
+        /// <summary>
+        /// Plain text matches anywhere in the name; with * or ? the whole name must match, as in Windows: "*." is a name
+        /// without an extension and "*.*" any name.
+        /// </summary>
         public static bool NameMatches(string name, string pattern)
         {
-            if (pattern.IndexOf('*') < 0 && pattern.IndexOf('?') < 0)
+            if (!IsWildcard(pattern))
                 return name.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0;
+            if (pattern == "*.*") return true;
+            if (pattern.EndsWith(".") && name.IndexOf('.') < 0) name += ".";
             return Wildcard(name, 0, pattern, 0);
         }
+
+        /// <summary>A pattern with * or ?: a file pattern (folders are found by plain text only).</summary>
+        public static bool IsWildcard(string pattern) { return pattern.IndexOf('*') >= 0 || pattern.IndexOf('?') >= 0; }
 
         static bool Wildcard(string s, int si, string p, int pi)
         {
