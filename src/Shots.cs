@@ -624,6 +624,67 @@ namespace SpacePie
                 check(hadNm && suggestions != before2 && !suggestions.Any(s2 => s2.Name == "node_modules folders"),
                     "suggestions: found again after an outside delete (node_modules gone)" + string.Format(" [before {0}, new list {1}, still there {2}, {3}]",
                         hadNm, suggestions != before2, suggestions != null && suggestions.Any(s2 => s2.Name == "node_modules folders"), diag));
+                // Opened while they are looked for again: the chart is this view's at once, not the previous view's.
+                viewTabs.SelectedIndex = pages.IndexOf(pContents);
+                Application.DoEvents();
+                string fromTitle = chart.Title;
+                suggestionsDirty = true;
+                pSuggest.Stale = true;
+                viewTabs.SelectedIndex = pages.IndexOf(pSuggest);
+                Application.DoEvents();
+                check(suggestFinding && chart.Title == pSuggest.ChartTitle,
+                    "suggestions: opened while looking again, the chart shows the suggestions at once (\"" + chart.Title + "\", was \"" + fromTitle + "\", looking " + suggestFinding + ")");
+                for (int i = 0; i < 100 && suggestFinding; i++) await Task.Delay(100);
+                viewTabs.SelectedIndex = pages.IndexOf(pContents);
+                // The selection buttons are off with nothing selected and on for a deletable row.
+                {
+                    var scannedRoot = roots.FirstOrDefault(r => r.Node != null && !r.ReadOnly);
+                    if (scannedRoot != null) SelectDir(scannedRoot.Node);
+                    Application.DoEvents();
+                    contents.SelectedItems.Clear();
+                    UpdateSelectionButtons();
+                    bool off = !btnDelete.Enabled && !btnAddList.Enabled && !btnExplorer.Enabled;
+                    var row = contents.Items.Cast<ListViewItem>().FirstOrDefault(x => x.Tag is ItemInfo && ((ItemInfo)x.Tag).CanDelete);
+                    if (row != null) row.Selected = true;
+                    UpdateSelectionButtons();
+                    bool on = row != null && btnDelete.Enabled && btnAddList.Enabled && btnExplorer.Enabled;
+                    string why = string.Format(", row {0}, rows {1}, busy {2}, scanning {3}, last is contents {4}, picked {5}, buttons {6}/{7}/{8}",
+                        row != null ? ((ItemInfo)row.Tag).Name : "none", contents.Items.Count, busy, scanning, lastView == contents, GetSelection().Count,
+                        btnExplorer.Enabled, btnAddList.Enabled, btnDelete.Enabled);
+                    contents.SelectedItems.Clear();
+                    check(off && on, "selection buttons: Show in Explorer, Add to delete list and Delete permanently are off with nothing selected, on with a row (off " + off + ", on " + on + why + ")");
+                    // A click on a blank part of the window (here the caption) clears the selection.
+                    if (row != null) row.Selected = true;
+                    lastView = contents;
+                    var msg = Message.Create(pContents.Caption.Handle, 0x201, IntPtr.Zero, IntPtr.Zero);
+                    new ClickAway(this).PreFilterMessage(ref msg);
+                    Application.DoEvents();
+                    check(row != null && contents.SelectedItems.Count == 0 && !btnDelete.Enabled,
+                        "click away: a click on a blank part of the window deselects the rows (" + contents.SelectedItems.Count + " selected)");
+                    // On the chart too; a click on a view of the views bar or on a button keeps the selection.
+                    Func<Control, Point, bool> clears = (target, at) =>
+                    {
+                        if (row != null) row.Selected = true;
+                        lastView = contents;
+                        var mm = Message.Create(target.Handle, 0x201, IntPtr.Zero, (IntPtr)((at.Y << 16) | (at.X & 0xFFFF)));
+                        new ClickAway(this).PreFilterMessage(ref mm);
+                        return contents.SelectedItems.Count == 0;
+                    };
+                    bool chartClears = clears(chart, new Point(2, 2));
+                    bool railKeeps = !clears(viewTabs, new Point(viewTabs.Width / 2, S(20)));
+                    bool buttonKeeps = !clears(btnDelete, new Point(2, 2));
+                    // A click on the only selected row deselects it.
+                    if (row != null) row.Selected = true;
+                    var rb = row != null ? row.Bounds : Rectangle.Empty;
+                    var lp = (IntPtr)(((rb.Y + rb.Height / 2) << 16) | (rb.X + S(40)));
+                    Theme.SendMessage(contents.Handle, 0x201, IntPtr.Zero, lp);
+                    Theme.SendMessage(contents.Handle, 0x202, IntPtr.Zero, lp);
+                    bool sameRowClears = contents.SelectedItems.Count == 0;
+                    contents.SelectedItems.Clear();
+                    check(chartClears && railKeeps && buttonKeeps && sameRowClears, string.Format(
+                        "click away: the chart deselects, a view of the views bar and a button keep it, a click on the selected row deselects it ({0}, {1}, {2}, {3})",
+                        chartClears, railKeeps, buttonKeeps, sameRowClears));
+                }
                 viewTabs.SelectedIndex = pages.IndexOf(pContents);
             }
             catch (Exception ex) { check(false, "exception: " + ex); }

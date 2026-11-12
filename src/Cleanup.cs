@@ -52,7 +52,7 @@ namespace SpacePie
         }
 
         RoundButton btnSugDelete;
-        Label sugHeadline;
+        Headline sugHeadline;
 
         Page BuildSuggestionsPage()
         {
@@ -60,28 +60,31 @@ namespace SpacePie
             refresh.Glyph = Theme.DrawRefresh;
             var all = Btn("Select all", ButtonKind.Secondary, "Check every suggestion and every location in it", () => CheckAllSuggestions(true));
             var none = Btn("Deselect all", ButtonKind.Secondary, "Uncheck everything", () => CheckAllSuggestions(false));
-            btnSugDelete = Btn("Delete permanently", ButtonKind.Danger, "Delete the checked items now, bypassing the Recycle Bin (Ctrl+Shift+D)", () => DeleteCheckedSuggestions(false));
-            btnSugDelete.Tag = "right";
+            var expandAll = Btn("Expand all", ButtonKind.Secondary, "Show what every suggestion holds", () => ExpandAllSuggestions(true));
+            var collapseAll = Btn("Collapse all", ButtonKind.Secondary, "Close every suggestion and folder", () => ExpandAllSuggestions(false));
+            // Full size and next to the amount, apart from the toolbar's Delete permanently (which works on the selection).
+            btnSugDelete = Btn("Clean up permanently", ButtonKind.Danger, "Delete the checked items for good, bypassing the Recycle Bin (Ctrl+Shift+D)", () => DeleteCheckedSuggestions(false));
+            btnSugDelete.Icon = Icons.Trash;
             btnSugIgnored = Btn("Ignored", ButtonKind.Secondary, "Items you chose never to see again (right-click a suggestion > Never suggest this); stop ignoring them here", ShowIgnoredSuggestions);
             btnSugIgnored.Visible = IgnoreList.Count > 0;
             btnSugIgnored.Text = string.Format("Ignored ({0:N0})...", IgnoreList.Count);
-            foreach (var b in new[] { refresh, all, none, btnSugIgnored, btnSugDelete }) b.Compact = true;
+            foreach (var b in new[] { refresh, all, none, expandAll, collapseAll, btnSugIgnored }) b.Compact = true;
             var list = NewList(new[] { "Name", "Size", "% of suggestions", "Location", "What deleting means" },
                 new[] { "name", "size", "size", "folder", "note" }, new[] { 260, 90, 150, 300, 420 }, 2);
             list.GlyphClicked += SuggestionGlyph;
             list.Grouped = true;
+            list.KeepMemberOrder = true;   // members are a tree, sorted level by level in ShowSuggestions
             list.KeyDown += (s, e) =>
             {
                 if (e.KeyCode == Keys.Space) { ToggleSelectedSuggestions(); e.Handled = true; }
                 else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Left) { ExpandSelectedSuggestions(e.KeyCode == Keys.Right); e.Handled = true; }
             };
-            var p = AddPage("Suggestions", list, MakeBar(refresh, all, none, btnSugIgnored, btnSugDelete));
-            // The amount that can be freed, large and bold in the tab's colour, above the caption.
-            sugHeadline = new Label
+            var p = AddPage("Suggestions", list, MakeBar(refresh, all, none, expandAll, collapseAll, btnSugIgnored));
+            // The amount checked, large and bold in the tab's colour, out of all that was found; the cleanup button at the right.
+            sugHeadline = new Headline
             {
-                Dock = DockStyle.Top, AutoSize = false, UseMnemonic = false, Font = Theme.FONT_HEADLINE, ForeColor = Theme.SUGGEST,
-                BackColor = Theme.SURFACE, Height = Theme.FONT_HEADLINE.Height + S(6), TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(S(2), 0, 0, 0)
+                Dock = DockStyle.Top, Font = Theme.FONT_HEADLINE, ForeColor = Theme.SUGGEST, BackColor = Theme.SURFACE,
+                Padding = new Padding(S(2), 0, 0, 0), Action = btnSugDelete
             };
             p.Root.Controls.Add(sugHeadline);
             p.ChartTitle = "Cleanup suggestions";
@@ -95,8 +98,9 @@ namespace SpacePie
         {
             var p = pSuggest;
             if (suggestions != null && !suggestionsDirty) { ShowSuggestions(); return; }
-            // Already looking (started after the scan) and nothing changed since: that search shows its result.
-            if (suggestFinding && !suggestionsDirty) return;
+            // Already looking (started after the scan) and nothing changed since: that search shows its result; meanwhile
+            // the chart shows this view (never the previous view's chart).
+            if (suggestFinding && !suggestionsDirty) { SuggestionsChartWhileLooking(); return; }
             suggestionsDirty = false;
             lastSuggestFind = DateTime.UtcNow;
             // Keep the user's choices across a new search: ticks by path, expanded suggestions by name.
@@ -113,9 +117,10 @@ namespace SpacePie
             if (suggestions == null)
             {
                 p.Caption.Text = "Looking for space that can be freed...";
-                if (sugHeadline != null) sugHeadline.Text = "Looking...";
+                if (sugHeadline != null) { sugHeadline.Text = "Looking..."; sugHeadline.Sub = ""; }
                 SetRows(p.List, new List<ListViewItem>(), "Looking for space that can be freed...");
             }
+            SuggestionsChartWhileLooking();
             UpdateSuggestionButtons();
             var scanned = roots.Where(r => r.Node != null && !r.ReadOnly).Select(r => r.Node).ToList();
             List<Suggestion> found = null;
@@ -127,6 +132,7 @@ namespace SpacePie
                     suggestFinding = false;
                     var before = suggestions;
                     suggestions = StableOrder(t.IsFaulted ? new List<Suggestion>() : found, before);
+                    sugRead.Clear();   // folders read for expanded rows outside the scans: read again when shown
                     // Safe suggestions start ticked, "review first" ones unticked; earlier choices are kept.
                     foreach (var s in suggestions)
                     {
@@ -142,8 +148,10 @@ namespace SpacePie
         }
 
         /// <summary>
-        /// The suggestions as a tree: one row per suggestion (chevron, checkbox) and, when expanded, one row per location or
-        /// file it would delete. Children share their suggestion's chart slice. Row order: largest suggestion first.
+        /// The suggestions as a tree: one row per suggestion (chevron, checkbox). Expanded, a suggestion with several
+        /// locations shows one row per location (named by its own folder or file); a suggestion of one folder shows what is
+        /// in it right away. Folders open further like Contents (subfolders and files, each with its full path). Children
+        /// share their suggestion's chart slice. Row order: largest suggestion first.
         /// </summary>
         void ShowSuggestions()
         {
@@ -155,28 +163,36 @@ namespace SpacePie
             var rows = new List<ListViewItem>();
             foreach (var s in suggestions.Where(x => x.Size > 0))
             {
+                var shown = s.Targets.Where(x => x.Size > 0).ToList();
+                var only = shown.Count == 1 ? shown[0] : null;
+                bool oneFolder = only != null && only.IsDir && !only.RecycleBin;
                 var head = new ItemInfo
                 {
                     Targets = s.Targets, Data = s, Name = s.Name, Size = s.Size, FolderIcon = true, Folder = s.Location,
                     Path = s.Targets.Count == 1 && !s.Targets[0].RecycleBin ? s.Targets[0].Path : null,
                     Note = s.Note + (s.NeedsAdmin && !isAdmin ? "  Needs Run as administrator." : ""),
-                    Percent = total > 0 ? 100.0 * s.Size / total : 0, Check = s.CheckState, Expandable = s.Targets.Count > 0, Expanded = s.Expanded
+                    Percent = total > 0 ? 100.0 * s.Size / total : 0, Check = s.CheckState,
+                    Expandable = shown.Count > 1 || oneFolder, Expanded = s.Expanded
                 };
                 var lvi = Row(head, head.Name, Fmt.Size(head.Size), head.Percent.ToString("0.0") + " %", head.Folder, head.Note);
                 if (!s.Safe) lvi.ForeColor = Theme.WARN_FG;
                 rows.Add(lvi);
-                if (!s.Expanded) continue;
-                foreach (var tg in s.Targets.Where(x => x.Size > 0).OrderByDescending(x => x.Size))
+                if (!s.Expanded || !head.Expandable) continue;
+                if (oneFolder) { AddSuggestionContents(head, only.Path, 0, rows, s.Safe, total); continue; }
+                var level = shown.Select(tg => new ItemInfo
                 {
-                    var it = new ItemInfo
-                    {
-                        Targets = new List<DeleteTarget> { tg }, Data = tg, GroupOf = head, Name = tg.Label, Size = tg.Size,
-                        FolderIcon = tg.IsDir || tg.RecycleBin, Folder = tg.RecycleBin ? "All drives" : tg.Path, Path = tg.RecycleBin ? null : tg.Path,
-                        Note = tg.ContentsOnly ? "contents only" : tg.Note, Percent = total > 0 ? 100.0 * tg.Size / total : 0, Check = tg.Checked ? 1 : 0
-                    };
+                    Targets = new List<DeleteTarget> { tg }, Data = tg, GroupOf = head, Name = tg.Label, Size = tg.Size, TreeRow = true,
+                    FolderIcon = tg.IsDir || tg.RecycleBin, Folder = tg.RecycleBin ? "All drives" : tg.Path, Path = tg.RecycleBin ? null : tg.Path,
+                    Note = tg.ContentsOnly ? "contents only" : tg.Note, Percent = total > 0 ? 100.0 * tg.Size / total : 0, Check = tg.Checked ? 1 : 0,
+                    Expandable = tg.IsDir && !tg.RecycleBin, Expanded = tg.IsDir && !tg.RecycleBin && sugOpenDirs.Contains(tg.Path)
+                }).ToList();
+                level.Sort(lv.Sorter.Compare);
+                foreach (var it in level)
+                {
                     var c = Row(it, it.Name, Fmt.Size(it.Size), it.Percent.ToString("0.0") + " %", it.Folder, it.Note);
                     if (!s.Safe) c.ForeColor = Theme.WARN_FG;
                     rows.Add(c);
+                    if (it.Expanded) AddSuggestionContents(head, it.Path, 1, rows, s.Safe, total);
                 }
             }
             SetRows(lv, rows, "Nothing to suggest: no caches, temporary files or leftovers worth deleting were found.");
@@ -184,14 +200,105 @@ namespace SpacePie
                 foreach (ListViewItem it in lv.Items)
                     if (((ItemInfo)it.Tag).Name == top) { try { lv.TopItem = it; } catch (Exception) { } break; }
             var ticked = CheckedSuggestionTargets();
-            sugHeadline.Text = rows.Count == 0 ? "Nothing to free" : Fmt.Size(total) + " can be freed";
+            sugHeadline.Text = rows.Count == 0 ? "Nothing to free" : Fmt.Size(ticked.Sum(t => t.Size)) + " selected";
+            sugHeadline.Sub = rows.Count == 0 ? "" : "out of " + Fmt.Size(total) + " detected";
             p.Caption.Text = rows.Count == 0 ? "No caches, temporary files or leftovers worth deleting were found." : string.Format(
-                "Checked: {0:N0} item{1}, {2}.  White: safe, rebuilt or downloaded again when needed.  Amber: review first.",
-                ticked.Count, ticked.Count == 1 ? "" : "s", Fmt.Size(ticked.Sum(t => t.Size)));
+                "Checked: {0:N0} item{1}.  White: safe, rebuilt or downloaded again when needed.  Amber: review first.",
+                ticked.Count, ticked.Count == 1 ? "" : "s");
             p.ChartSub = Fmt.Size(total) + " can be freed";
             p.ChartTotal = 0;
             UpdateSuggestionButtons();
             if (ActivePage == p) RefreshChart();
+        }
+
+        // Folders opened inside the suggestions (by path), and folders read for them that no scan covers.
+        readonly HashSet<string> sugOpenDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<string, DirNode> sugRead = new Dictionary<string, DirNode>(StringComparer.OrdinalIgnoreCase);
+        readonly HashSet<string> sugReading = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The folder at path from the scans; one outside them is read in the background the first time it is
+        /// opened (null meanwhile, then the rows are shown again).</summary>
+        DirNode SuggestionDir(string path)
+        {
+            var n = FindScanned(path, true);
+            if (n != null) return n;
+            DirNode read;
+            if (sugRead.TryGetValue(path, out read)) return read;
+            if (sugReading.Add(path))
+                Task.Factory.StartNew(() => { try { return new Scanner().Run(path); } catch (Exception) { return null; } })
+                    .ContinueWith(t =>
+                    {
+                        sugReading.Remove(path);
+                        if (IsDisposed) return;
+                        sugRead[path] = t.Result ?? new DirNode();
+                        if (suggestions != null) ShowSuggestions();
+                    }, TaskScheduler.FromCurrentSynchronizationContext());
+            return null;
+        }
+
+        /// <summary>
+        /// What is in a folder of a suggestion, as rows at depth (like Contents): subfolders, which open further, and files,
+        /// each with its full path; sorted like the list. Plain rows: they are deleted with their suggestion or location.
+        /// </summary>
+        void AddSuggestionContents(ItemInfo head, string path, int depth, List<ListViewItem> rows, bool safe, long total)
+        {
+            Func<ItemInfo, ListViewItem> add = it =>
+            {
+                it.GroupOf = head; it.TreeRow = true; it.Depth = depth;
+                var r = Row(it, it.Name, it.IsSummary && it.Size == 0 ? "" : Fmt.Size(it.Size),
+                    it.IsSummary ? "" : it.Percent.ToString("0.0") + " %", it.Folder ?? "", it.Note ?? "");
+                if (!safe && !it.IsSummary) r.ForeColor = Theme.WARN_FG;
+                rows.Add(r);
+                return r;
+            };
+            var d = SuggestionDir(path);
+            if (d == null) { add(new ItemInfo { IsSummary = true, Name = "Looking at what is in it..." }); return; }
+            var level = new List<ItemInfo>();
+            if (d.Children != null) foreach (var c in d.Children) level.Add(ItemInfo.ForDir(c, total));
+            var files = Scanner.ListFiles(d);
+            files.Sort(FileEntry.BySizeDesc);
+            for (int i = 0; i < files.Count && i < MaxFilesShown; i++) level.Add(ItemInfo.ForFile(files[i], total));
+            foreach (var it in level) it.Folder = it.FullPath;
+            if (level.Count == 0) { add(new ItemInfo { IsSummary = true, Name = d.Denied ? "Can't be read." : "Nothing in it." }); return; }
+            level.Sort(pSuggest.List.Sorter.Compare);
+            foreach (var it in level)
+            {
+                if (it.IsDir)
+                {
+                    it.Expandable = HasContent(it.Dir);
+                    it.Expanded = it.Expandable && sugOpenDirs.Contains(it.Dir.FullPath);
+                }
+                add(it);
+                if (it.Expanded) AddSuggestionContents(head, it.Dir.FullPath, depth + 1, rows, safe, total);
+            }
+            if (files.Count > MaxFilesShown)
+            {
+                long rest = 0;
+                for (int i = MaxFilesShown; i < files.Count; i++) rest += files[i].Size;
+                add(new ItemInfo
+                {
+                    IsSummary = true, Name = string.Format("[{0:N0} smaller files not listed]", files.Count - MaxFilesShown),
+                    Size = rest, Percent = total > 0 ? 100.0 * rest / total : 0
+                });
+            }
+        }
+
+        /// <summary>The folder a row opens: a location of a suggestion, or a folder inside one (null for anything else).</summary>
+        static string SuggestionFolderOf(ItemInfo info)
+        {
+            var t = info.Data as DeleteTarget;
+            if (t != null) return t.IsDir && !t.RecycleBin ? t.Path : null;
+            return info.IsDir && info.Dir != null ? info.Dir.FullPath : null;
+        }
+
+        /// <summary>While the suggestions are being looked for: the open view's chart shows the ones found last, or the working
+        /// logo the first time.</summary>
+        void SuggestionsChartWhileLooking()
+        {
+            if (ActivePage != pSuggest || scanning) return;
+            if (pSuggest.List.Items.Count > 0) { RefreshChart(); return; }
+            rowSlice.Clear();
+            chart.ShowLogo(pSuggest.ChartTitle, "", "Looking for space that can be freed...", true);
         }
 
         /// <summary>Found again: the suggestions keep the places they had (only their sizes change), new ones follow,
@@ -240,7 +347,13 @@ namespace SpacePie
         {
             var info = (ItemInfo)lvi.Tag;
             var s = info.Data as Suggestion;
-            if (!checkbox) { if (s != null) { s.Expanded = !s.Expanded; ShowSuggestions(); } return; }
+            if (!checkbox)
+            {
+                if (s != null) s.Expanded = !s.Expanded;
+                else { var dir = SuggestionFolderOf(info); if (dir != null && !sugOpenDirs.Remove(dir)) sugOpenDirs.Add(dir); }
+                ShowSuggestions();
+                return;
+            }
             if (s != null) { bool on = s.CheckState != 1; foreach (var t in s.Targets) t.Checked = on; }
             else { var t = info.Data as DeleteTarget; if (t != null) t.Checked = !t.Checked; }
             ShowSuggestions();
@@ -261,11 +374,33 @@ namespace SpacePie
         void ExpandSelectedSuggestions(bool expand)
         {
             var sel = pSuggest.List.SelectedItems.Cast<ListViewItem>().Select(i => (ItemInfo)i.Tag).ToList();
-            var ss = sel.Select(i => i.Data as Suggestion ?? (i.GroupOf != null ? i.GroupOf.Data as Suggestion : null)).Where(x => x != null).Distinct().ToList();
-            if (ss.Count == 0) return;
-            foreach (var s in ss) s.Expanded = expand;
+            if (sel.Count == 0) return;
+            var keep = new HashSet<object>();
+            foreach (var i in sel)
+            {
+                var s = i.Data as Suggestion;
+                if (s != null) { s.Expanded = expand; keep.Add(s); continue; }
+                var dir = SuggestionFolderOf(i);
+                if (dir != null && i.Expandable) { if (expand) sugOpenDirs.Add(dir); else sugOpenDirs.Remove(dir); keep.Add(dir); continue; }
+                // Left on a row inside a suggestion closes the suggestion.
+                var owner = i.GroupOf != null ? i.GroupOf.Data as Suggestion : null;
+                if (!expand && owner != null) { owner.Expanded = false; keep.Add(owner); }
+            }
             ShowSuggestions();
-            foreach (ListViewItem it in pSuggest.List.Items) it.Selected = ss.Contains(((ItemInfo)it.Tag).Data as Suggestion);
+            foreach (ListViewItem it in pSuggest.List.Items)
+            {
+                var info = (ItemInfo)it.Tag;
+                it.Selected = (info.Data is Suggestion && keep.Contains(info.Data)) || (SuggestionFolderOf(info) != null && keep.Contains(SuggestionFolderOf(info)));
+            }
+        }
+
+        /// <summary>Expand all opens every suggestion (one level); Collapse all closes them and every folder opened in them.</summary>
+        void ExpandAllSuggestions(bool expand)
+        {
+            if (suggestions == null) return;
+            foreach (var s in suggestions) s.Expanded = expand;
+            if (!expand) sugOpenDirs.Clear();
+            ShowSuggestions();
         }
 
         void CheckAllSuggestions(bool on)
@@ -450,7 +585,7 @@ namespace SpacePie
         {
             if (s.Targets.Count == 0 || s.Size <= 0) return;
             s.Location = s.Targets.Count == 1 ? s.Targets[0].Path : string.Format("{0:N0} locations", s.Targets.Count);
-            if (s.Targets.Count > 1) foreach (var t in s.Targets) if (t.Label == s.Name) t.Label = s.Name + ": " + Path.GetFileName(t.Path.TrimEnd('\\'));
+            if (s.Targets.Count > 1) foreach (var t in s.Targets) if (t.Label == s.Name) t.Label = Native.FileName(t.Path.TrimEnd('\\'));
             list.Add(s);
         }
 

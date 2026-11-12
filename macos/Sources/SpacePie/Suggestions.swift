@@ -57,19 +57,25 @@ extension MainWindowController {
         btnLookAgain.tip = "Look for space that can be freed again"
         btnSugAll.tip = "Check every suggested item"
         btnSugNone.tip = "Uncheck every suggested item"
-        btnSugDelete.tip = "Delete the checked items now, bypassing the Trash (caches: their contents)"
+        btnSugExpand.tip = "Show what every suggestion holds"
+        btnSugCollapse.tip = "Close every suggestion and folder"
+        btnSugDelete.tip = "Delete the checked items for good, bypassing the Trash (caches: their contents)"
+        btnSugDelete.icon = Icons.trash
         btnSugIgnored.tip = "Items you chose never to see again (right-click a suggestion > Never suggest this); stop ignoring them here"
         btnSugIgnored.isHidden = IgnoreList.count == 0
-        for b in [btnLookAgain, btnSugAll, btnSugNone, btnSugIgnored, btnSugDelete] { b.compact = true }
-        let bar = ActionBar([btnLookAgain, btnSugAll, btnSugNone, btnSugIgnored, btnSugDelete], right: [btnSugDelete])
+        for b in [btnLookAgain, btnSugAll, btnSugNone, btnSugExpand, btnSugCollapse, btnSugIgnored] { b.compact = true }
+        let bar = ActionBar([btnLookAgain, btnSugAll, btnSugNone, btnSugExpand, btnSugCollapse, btnSugIgnored])
         bar.minRowHeight = 0
         let p = Page("Suggestions", [Column("name", "Name", 230), Column("size", "Size", 80, true), Column("size", "% of suggestions", 135, true),
                                      Column("folder", "Location", 280), Column("note", "What deleting means", 420)],
                      barColumn: 2, bar: bar)
         p.headline.color = T.SUGGEST
+        // Full size next to the amount, apart from the toolbar's Delete permanently (which works on the selection).
+        p.headline.action = btnSugDelete
         p.chartTitle = "Cleanup suggestions"
         p.chartScope = "of the suggestions"
         p.empty = "Nothing to suggest."
+        p.keepMemberOrder = true   // the rows under a suggestion form a tree, sorted level by level
         p.fill = { [unowned self] in self.fillSuggestions() }
         p.table.onClickAt = { [unowned self] r, pt in self.suggestClick(r, pt) }
         return p
@@ -78,7 +84,7 @@ extension MainWindowController {
     func fillSuggestions(clear: Bool = false, quiet: Bool = false) {
         let p = pSuggest!
         if suggestions != nil && !suggestDirty { showSuggestions(); return }
-        if suggestFinding && !suggestDirty && !clear { return }      // already looking (e.g. the start-up refills)
+        if suggestFinding && !suggestDirty && !clear { suggestionsChartWhileLooking(); return }      // already looking (e.g. the start-up refills)
         suggestDirty = false
         suggestFinding = true
         lastSuggestFind = Date()
@@ -92,16 +98,27 @@ extension MainWindowController {
         } else if !quiet {
             p.setCaption("Looking again for space that can be freed (the scanned data changed)...")
         }
+        if !(suggestions == nil || clear) { suggestionsChartWhileLooking() }
         updateButtons()
         let scanned = roots.filter { !$0.readOnly }.compactMap { $0.node }
         let volumes = roots.filter { $0.isDrive && !$0.readOnly }.map { $0.path }
         readInBackground({ [unowned self] in self.findSuggestions(scanned, volumes: volumes) }, { [weak self] found in
             guard let self = self, gen == self.suggestGen else { return }
             self.suggestFinding = false
+            self.sugRead = [:]   // folders read for expanded rows outside the scans: read again when shown
             Suggestion.carryOver(found, from: self.suggestions)
             self.suggestions = MainWindowController.stableOrder(found, self.suggestions)
             self.showSuggestions()
         })
+    }
+
+    /// While the suggestions are being looked for: the open view's chart shows the ones found last, or the working logo
+    /// (never the previous view's chart).
+    func suggestionsChartWhileLooking() {
+        guard let p = pSuggest, activePage === p, !scanning else { return }
+        if !p.items.isEmpty { refreshChart(); return }
+        rowSlice = [:]
+        chart.showLogo(p.chartTitle, "", "Looking for space that can be freed...", working: true)
     }
 
     /// Found again: the suggestions keep the places they had (only their sizes change), new ones follow, largest first;
@@ -142,8 +159,10 @@ extension MainWindowController {
     /// The suggestions shown in the view.
     var shownSuggestions: [Suggestion] { (suggestions ?? []).filter { $0.size > 0 && !$0.targets.isEmpty } }
 
-    /// A row of the Suggestions view: a suggestion (head) with a chevron and a checkbox, and when it is expanded one row
-    /// per target under it (sharing its chart slice), each with its own checkbox.
+    /// The suggestions as a tree: one row per suggestion (chevron, checkbox). Expanded, a suggestion with several
+    /// locations shows one row per location (named by its own folder or file); a suggestion of one folder shows what is
+    /// in it right away. Folders open further like Contents (subfolders and files, each with its full path). Children
+    /// share their suggestion's chart slice.
     func showSuggestions() {
         let p = pSuggest!
         let list = shownSuggestions
@@ -151,6 +170,9 @@ extension MainWindowController {
         let keep = Set(p.selectedItems.compactMap { suggestKey($0) })
         var rows: [ItemInfo] = []
         for s in list {
+            let shown = s.targets.filter { $0.size > 0 }
+            let only = shown.count == 1 ? shown[0] : nil
+            let oneFolder = only.map { $0.isDir && !$0.emptyTrash } ?? false
             let it = ItemInfo()
             it.suggestion = s
             it.targets = s.targets; it.name = s.name; it.size = s.size; it.folderIcon = true; it.folder = s.location
@@ -159,23 +181,33 @@ extension MainWindowController {
             it.percent = total > 0 ? 100 * Double(s.size) / Double(total) : 0
             it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), it.folder, it.note]
             if !s.safe { it.color = T.WARN_FG }
-            it.chevron = s.expanded ? 1 : 0
+            let expandable = shown.count > 1 || oneFolder
+            it.chevron = expandable ? (s.expanded ? 1 : 0) : -1
             it.check = s.checkState
             rows.append(it)
-            if !s.expanded { continue }
-            for (i, t) in s.targets.enumerated() {
+            if !s.expanded || !expandable { continue }
+            if let t = only, oneFolder { addSuggestionContents(it, t.path, 0, &rows, total, exclude: t.exclude); continue }
+            var level: [ItemInfo] = []
+            for t in shown {
                 let c = ItemInfo()
                 c.suggestion = s
                 c.groupOf = it
+                c.treeRow = true
                 c.targets = [t]; c.name = t.label; c.size = t.size; c.folderIcon = t.isDir
                 c.path = t.emptyTrash ? nil : t.path
-                c.folder = t.path
-                c.note = t.note.hasPrefix("partly deleted") ? t.note : ""
+                c.folder = t.emptyTrash ? "Trash" : t.path
+                c.note = t.note.hasPrefix("partly deleted") ? t.note : (t.contentsOnly ? "contents only" : t.note)
                 c.percent = total > 0 ? 100 * Double(t.size) / Double(total) : 0
                 c.cells = [c.name, Fmt.size(c.size), Fmt.pct(c.percent), c.folder, c.note]
                 c.color = it.color
-                c.check = s.isChecked(i) ? 1 : 0
+                c.check = s.index(of: t).map { s.isChecked($0) ? 1 : 0 } ?? 0
+                c.expandable = t.isDir && !t.emptyTrash
+                c.expanded = c.expandable && sugOpenDirs.contains(PathUtil.trim(t.path))
+                level.append(c)
+            }
+            for c in p.sorted(level) {
                 rows.append(c)
+                if c.expanded, let t = c.targets?.first { addSuggestionContents(it, t.path, 1, &rows, total, exclude: t.exclude) }
             }
         }
         // The list order is the suggestions' own (stable across refills) unless the user sorted by a column; the top row stays.
@@ -202,7 +234,72 @@ extension MainWindowController {
     private func suggestKey(_ it: ItemInfo) -> String? {
         guard let s = it.suggestion else { return nil }
         if it.groupOf != nil, let t = it.targets?.first { return suggestKey(target: t) }
+        if it.groupOf != nil { return it.fullPath.map { "p\n" + PathUtil.trim($0) } }
         return "s\n" + s.name
+    }
+
+    /// The folder at path from the scans; one outside them is read in the background the first time it is opened
+    /// (nil meanwhile, then the rows are shown again).
+    func suggestionDir(_ path: String) -> DirNode? {
+        let key = PathUtil.trim(path)
+        if let n = findScanned(key, exact: true) { return n }
+        if let r = sugRead[key] { return r }
+        if sugReading.insert(key).inserted {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let d = Scanner().run(key)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self else { return }
+                    self.sugReading.remove(key)
+                    self.sugRead[key] = d
+                    if self.suggestions != nil { self.showSuggestions() }
+                }
+            }
+        }
+        return nil
+    }
+
+    /// What is in a folder of a suggestion, as rows at depth (like Contents): subfolders, which open further, and files,
+    /// each with its full path; sorted like the list. Plain rows: they are deleted with their suggestion or location.
+    /// exclude: names left out at the first level (folders with a suggestion of their own).
+    func addSuggestionContents(_ head: ItemInfo, _ path: String, _ depth: Int, _ rows: inout [ItemInfo], _ total: Int64,
+                               exclude: Set<String> = []) {
+        let warn = head.color
+        func add(_ it: ItemInfo) {
+            it.suggestion = head.suggestion; it.groupOf = head; it.treeRow = true; it.depth = depth
+            if it.isSummary { it.cells = [it.name, it.size > 0 ? Fmt.size(it.size) : "", "", "", ""]; it.hideBar = true }
+            else { it.cells = [it.name, Fmt.size(it.size), Fmt.pct(it.percent), it.folder, ""]; it.color = warn }
+            rows.append(it)
+        }
+        func summary(_ text: String) -> ItemInfo { let s = ItemInfo(); s.isSummary = true; s.name = text; return s }
+        guard let d = suggestionDir(path) else { add(summary("Looking at what is in it...")); return }
+        var level: [ItemInfo] = d.children.filter { !exclude.contains($0.name) }.map { ItemInfo.forDir($0, total) }
+        var files = Scanner.listFiles(d)
+        files.sort { $0.size > $1.size }
+        let maxShown = MainWindowController.maxFilesShown
+        for f in files.prefix(maxShown) { level.append(ItemInfo.forFile(f, total)) }
+        for it in level { it.folder = it.fullPath ?? "" }
+        if level.isEmpty { add(summary(d.denied ? "Can't be read." : "Nothing in it.")); return }
+        for it in pSuggest.sorted(level) {
+            if it.isDir, let dn = it.dir {
+                it.expandable = MainWindowController.hasContent(dn)
+                it.expanded = it.expandable && sugOpenDirs.contains(PathUtil.trim(dn.fullPath))
+            }
+            add(it)
+            if it.expanded, let dn = it.dir { addSuggestionContents(head, dn.fullPath, depth + 1, &rows, total) }
+        }
+        if files.count > maxShown {
+            let rest = files.dropFirst(maxShown).reduce(Int64(0)) { $0 + $1.size }
+            let s = summary("[\(Fmt.count(files.count - maxShown)) smaller files not listed]")
+            s.size = rest
+            add(s)
+        }
+    }
+
+    /// The folder a row opens: a location of a suggestion, or a folder inside one (nil for anything else).
+    func suggestionFolderOf(_ it: ItemInfo) -> String? {
+        guard it.groupOf != nil else { return nil }
+        if let t = it.targets?.first { return t.isDir && !t.emptyTrash ? PathUtil.trim(t.path) : nil }
+        return it.isDir ? it.dir.map { PathUtil.trim($0.fullPath) } : nil
     }
 
     private func suggestKey(target t: DeleteTarget) -> String { "t\n" + PathUtil.trim(t.path) }
@@ -212,9 +309,9 @@ extension MainWindowController {
         let total = list.reduce(Int64(0)) { $0 + $1.size }
         let checked = Suggestion.checked(list)
         let size = checked.reduce(Int64(0)) { $0 + $1.size }
-        pSuggest.setHeadline(list.isEmpty ? "" : "\(Fmt.size(total)) can be freed")
+        pSuggest.setHeadline(list.isEmpty ? "" : "\(Fmt.size(size)) selected", sub: list.isEmpty ? "" : "out of \(Fmt.size(total)) detected")
         pSuggest.setCaption(list.isEmpty ? "Nothing to suggest." :
-            "Checked: \(Fmt.count(checked.count)) item\(checked.count == 1 ? "" : "s"), \(Fmt.size(size)).  White: safe, rebuilt or downloaded again when needed.  Amber: review first.")
+            "Checked: \(Fmt.count(checked.count)) item\(checked.count == 1 ? "" : "s").  White: safe, rebuilt or downloaded again when needed.  Amber: review first.")
     }
 
     /// The check marks changed: rows, caption and buttons follow (the row selection stays).
@@ -236,7 +333,7 @@ extension MainWindowController {
 
     /// Toggles rows: a head checks or unchecks all its targets; when any of the rows is not fully checked, all get checked.
     func toggleSuggestChecks(_ rows: [ItemInfo]) {
-        let rows = rows.filter { $0.suggestion != nil }
+        let rows = rows.filter { $0.suggestion != nil && $0.check >= 0 }
         if rows.isEmpty { return }
         let on = rows.contains { $0.check != 1 }
         for it in rows {
@@ -247,15 +344,33 @@ extension MainWindowController {
         suggestChecksChanged()
     }
 
-    /// Expands or collapses the suggestions of the rows (nil = toggle).
+    /// Expands or collapses the rows (nil = toggle): a suggestion, or a folder in it. Left on any other row inside a
+    /// suggestion closes the suggestion.
     func expandSuggestions(_ rows: [ItemInfo], _ open: Bool?) {
         var changed = false
         for it in rows {
             guard let s = it.suggestion else { continue }
-            let to = open ?? !s.expanded
-            if s.expanded != to { s.expanded = to; changed = true }
+            if it.groupOf == nil {
+                guard it.chevron >= 0 else { continue }
+                let to = open ?? !s.expanded
+                if s.expanded != to { s.expanded = to; changed = true }
+                continue
+            }
+            if let dir = suggestionFolderOf(it), it.expandable {
+                let to = open ?? !sugOpenDirs.contains(dir)
+                if to { changed = sugOpenDirs.insert(dir).inserted || changed } else { changed = sugOpenDirs.remove(dir) != nil || changed }
+                continue
+            }
+            if open == false && s.expanded { s.expanded = false; changed = true }
         }
         if changed { showSuggestions() }
+    }
+
+    /// Expand all opens every suggestion (one level); Collapse all closes them and every folder opened in them.
+    func expandAllSuggestions(_ open: Bool) {
+        for s in shownSuggestions { s.expanded = open }
+        if !open { sugOpenDirs.removeAll() }
+        showSuggestions()
     }
 
     /// Clicks on a chevron or a checkbox in the name column; the row selection does not change.
@@ -266,6 +381,8 @@ extension MainWindowController {
         let it = p.items[row]
         let x = pt.x - p.table.rect(ofColumn: ci).minX
         if it.chevron >= 0 && x >= ListCell.chevronX - 3 && x < ListCell.chevronX + 17 { expandSuggestions([it], nil); return true }
+        let hit = ListCell.chevronHit(it, height: p.table.rowHeight)
+        if hit.width > 0 && x >= hit.minX && x < hit.maxX { expandSuggestions([it], nil); return true }
         let cx = ListCell.checkX(it)
         if it.check >= 0 && x >= cx - 4 && x < cx + ListCell.checkSize + 4 { toggleSuggestChecks([it]); return true }
         return false
@@ -424,7 +541,7 @@ extension MainWindowController {
     func finish(_ list: inout [Suggestion], _ s: Suggestion) {
         if s.targets.isEmpty || s.size <= 0 { return }
         s.location = s.targets.count == 1 ? s.targets[0].path : "\(Fmt.count(s.targets.count)) locations"
-        if s.targets.count > 1 { for t in s.targets where t.label == s.name { t.label = s.name + ": " + PathUtil.name(PathUtil.parent(t.path)) } }
+        if s.targets.count > 1 { for t in s.targets where t.label == s.name { t.label = PathUtil.name(PathUtil.trim(t.path)) } }
         list.append(s)
     }
 

@@ -144,16 +144,41 @@ final class CaptionView: NSView {
     }
 }
 
-/// Large bold line above a page's caption (the Suggestions total).
+/// Large bold line above a page's caption (the Suggestions amount), then a smaller MUTED remark (sub) on the same
+/// baseline; an action button at the right end, vertically centred.
 final class HeadlineView: NSView {
     var text = "" { didSet { if text != oldValue { needsDisplay = true; updateTip() } } }
+    var sub = "" { didSet { if sub != oldValue { needsDisplay = true } } }
     var color: NSColor = T.FG
+    var action: NSView? {
+        didSet { oldValue?.removeFromSuperview(); if let a = action { addSubview(a) }; needsLayout = true }
+    }
     override var isFlipped: Bool { true }
     static let font = Theme.font15Bold
     static let height = Theme.lineHeight(HeadlineView.font)
-    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); updateTip() }
-    private func updateTip() { toolTip = Theme.isCut(text, HeadlineView.font, bounds.width) ? text : nil }
-    override func draw(_ dirtyRect: NSRect) { Theme.drawText(text, in: bounds, font: HeadlineView.font, color: color) }
+    /// Height of the row: the text, or the action button with room around it.
+    var rowHeight: CGFloat { max(HeadlineView.height, (action?.intrinsicContentSize.height ?? 0) + 8) }
+    override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); updateTip(); needsLayout = true }
+    override func layout() {
+        super.layout()
+        if let a = action {
+            let s = a.intrinsicContentSize
+            a.frame = NSRect(x: bounds.width - s.width, y: ((bounds.height - s.height) / 2).rounded(), width: s.width, height: s.height)
+        }
+    }
+    private var textRight: CGFloat { action.map { $0.frame.minX - 12 } ?? bounds.width }
+    private func updateTip() { toolTip = Theme.isCut(text, HeadlineView.font, textRight) ? text : nil }
+    override func draw(_ dirtyRect: NSRect) {
+        let ty = ((bounds.height - HeadlineView.height) / 2).rounded()
+        let w = min(Theme.textWidth(text, HeadlineView.font), textRight)
+        Theme.drawText(text, in: NSRect(x: 0, y: ty, width: w, height: HeadlineView.height), font: HeadlineView.font, color: color)
+        if sub.isEmpty { return }
+        let f = Theme.font11
+        let sx = w + 8
+        // The same baseline as the large text.
+        let sy = ty + HeadlineView.font.ascender - f.ascender
+        if sx < textRight { Theme.drawText(sub, in: NSRect(x: sx, y: sy, width: textRight - sx, height: Theme.lineHeight(f)), font: f, color: T.MUTED) }
+    }
 }
 
 /// Flipped view that lays out its subviews through a closure.
@@ -215,6 +240,13 @@ final class HoverTable: NSTableView {
         let p = convert(event.locationInWindow, from: nil)
         let r = row(at: p)
         if r >= 0, let f = onClickAt, f(r, p) { return }
+        // A plain click on the only selected row deselects it (a double-click still opens it).
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        if event.clickCount == 1, mods.isEmpty, r >= 0, selectedRowIndexes.count == 1, selectedRowIndexes.contains(r) {
+            window?.makeFirstResponder(self)
+            deselectAll(nil)
+            return
+        }
         super.mouseDown(with: event)
     }
 
@@ -259,11 +291,10 @@ final class ListRowView: NSTableRowView {
         }
     }
     override func drawSelection(in dirtyRect: NSRect) {
-        let linked = table?.linkedRows.contains(index) ?? false
-        let fill = isEmphasized ? T.ACCENT : T.BORDER
-        Theme.fillRound(bounds.insetBy(dx: 2, dy: 1), 6, fill: fill, outline: linked && !isEmphasized ? T.ACCENT : fill)
+        // Selected rows are always drawn in full (also while another view has the focus): a click away deselects them.
+        Theme.fillRound(bounds.insetBy(dx: 2, dy: 1), 6, fill: T.ACCENT, outline: T.ACCENT)
     }
-    override var interiorBackgroundStyle: NSView.BackgroundStyle { isSelected && isEmphasized ? .emphasized : .normal }
+    override var interiorBackgroundStyle: NSView.BackgroundStyle { isSelected ? .emphasized : .normal }
 }
 
 /// Draws one cell of a view's list: the name column has the icon (indented for group members, bold for group heads),
@@ -283,7 +314,7 @@ final class ListCell: NSTableCellView {
         let b = bounds
         if index == 0 {
             if it.treeRow && it.expandable {
-                Theme.drawChevron(NSRect(x: ListCell.indent(it) + ListCell.chevronX + 1, y: ((b.height - 12) / 2).rounded(), width: 12, height: 12),
+                Theme.drawChevron(NSRect(x: ListCell.treeChevronX(it) + 1, y: ((b.height - 12) / 2).rounded(), width: 12, height: 12),
                                   strong ? T.BG : T.MUTED, down: it.expanded)
             }
             if it.chevron >= 0 {
@@ -330,15 +361,20 @@ final class ListCell: NSTableCellView {
     /// Indentation of a tree-list row (one step per level).
     static func indent(_ it: ItemInfo) -> CGFloat { it.treeRow ? CGFloat(it.depth) * indentStep : 0 }
 
+    /// x of a tree-list row's chevron: Contents at the left edge; a tree inside a group (suggestions) one step in, under
+    /// its head's checkbox.
+    static func treeChevronX(_ it: ItemInfo) -> CGFloat { indent(it) + chevronX + (it.groupOf != nil ? indentStep : 0) }
+
     /// Where a click opens or closes a tree-list row, in the name cell's coordinates (empty when it cannot expand).
     static func chevronHit(_ it: ItemInfo, height: CGFloat) -> NSRect {
         guard it.treeRow && it.expandable else { return .zero }
-        return NSRect(x: indent(it) + chevronX - 3, y: 0, width: 20, height: height)
+        return NSRect(x: treeChevronX(it) - 3, y: 0, width: 20, height: height)
     }
 
     /// x of the icon in the name column: after the checkbox or the chevron, members of a group indented, tree-list rows
     /// indented by their depth (with room for the chevron whether or not they can expand).
     static func iconX(_ it: ItemInfo) -> CGFloat {
+        if it.treeRow && it.groupOf != nil { return ListCell.checkX(it) + (it.check >= 0 ? checkSize + 6 : 0) }
         if it.treeRow { return ListCell.checkX(it) + indent(it) }
         if it.check >= 0 { return ListCell.checkX(it) + checkSize + 6 }
         if it.chevron >= 0 { return ListCell.checkX(it) }                    // after the chevron
@@ -362,8 +398,9 @@ final class ListCell: NSTableCellView {
     static func isCut(_ text: String, font: NSFont, room: CGFloat) -> Bool {
         !text.isEmpty && (text as NSString).size(withAttributes: [.font: font]).width > room + 0.01
     }
-    /// x of the checkbox in the name column: a head next to its chevron, its members indented by 18 px.
-    static func checkX(_ it: ItemInfo) -> CGFloat { it.groupOf != nil ? 42 : 24 }
+    /// x of the checkbox in the name column: a head next to its chevron, its members indented by 18 px (a tree inside a
+    /// group also by its depth, after its chevron).
+    static func checkX(_ it: ItemInfo) -> CGFloat { it.groupOf != nil ? 42 + (it.treeRow ? indent(it) : 0) : 24 }
 
     /// Side of a checkbox (as on Windows).
     static let checkSize: CGFloat = 16
@@ -502,8 +539,9 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         }
         headline.isHidden = headline.text.isEmpty
         if !headline.isHidden {
-            headline.frame = NSRect(x: 4, y: top + 4, width: max(10, w - 8), height: HeadlineView.height)
-            top += 4 + HeadlineView.height - 3
+            let hh = headline.rowHeight
+            headline.frame = NSRect(x: 4, y: top + 4, width: max(10, w - 8), height: hh)
+            top += 4 + hh - 3
         }
         let lines = caption.lines(width: max(10, w - 8))
         let capH = lineH * lines + 10
@@ -529,9 +567,10 @@ final class Page: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         root.needsLayout = true
     }
 
-    func setHeadline(_ s: String) {
-        if headline.text == s { return }
+    func setHeadline(_ s: String, sub: String = "") {
+        if headline.text == s && headline.sub == sub { return }
         headline.text = s
+        headline.sub = sub
         root.needsLayout = true
     }
 

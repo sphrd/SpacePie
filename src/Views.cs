@@ -113,6 +113,7 @@ namespace SpacePie
             var lv = new SizeListView { ContextMenuStrip = menu };
             lv.SetColumns(titles, keys, widths);
             lv.BarColumn = barColumn;
+            lv.SelectedIndexChanged += (s, e) => QueueSelectionButtons();
             return lv;
         }
 
@@ -160,7 +161,7 @@ namespace SpacePie
             list.DoubleClick += (s, e) => OnListDoubleClick(p);
             list.MouseDown += (s, e) => Hover(list, null);
             list.ScrollChanged += (s, e) => { if (hoverCtl == list && hoverTip != null) hoverTip.Hide(this); };
-            list.Enter += (s, e) => lastView = list;
+            list.Enter += (s, e) => { lastView = list; QueueSelectionButtons(); };
             pages.Add(p);
             return p;
         }
@@ -175,6 +176,11 @@ namespace SpacePie
             if (it == null) { chart.SetHover(-1); return; }
             if (rowSlice.TryGetValue(it, out slice)) { chart.SetHover(slice); return; }
             var info = it.Tag as ItemInfo;
+            // A row inside a group (e.g. a folder inside a suggestion) lights up its group's slice.
+            if (info != null && info.GroupOf != null && list != contents)
+            {
+                foreach (var kv in rowSlice) if (kv.Key.Tag == info.GroupOf) { chart.SetHover(kv.Value); return; }
+            }
             var dir = list != contents || info == null ? null : info.Dir ?? (info.File != null ? info.File.Dir : null);
             if (dir == null) { chart.SetHover(-1); return; }
             // The top-level folder row the row lies under gives the slice.
@@ -346,6 +352,12 @@ namespace SpacePie
                 return;
             }
             if (info.IsGroup) return;
+            if (p == pSuggest)
+            {
+                // Suggestions and their folders open and close like a tree; files show in Explorer.
+                if (info.Data is Suggestion || SuggestionFolderOf(info) != null) { if (info.Expandable) ExpandSelectedSuggestions(!info.Expanded); return; }
+                if (info.IsSummary) return;
+            }
             if (p == pApps)
             {
                 // An app row opens and closes like a tree node; its items show in Explorer.
@@ -476,9 +488,8 @@ namespace SpacePie
             lv.EmptyText = rows.Count == 0 ? empty : null;
             lv.EndUpdate();
             lv.Invalidate();
+            lv.RowsReplaced();
         }
-
-        // ---------------------------------------------------------------- Files view
 
         FileFilter CurrentFileFilter()
         {

@@ -57,6 +57,7 @@ namespace SpacePie
         double lastTickMs;
         // Centre when nothing is hovered: the folder shown, and whether clicking it goes up one level.
         string centerName;
+        long centerFree = -1;   // a drive: its free space, shown large in the centre (-1 = a folder)
         bool canGoUp, hoverCenter;
         public event Action CenterClicked;
         string logoNote = "";
@@ -115,6 +116,9 @@ namespace SpacePie
         /// <summary>The logo is shown instead of a chart.</summary>
         public bool ShowingLogo { get { return logoMode; } }
 
+        /// <summary>The title shown above the chart (or the logo).</summary>
+        public string Title { get { return title; } }
+
         /// <summary>
         /// Shows the app logo instead of a chart (nothing scanned yet); the next SetData morphs it into the chart.
         /// working: a scan is running, so the logo's mouth shows a line with a sweep running round it (Theme.DrawMouthLoop).
@@ -153,6 +157,7 @@ namespace SpacePie
             hoverTile = -1;
             hoverArc = -1;
             centerName = null;
+            centerFree = -1;
             canGoUp = hoverCenter = false;
             arcs = new List<ChartArc>();
             if (rings > 0 && total > 0)
@@ -230,9 +235,10 @@ namespace SpacePie
         /// Names the folder shown in the centre (instead of "Total") when nothing is hovered; with canGoUp the centre is
         /// clickable and raises CenterClicked (to go up one folder, the reverse of clicking a slice). Call after SetData.
         /// </summary>
-        public void SetCenter(string name, bool canGoUp)
+        public void SetCenter(string name, bool canGoUp, long free = -1)
         {
             centerName = name;
+            centerFree = free;
             this.canGoUp = canGoUp;
             Invalidate();
         }
@@ -458,15 +464,18 @@ namespace SpacePie
                 l3 = string.Format("{0:0.0} % of {1}", 100.0 * a.Dir.Size / Math.Max(1, a.ParentSize), a.Dir.Parent != null ? a.Dir.Parent.Name : "parent");
             }
             else if (hover >= 0 && hover < slices.Count) { l1 = slices[hover].Label; l2 = Fmt.Size(slices[hover].Size); l3 = slices[hover].Detail ?? ""; }
+            else if (centerName != null && centerFree >= 0) { l1 = centerName; l2 = Fmt.Size(centerFree) + " free"; l3 = "of " + Fmt.Size(total); }
             else if (centerName != null) { l1 = centerName; l2 = Fmt.Size(total); l3 = canGoUp ? (hoverCenter ? "Click to go up" : "") : ""; }
             else { l1 = "Total"; l2 = Fmt.Size(total); l3 = ""; }
+            // A drive's free space (nothing hovered) is the number that matters most: large.
+            var f2 = centerName != null && centerFree >= 0 && hover < 0 && hoverArc < 0 ? Theme.FONT_HEADLINE : Theme.FONT_11;
             var inner = Rectangle.Inflate(hr, -Theme.S(14), 0);
-            int h1 = Theme.FONT_9.Height, h2 = Theme.FONT_11.Height, h3 = l3.Length > 0 ? Theme.FONT_9.Height : 0;
+            int h1 = Theme.FONT_9.Height, h2 = f2.Height, h3 = l3.Length > 0 ? Theme.FONT_9.Height : 0;
             int ty = hr.Y + (hr.Height - h1 - h2 - h3) / 2;
             const TextFormatFlags c1 = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.HorizontalCenter;
             bool up = hoverCenter && hover < 0 && hoverArc < 0;
             CutText.Draw(g, this, l1, Theme.FONT_9, new Rectangle(inner.X, ty, inner.Width, h1), up ? Theme.ACCENT : Theme.MUTED, c1);
-            TextRenderer.DrawText(g, l2, Theme.FONT_11, new Rectangle(inner.X, ty + h1, inner.Width, h2), up ? Theme.ACCENT : Theme.FG, c1);
+            TextRenderer.DrawText(g, l2, f2, new Rectangle(inner.X, ty + h1, inner.Width, h2), up ? Theme.ACCENT : Theme.FG, c1);
             if (h3 > 0) CutText.Draw(g, this, l3, Theme.FONT_9, new Rectangle(inner.X, ty + h1 + h2, inner.Width, h3), Theme.MUTED, c1);
         }
 

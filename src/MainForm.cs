@@ -224,11 +224,15 @@ namespace SpacePie
             contents.SetColumns(new[] { "Name", "Size", "% of parent", "Change", "Files", "Folders", "Modified", "What it is" },
                 new[] { "name", "size", "size", "change", "files", "dirs", "mod", "cat" }, new[] { 300, 90, 170, 90, 80, 70, 140, 300 });
             contents.BarColumn = 2;
+            contents.SelectedIndexChanged += (s, e) => QueueSelectionButtons();
             // Folders expand in place (tree-list): the arrow, or Right / Left on the keyboard.
             contents.GlyphClicked += ContentsGlyph;
             listPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill };
             BuildViews(listPanel);
             BuildNavigation();
+            var clickAway = new ClickAway(this);
+            Application.AddMessageFilter(clickAway);
+            FormClosed += (s, e) => Application.RemoveMessageFilter(clickAway);
 
             // Pie chart pane (right). It is drawn from sizes already in memory, never from the disk.
             Splash.Status("Preparing the chart");
@@ -522,7 +526,13 @@ namespace SpacePie
             int minW = Math.Max(row1, row2) + Padding.Horizontal + (Width - ClientSize.Width);
             var wa = Screen.FromControl(this).WorkingArea;
             minW = Math.Min(Math.Max(minW, S(900)), wa.Width);
-            if (MinimumSize.Width != minW) MinimumSize = new Size(minW, MinimumSize.Height);
+            if (MinimumSize.Width != minW)
+            {
+                // A wider minimum would grow the window to the right, past the screen: widen it in place, kept on the screen, first.
+                if (WindowState == FormWindowState.Normal && Width < minW)
+                    Bounds = new Rectangle(Math.Max(wa.Left, Math.Min(Left, wa.Right - minW)), Top, minW, Height);
+                MinimumSize = new Size(minW, MinimumSize.Height);
+            }
 
             // The delete buttons end at the pane's right edge (or, when the right-hand group leaves no room for that, as
             // far right as they fit; when even that is too narrow they flow from the left).
@@ -1002,8 +1012,10 @@ namespace SpacePie
                 });
                 sub = string.Format("{0} used of {1}  -  {2} free", Fmt.Size(used), Fmt.Size(r.Total), Fmt.Size(r.Free));
             }
+            bool driveRoot = d.Parent == null && r != null && (r.IsDrive || (r.ReadOnly && r.Path.Length <= 3)) && r.Total > 0;
             chart.SetData(title, sub, slices, ContentsRings(d));
-            chart.SetCenter(d.Parent == null && r != null ? (r.IsDrive ? r.DisplayName : Native.FileName(r.Path)) : d.Name, d.Parent != null);
+            chart.SetCenter(d.Parent == null && r != null ? (r.IsDrive ? r.DisplayName : Native.FileName(r.Path)) : d.Name, d.Parent != null,
+                driveRoot ? r.Free : -1);
         }
 
         /// <summary>Outer rings around the folder contents chart: subfolders and their subfolders.</summary>
@@ -1080,20 +1092,74 @@ namespace SpacePie
             pathBox.Enabled = !busy;
             btnUp.Enabled = !busy && !thisPc && (current != null || active != null);
             btnRescan.Enabled = idle && root != null;
-            btnExplorer.Enabled = !busy && root != null;
-            btnDelete.Enabled = idle && root != null;
-            btnAddList.Enabled = !busy && root != null;
             btnExport.Enabled = !busy && root != null;
             btnOpenScan.Enabled = !busy;
             measure.Enabled = !busy;
             if (btnBasketRecycle != null) btnBasketRecycle.Enabled = btnBasketDelete.Enabled = idle && basket.Count > 0;
             // A saved scan opened from a file is only browsed.
-            if (active != null && active.ReadOnly) btnRescan.Enabled = btnDelete.Enabled = btnAddList.Enabled = false;
+            if (active != null && active.ReadOnly) btnRescan.Enabled = false;
+            UpdateSelectionButtons();
             UpdateNavButtons();
             UpdateSuggestionButtons();
             UpdateAppButtons();
             UpdateSystemButtons();
             UpdateLinkButton();
+        }
+
+        /// <summary>A click anywhere but a list, a button, a field or a view of the views bar (blank panes, captions, the
+        /// headline, the chart, the views bar's empty part, the title bar) clears the selection of the list worked in last.
+        /// Buttons keep it so they can act on it; switching views keeps it too.</summary>
+        sealed class ClickAway : IMessageFilter
+        {
+            readonly MainForm form;
+            public ClickAway(MainForm form) { this.form = form; }
+
+            public bool PreFilterMessage(ref Message m)
+            {
+                if (m.Msg != 0x201) return false;   // WM_LBUTTONDOWN
+                var c = Control.FromHandle(m.HWnd);
+                if (c == null || c.FindForm() != form) return false;
+                if (c is ListView || c is RoundButton || c is Segmented || c is TextBoxBase || c is PillScrollBar || c is ScrollHost ||
+                    c is ChevronButton || c is SearchBox || c is ChoiceBox || c is PathInput || c.Parent is SearchBox || c.Parent is PathInput) return false;
+                var rail = c as NavRail;
+                if (rail != null)
+                {
+                    int lp = (int)(long)m.LParam;
+                    if (rail.HitTest(new Point((short)(lp & 0xFFFF), (short)((lp >> 16) & 0xFFFF))) >= 0) return false;
+                }
+                form.ClearSelection();
+                return false;
+            }
+        }
+
+        void ClearSelection()
+        {
+            var lv = lastView as ListView;
+            if (lv != null && lv.SelectedIndices.Count > 0) lv.SelectedItems.Clear();
+        }
+
+        bool selButtonsQueued;
+
+        /// <summary>The selection changed: the selection buttons follow once the list has settled (a select-all changes
+        /// thousands of rows one by one).</summary>
+        void QueueSelectionButtons()
+        {
+            if (selButtonsQueued || !IsHandleCreated) return;
+            selButtonsQueued = true;
+            BeginInvoke(new Action(() => { selButtonsQueued = false; UpdateSelectionButtons(); }));
+        }
+
+        /// <summary>Show in Explorer, Add to delete list and Delete permanently work on the selected rows of the open list:
+        /// with nothing selected they stay disabled (also on hover).</summary>
+        void UpdateSelectionButtons()
+        {
+            if (btnDelete == null) return;
+            bool idle = !busy && !scanning;
+            var sel = GetSelection();
+            bool deletable = sel.Any(i => i.CanDelete && !FromReadOnly(i));
+            btnExplorer.Enabled = !busy && sel.Any(i => i.FullPath != null);
+            btnAddList.Enabled = !busy && deletable && (pBasket == null || lastView != pBasket.List);
+            btnDelete.Enabled = idle && deletable;
         }
 
         void UpdateProgress()

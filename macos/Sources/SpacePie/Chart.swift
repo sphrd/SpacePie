@@ -44,6 +44,7 @@ final class PieChart: NSView {
     private var lastTick = Date()
     // Centre when nothing is hovered: the folder shown; clicking it goes up one level (the reverse of clicking a slice).
     private var centerName: String?
+    private var centerFree: Int64 = -1   // a drive: its free space, shown large in the centre (-1 = a folder)
     private var canGoUp = false, hoverCenter = false
     var onCenterClick: (() -> Void)?
     private let startAngle: CGFloat = -90
@@ -142,7 +143,7 @@ final class PieChart: NSView {
         tilesDirty = true
         hoverTile = -1
         hoverUp = false
-        centerName = nil; canGoUp = false; hoverCenter = false
+        centerName = nil; centerFree = -1; canGoUp = false; hoverCenter = false
         if rings > 0 && total > 0 {
             var a = startAngle
             for (i, s) in slices.enumerated() {
@@ -382,19 +383,24 @@ final class PieChart: NSView {
             l1 = a.dir.name; l2 = Fmt.size(a.dir.size)
             l3 = String(format: "%.1f %%", 100 * Double(a.dir.size) / Double(max(1, a.parentSize))) + " of " + (a.dir.parent?.name ?? "parent")
         } else if hover >= 0 && hover < slices.count { l1 = slices[hover].label; l2 = Fmt.size(slices[hover].size); l3 = slices[hover].detail }
+        else if let c = centerName, centerFree >= 0 { l1 = c; l2 = Fmt.size(centerFree) + " free"; l3 = "of " + Fmt.size(total) }
         else if let c = centerName { l1 = c; l3 = canGoUp && hoverCenter ? "Click to go up" : "" }
         let up = hoverCenter && hover < 0 && hoverArc < 0
+        // A drive's free space (nothing hovered) is the number that matters most: large.
+        let big = centerName != nil && centerFree >= 0 && hover < 0 && hoverArc < 0
+        let f2 = big ? Theme.font15Bold : Theme.font11
         let inner = hr.insetBy(dx: 16, dy: 0)
-        let h1: CGFloat = 15, h2: CGFloat = 19, h3: CGFloat = l3.isEmpty ? 0 : 15
+        let h1: CGFloat = 15, h2: CGFloat = big ? Theme.lineHeight(f2) : 19, h3: CGFloat = l3.isEmpty ? 0 : 15
         let ty = hr.minY + (hr.height - h1 - h2 - h3) / 2
         cuts.draw(l1, in: NSRect(x: inner.minX, y: ty, width: inner.width, height: h1), font: Theme.font9, color: up ? T.ACCENT : T.MUTED, align: .center)
-        cuts.draw(l2, in: NSRect(x: inner.minX, y: ty + h1, width: inner.width, height: h2), font: Theme.font11, color: up ? T.ACCENT : T.FG, align: .center)
+        cuts.draw(l2, in: NSRect(x: inner.minX, y: ty + h1, width: inner.width, height: h2), font: f2, color: up ? T.ACCENT : T.FG, align: .center)
         if h3 > 0 { cuts.draw(l3, in: NSRect(x: inner.minX, y: ty + h1 + h2, width: inner.width, height: h3), font: Theme.font9, color: T.MUTED, align: .center) }
     }
 
-    /// Names the folder in the centre (instead of "Total"); with canGoUp the centre is clickable. Call after setData.
-    func setCenter(_ name: String, canGoUp: Bool) {
-        centerName = name; self.canGoUp = canGoUp
+    /// Names the folder in the centre (instead of "Total"); with canGoUp the centre is clickable; free >= 0 (a drive)
+    /// shows its free space large instead of the total. Call after setData.
+    func setCenter(_ name: String, canGoUp: Bool, free: Int64 = -1) {
+        centerName = name; self.canGoUp = canGoUp; centerFree = free
         needsDisplay = true
     }
 
@@ -657,6 +663,9 @@ extension PieChart {
         } else if hover >= 0 && hover < slices.count {
             l1 = slices[hover].label
             l2 = Fmt.size(slices[hover].size) + (slices[hover].detail.isEmpty ? "" : "  -  " + slices[hover].detail)
+        } else if let c = centerName, centerFree >= 0 {
+            l1 = c
+            l2 = Fmt.size(centerFree) + " free of " + Fmt.size(total)
         } else {
             l1 = centerName ?? "Total"
             l2 = Fmt.size(total)

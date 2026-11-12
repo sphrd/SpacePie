@@ -94,8 +94,13 @@ with its subfolders in the outer rings)
   opened for a month, old update packages and app versions, leftovers of apps
   that are no longer installed, broken background items (macOS), folders of
   deleted users, old installers in Downloads, and more, each with what deleting it
-  means. Expand a suggestion to see every location, check exactly what you want
-  (**Select all** / **Deselect all**) and **Delete permanently** right there.
+  means. Expand a suggestion to see the actual files and folders in it, each with
+  its path, and open folders further like in Contents (**Expand all** /
+  **Collapse all**); a suggestion in several places lists each location by its
+  folder name. Check exactly what you want
+  (**Select all** / **Deselect all**); the large line shows how much you checked out
+  of all that was found, and **Clean up permanently** next to it deletes the checked
+  items for good, right there.
   Safe items start checked; items to review first start unchecked. Items only an
   administrator may change are deleted after macOS asks for your password once
   (Windows: Run as administrator). Right-click a suggestion or a location and

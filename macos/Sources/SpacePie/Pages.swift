@@ -146,6 +146,8 @@ extension MainWindowController {
         if r < 0 || r >= p.items.count { chart.setHover(-1); return }
         if let s = rowSlice[r] { chart.setHover(s); return }
         let info = p.items[r]
+        // A row inside a group (a suggestion's folders and files) lights its head's slice.
+        if p !== pContents, let g = info.groupOf, let hr = p.items.firstIndex(where: { $0 === g }), let s = rowSlice[hr] { chart.setHover(s); return }
         guard p === pContents, let dir = info.dir ?? info.file?.dir else { chart.setHover(-1); return }
         // The top-level folder row the row lies under gives the slice.
         for (row, slice) in rowSlice {
@@ -244,7 +246,7 @@ extension MainWindowController {
         }
         chart.setData(title, sub, slices, rings: 2)
         let centre = d.parent == nil ? (r.map { $0.isDrive ? $0.displayName : (($0.path as NSString).lastPathComponent) } ?? d.name) : d.name
-        chart.setCenter(centre, canGoUp: d.parent != nil)
+        chart.setCenter(centre, canGoUp: d.parent != nil, free: d.parent == nil && (r?.showsCapacity ?? false) ? r!.free : -1)
     }
 
     /// While a scan runs (or a saved scan is brought up to date at start-up) the numbers are still changing: the chart
@@ -283,8 +285,8 @@ extension MainWindowController {
             if p === pSystem && info.groupOf == nil { expandSystem([info], nil) }
             return
         }
-        // A suggestion opens and closes; its items show in Finder.
-        if p === pSuggest && info.suggestion != nil && info.groupOf == nil && info.path == nil { expandSuggestions([info], nil); return }
+        // A suggestion, or a folder in it, opens and closes; files show in Finder.
+        if p === pSuggest && info.suggestion != nil && (info.groupOf == nil ? info.chevron >= 0 : info.expandable) { expandSuggestions([info], nil); return }
         // An app opens and closes (showing all its files).
         if p === pApps, info.app != nil, info.groupOf == nil { expandApps([info], nil); return }
         openSelected()

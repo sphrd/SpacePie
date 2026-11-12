@@ -30,6 +30,7 @@ namespace SpacePie
             // Zoom (Ctrl+Plus / Ctrl+Minus / Ctrl+0): fonts and sizes follow, the toolbar's buttons never overlap; back to 100 %.
             {
                 float before = Theme.Zoom;
+                var bounds = Bounds;
                 bool ok = true;
                 string detail = "";
                 foreach (float z in new[] { 1.5f, 2f, 0.75f })
@@ -49,6 +50,7 @@ namespace SpacePie
                     if (overlap || !font) { ok = false; detail += string.Format(" {0}: overlap {1} ({2}), font {3}", z, overlap, string.Join(", ", bad), font); }
                 }
                 SetZoom(before);
+                Bounds = bounds;
                 Application.DoEvents();
                 check(ok && Math.Abs(Theme.Zoom - before) < 0.001f, "zoom: 150 %, 200 % and 75 % resize fonts and layout, toolbar buttons never overlap or leave the window" + detail);
             }

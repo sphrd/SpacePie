@@ -237,6 +237,7 @@ namespace SpacePie
                 l2 = string.Format("{0}  -  {1:0.0} % of {2}", Fmt.Size(t.Size), 100.0 * t.Size / Math.Max(1, t.ParentSize), t.ParentName ?? "parent");
             }
             else if (hover >= 0 && hover < slices.Count) { l1 = slices[hover].Label; l2 = Fmt.Size(slices[hover].Size) + (string.IsNullOrEmpty(slices[hover].Detail) ? "" : "  -  " + slices[hover].Detail); }
+            else if (centerName != null && centerFree >= 0) { l1 = centerName; l2 = Fmt.Size(centerFree) + " free of " + Fmt.Size(total); }
             else { l1 = centerName ?? "Total"; l2 = Fmt.Size(total); }
             upRect = Rectangle.Empty;
             int right = r.Right;

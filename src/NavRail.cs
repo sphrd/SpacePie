@@ -322,7 +322,8 @@ namespace SpacePie
             });
         }
 
-        int HitTest(Point p)
+        /// <summary>The view under p (-1 = a blank part of the bar).</summary>
+        public int HitTest(Point p)
         {
             for (int i = 0; i < titles.Length; i++) { var r = ItemRect(i); if (!r.IsEmpty && r.Contains(p)) return i; }
             return -1;

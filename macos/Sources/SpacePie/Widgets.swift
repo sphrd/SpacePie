@@ -111,7 +111,19 @@ final class RoundButton: NSView {
         let fill: NSColor
         var fore: NSColor
         let face = self.face
-        if !isEnabled { fill = T.DISABLED_BG; fore = T.DISABLED_FG }
+        if !isEnabled {
+            // Disabled: the kind's own colours, faded into the background (no hover).
+            let (f, t): (NSColor, NSColor)
+            switch kind {
+            case .primary: (f, t) = (T.ACCENT, T.BG)
+            case .warn: (f, t) = (T.WARN, T.BG)
+            case .danger: (f, t) = (T.DANGER, T.BG)
+            case .secondary: (f, t) = (T.BORDER, foreColor ?? T.FG)
+            }
+            let under = compact ? T.SURFACE : T.BG
+            fill = f.blended(withFraction: 0.55, of: under) ?? T.DISABLED_BG
+            fore = t.blended(withFraction: 0.5, of: fill) ?? T.DISABLED_FG
+        }
         else if selected {
             fill = T.SURFACE
             switch kind {
@@ -544,7 +556,8 @@ final class NavRail: NSView {
         c.setStroke(); p.stroke()
     }
 
-    private func hit(_ e: NSEvent) -> Int {
+    /// The view under the event (-1 = a blank part of the bar).
+    func hit(_ e: NSEvent) -> Int {
         let p = convert(e.locationInWindow, from: nil)
         if !bounds.contains(p) { return -1 }
         return titles.indices.first { itemRect($0).contains(p) } ?? -1

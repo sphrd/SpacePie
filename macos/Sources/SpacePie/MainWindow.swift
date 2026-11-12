@@ -187,10 +187,16 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     lazy var btnLookAgain = RoundButton(refresh: { [unowned self] in self.suggestDirty = true; self.fillSuggestions(clear: true) })
     lazy var btnSugAll = RoundButton("Select all", .secondary) { [unowned self] in self.checkAllSuggestions(true) }
     lazy var btnSugNone = RoundButton("Deselect all", .secondary) { [unowned self] in self.checkAllSuggestions(false) }
-    lazy var btnSugDelete = RoundButton("Delete permanently", .danger) { [unowned self] in self.deleteCheckedSuggestions(trash: false) }
+    lazy var btnSugExpand = RoundButton("Expand all", .secondary) { [unowned self] in self.expandAllSuggestions(true) }
+    lazy var btnSugCollapse = RoundButton("Collapse all", .secondary) { [unowned self] in self.expandAllSuggestions(false) }
+    lazy var btnSugDelete = RoundButton("Clean up permanently", .danger) { [unowned self] in self.deleteCheckedSuggestions(trash: false) }
     lazy var btnSugIgnored = RoundButton("Ignored", .secondary) { [unowned self] in self.showIgnoredSuggestions() }
     var suggestGen = 0
     var suggestions: [Suggestion]?
+    // Folders opened inside the suggestions (by path), and folders read for them that no scan covers.
+    var sugOpenDirs = Set<String>()
+    var sugRead: [String: DirNode] = [:]
+    var sugReading = Set<String>()
     var suggestDirty = false          // the scanned data changed since the suggestions were found: find them again
     var suggestFinding = false
     var lastSuggestFind = Date.distantPast   // live changes look again at most every 20 s
@@ -254,6 +260,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     var unreadCanGrant: Bool?             // self-test: whether giving access would open the folders (nil = ask the system)
     var deniedCache: [ObjectIdentifier: (top: DirNode, list: [DirNode])] = [:]
     var mouseMonitor: Any?
+    var clickAwayMonitor: Any?
     // Changes: compare any two scans (History.swift)
     let changeFrom = ChoiceBox("From: ", ["Previous scan"])
     let changeTo = ChoiceBox("To: ", ["Now"])
@@ -977,13 +984,16 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         pathField.isEnabled = !busy
         btnUp.isEnabled = !thisPc && (current != nil || active != nil)
         btnRescan.isEnabled = idle && current != nil
-        btnFinder.isEnabled = current != nil || active != nil
-        btnDelete.isEnabled = idle && any
-        btnAddList.isEnabled = !busy && any
+        // Show in Finder, Add to delete list and Delete permanently work on the selected rows: disabled with none.
+        let sel = selection()
+        let deletable = sel.contains { $0.canDelete && !fromReadOnly($0) }
+        btnFinder.isEnabled = sel.contains { $0.fullPath != nil }
+        btnDelete.isEnabled = idle && deletable
+        btnAddList.isEnabled = !busy && deletable && (pBasket == nil || lastView !== pBasket.table)
         btnExport.isEnabled = !busy && any
         btnOpenScan.isEnabled = !busy
         // A saved scan opened from a file is only browsed.
-        if let a = active, a.readOnly { btnRescan.isEnabled = false; btnDelete.isEnabled = false; btnAddList.isEnabled = false }
+        if let a = active, a.readOnly { btnRescan.isEnabled = false }
         updateNavButtons()
         measure.isEnabled = !busy
         if pBasket != nil {
@@ -997,6 +1007,8 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             let anyChecked = shown.contains { $0.checkState != 0 }
             btnSugAll.isEnabled = !shown.isEmpty
             btnSugNone.isEnabled = !shown.isEmpty
+            btnSugExpand.isEnabled = !shown.isEmpty
+            btnSugCollapse.isEnabled = !shown.isEmpty
             btnSugDelete.isEnabled = idle && anyChecked
             let ignored = IgnoreList.count
             let title = "Ignored (\(Fmt.count(ignored)))..."

@@ -102,7 +102,7 @@ extension MainWindowController {
                     }
                 }
             }
-            for t in mailTrash.targets { t.label = "Mail trash: " + PathUtil.name(PathUtil.parent(MainWindowController.mboxOf(t.path))) }
+            for t in mailTrash.targets { t.label = PathUtil.name(PathUtil.parent(MainWindowController.mboxOf(t.path))) }
             finish(&list, mailTrash)
         }
 

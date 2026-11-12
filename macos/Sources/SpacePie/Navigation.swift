@@ -113,6 +113,22 @@ extension MainWindowController {
             if e.buttonNumber == 4 { self.goForward(); return nil }
             return e
         }
+        // A click anywhere but a list, a button, a field or a view of the views bar (blank panes, captions, the headline,
+        // the chart, the views bar's empty part) clears the selection of the list worked in last. Buttons keep it so
+        // they can act on it; switching views keeps it too.
+        clickAwayMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
+            guard let self = self, e.window === self.window, let cv = self.window?.contentView,
+                  let hit = cv.hitTest(cv.convert(e.locationInWindow, from: nil)) else { return e }
+            var v: NSView? = hit
+            while let x = v {
+                if x is NSTableView || x is NSTableHeaderView || x is NSScroller || x is RoundButton || x is Segmented || x is NSControl ||
+                    x is NSText || x is ChevronButton { return e }
+                if let rail = x as? NavRail, rail.hit(e) >= 0 { return e }
+                v = x.superview
+            }
+            if let t = self.lastView as? NSTableView, !t.selectedRowIndexes.isEmpty { t.deselectAll(nil) }
+            return e
+        }
     }
 
     // MARK: Back / Forward

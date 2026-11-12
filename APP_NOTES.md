@@ -691,6 +691,36 @@ patterns (Part 3) are applied through the WinForms mapping below.
   `Expandable`, `Data`; children use `GroupOf` so they share the parent's chart slice). Clicks on the chevron/checkbox are
   caught in `WM_LBUTTONDOWN` before the list selects the row. Safe suggestions start ticked, review-first ones unticked.
   The tab title is green (`Theme.SUGGEST`). Shortcuts: Ctrl+D add to delete list, Ctrl+Shift+D (or Del) delete permanently.
+- **Suggestions show real contents:** a suggestion of one folder expands straight into what is in it; one in several
+  places lists its locations (labelled by their own folder/file name, never "Name: folder", which repeated the head) and
+  each location folder opens further. Content rows are plain (`GroupOf` = head, `TreeRow`, `Depth`, no checkbox; Location =
+  full path), sorted level by level (`KeepMemberOrder` / `keepMemberOrder`), opened folders kept by path (`sugOpenDirs`).
+  Folders no scan covers are read once in the background (`SuggestionDir`, "Looking at what is in it..."), cleared when the
+  suggestions are found again. Tree rows inside a group get a chevron slot one step in (`HasChevronSlot`; Mac
+  `ListCell.treeChevronX`). Heads with nothing to open (Recycle Bin / Trash) have no chevron. Expand all opens every
+  suggestion one level; Collapse all also closes every opened folder. Hover on a content row lights its suggestion's slice.
+- **Gotcha (chart while looking):** opening Suggestions while they are looked for again (any scan or file change marks them
+  out of date) left the previous view's chart up until the search ended. `SuggestionsChartWhileLooking` /
+  `suggestionsChartWhileLooking` now draws the last suggestions' chart at once, or the working logo the first time.
+- **Suggestions headline:** `<checked size> selected` (15 pt bold, `SUGGEST`) then `out of <total> detected` (11 pt MUTED,
+  same baseline; `Headline` / `HeadlineView.sub`). Its cleanup button is **Clean up permanently** (danger, full size, trash
+  icon) at the right end of the headline row, not in the bar: in the bar, "Delete permanently" was mistaken for the
+  toolbar's, which deletes the selected rows. Disabled with nothing checked.
+- **Selection buttons:** Show in Explorer / Finder, Add to delete list and Delete permanently are enabled only when the open
+  list has a selection they can act on (`UpdateSelectionButtons`, queued after `SelectedIndexChanged` so a select-all of
+  thousands of rows runs it once; `SetRows` raises it via `RowsReplaced`). Disabled buttons never react to hover; they keep
+  their kind's colour (accent, amber, red, or a secondary's own text colour) faded 55 % into what is behind them, so the
+  important buttons stay recognisable while off.
+- **Click away:** a left click anywhere but a list, a button, a field or a view of the views bar (blank panes, captions, the
+  headline, the chart, the views bar's empty part, the title bar) clears the selection of the list worked in last
+  (`ClickAway` message filter / `clickAwayMonitor`). Buttons keep it so they act on it; switching views keeps it. A plain
+  click on the only selected row deselects it (a double-click still opens it). Selected rows are always drawn in full
+  accent, also while the list has no focus (they used to turn hover-grey after switching views and back).
+- **Drive chart centre:** at a drive's root (nothing hovered) the centre shows `<free> free` in 15 pt bold and `of <capacity>`
+  under it (`SetCenter(..., free)`); the treemap's info line reads `<free> free of <capacity>`.
+- **Gotcha (self-test):** run it with its folder outside `%TEMP%`: node_modules under AppData are never suggested, so three
+  checks fail there. The zoom check raises the window's minimum width (up to the screen): the window is widened in place
+  and kept on the screen before `MinimumSize` grows (it used to grow past the right edge), and its bounds are restored after.
 - **After every delete** `AfterDeleteRemeasure` measures each attempted target (and the same paths in the delete list and
   suggestions) from the updated scan: gone ones leave, the rest keep the remaining size with `partly deleted -- ...`.
   (v1.7.2 kept the original size after a partial delete.) **Run as administrator** is hidden when elevated.
@@ -704,7 +734,7 @@ patterns (Part 3) are applied through the WinForms mapping below.
   attached tooltip and sizes it to the row (text cut off). Rows and nodes use `Hover()`: a separate owner-drawn ToolTip shown
   on the form 16/20 px from the cursor 450 ms after the row changes, hidden on leave/click/scroll. Suggestions in several places
   list up to 8 paths. Screenshot mode checks it with the real cursor (`*-hover.png`).
-- **Suggestions tab** is second (after Contents, which the app opens on; v1.7.3); bar = circular-arrow refresh (icon button), Select all, Deselect all,
+- **Suggestions tab** is second (after Contents, which the app opens on; v1.7.3); bar = circular-arrow refresh (icon button), Select all, Deselect all, Expand all, Collapse all,
   Delete permanently (compact 9 pt buttons); headline `<size> can be freed` 15 pt bold in `SUGGEST`. Clicking a tree folder
   while on Suggestions switches to Contents. **Rescan folder** is a circular-arrow icon button (`RoundButton.Glyph`).
   Shots are numbered in tab order: `1-contents`, `2-suggestions`, ... `5-duplicates`.
@@ -887,4 +917,11 @@ patterns (Part 3) are applied through the WinForms mapping below.
   pane, Delete permanently ends at it; the window keeps the toolbar on two rows; views bar fitted to its names, larger
   text; soft yellow chart hover; hovering a subfolder (ring, treemap tile, expanded row) highlights its row and the other
   way round; Files: `*` matches files only, `*.` files without an extension; suggestions looked up right after a scan;
+  update window centred on the app; no dark corners on the scan bar's Cancel.
+- v2.4.0 (2026-11-12): expanding a suggestion shows the actual files and folders in it (with their paths), opening further
+  like Contents; locations named by their own folder; Expand all / Collapse all; headline "X selected out of Y detected"
+  with a full-size Clean up permanently next to it; Show in Explorer, Add to delete list and Delete permanently only
+  enabled with a selection (disabled buttons keep a faded colour of their own); a click away (or on the selected row)
+  deselects, selected rows always drawn in full; a drive's free space large in the chart centre; the Suggestions chart
+  shows at once while they are looked for again; the window stays on the screen when zooming raises its minimum width.
   update window centred on the app; no dark corners on the scan bar's Cancel.

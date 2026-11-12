@@ -9,6 +9,67 @@ namespace SpacePie
     internal enum ButtonKind { Primary, Secondary, Warn, Danger }
 
     /// <summary>
+    /// Headline of a view: a large bold amount (Text, in ForeColor), then a smaller MUTED remark (Sub) on the same
+    /// baseline; an Action control sits at the right end, vertically centred.
+    /// </summary>
+    internal sealed class Headline : Control
+    {
+        string sub = "";
+        Control action;
+
+        public Headline()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        public string Sub { get { return sub; } set { value = value ?? ""; if (sub != value) { sub = value; Invalidate(); } } }
+
+        public Control Action
+        {
+            get { return action; }
+            set { if (action != null) Controls.Remove(action); action = value; if (value != null) Controls.Add(value); PerformLayout(); }
+        }
+
+        protected override void OnTextChanged(EventArgs e) { base.OnTextChanged(e); Invalidate(); }
+
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            base.OnLayout(e);
+            int h = Font.Height + Theme.S(6);
+            if (action != null && action.Visible)
+            {
+                var ps = action.GetPreferredSize(Size.Empty);
+                h = Math.Max(h, ps.Height + Theme.S(10));
+                action.Bounds = new Rectangle(ClientSize.Width - ps.Width, (h - ps.Height) / 2, ps.Width, ps.Height);
+            }
+            if (Height != h) Height = h;
+        }
+
+        static int Ascent(Font f)
+        {
+            var ff = f.FontFamily;
+            return (int)Math.Round((double)f.Height * ff.GetCellAscent(f.Style) / ff.GetLineSpacing(f.Style));
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(BackColor);
+            const TextFormatFlags flags = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding;
+            int right = action != null && action.Visible ? action.Left - Theme.S(12) : ClientSize.Width;
+            int x = Padding.Left;
+            var big = TextRenderer.MeasureText(g, Text ?? "", Font, Size.Empty, flags);
+            int by = (Height - big.Height) / 2;
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(x, by, Math.Max(0, right - x), big.Height), ForeColor, flags | TextFormatFlags.EndEllipsis);
+            if (sub.Length == 0) return;
+            var f = Theme.FONT_11;
+            int sx = x + big.Width + Theme.S(8), sy = by + Ascent(Font) - Ascent(f);
+            if (sx < right)
+                TextRenderer.DrawText(g, sub, f, new Rectangle(sx, sy, right - sx, f.Height), Theme.MUTED, flags | TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    /// <summary>
     /// Flat rounded button (radius 8). Click fires on release inside the button only. Icon: a line icon before the text.
     /// Selected (Delete list while its view is open): a SURFACE tab in the kind's colour with a marker on top; with
     /// SetMerge it reaches down into the pane below (its bounds then include the curves on both sides).
@@ -131,7 +192,18 @@ namespace SpacePie
             g.Clear(Behind ?? (Parent != null ? Parent.BackColor : Theme.BG));
             var face = Face;
             Color fill, fore;
-            if (!Enabled) { fill = Theme.DISABLED_BG; fore = Theme.DISABLED_FG; }
+            if (!Enabled)
+            {
+                // Disabled: the kind's own colours, faded into the background (no hover).
+                Color f, t;
+                if (Kind == ButtonKind.Primary) { f = Theme.ACCENT; t = Theme.BG; }
+                else if (Kind == ButtonKind.Warn) { f = Theme.WARN; t = Theme.BG; }
+                else if (Kind == ButtonKind.Danger) { f = Theme.DANGER; t = Theme.BG; }
+                else { f = Theme.BORDER; t = Fore ?? Theme.FG; }
+                var under = Behind ?? (Parent != null ? Parent.BackColor : Theme.BG);
+                fill = Theme.Blend(f, under, 0.55f);
+                fore = Theme.Blend(t, fill, 0.5f);
+            }
             else if (selected)
             {
                 fill = Theme.SURFACE;

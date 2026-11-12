@@ -7,8 +7,8 @@ using System.Windows.Forms;
 [assembly: AssemblyDescription("Fast disk space analyzer and cleaner for Windows")]
 [assembly: AssemblyProduct("SpacePie")]
 [assembly: AssemblyCopyright("Copyright (c) 2026 sphrd - MIT License")]
-[assembly: AssemblyVersion("2.3.0.0")]
-[assembly: AssemblyFileVersion("2.3.0.0")]
+[assembly: AssemblyVersion("2.4.0.0")]
+[assembly: AssemblyFileVersion("2.4.0.0")]
 
 namespace SpacePie
 {

@@ -250,6 +250,13 @@ namespace SpacePie
         protected override void WndProc(ref Message m)
         {
             if ((m.Msg == 0x201 || m.Msg == 0x203) && HandleGlyphClick((int)(long)m.LParam)) return;   // WM_LBUTTONDOWN / DBLCLK on a chevron or checkbox
+            // A plain click on the only selected row deselects it (a double-click still opens it).
+            if (m.Msg == 0x201 && ModifierKeys == System.Windows.Forms.Keys.None && SelectedIndices.Count == 1)
+            {
+                int lp = (int)(long)m.LParam;
+                var hit = GetItemAt(Theme.S(4), (short)((lp >> 16) & 0xFFFF));
+                if (hit != null && hit.Selected) { hit.Selected = false; if (!Focused) Focus(); return; }
+            }
             base.WndProc(ref m);
             switch (m.Msg)
             {
@@ -309,6 +316,9 @@ namespace SpacePie
             return x;
         }
 
+        /// <summary>A row with a chevron slot: group heads, and rows of a tree inside a group (TreeRow).</summary>
+        static bool HasChevronSlot(ItemInfo info) { return info.GroupOf == null || info.TreeRow; }
+
         /// <summary>Chevron and checkbox rectangles inside the name cell (empty when the row has none).</summary>
         public void GlyphRects(ItemInfo info, int cellX, Rectangle row, out Rectangle chevron, out Rectangle check)
         {
@@ -316,7 +326,7 @@ namespace SpacePie
             if (info == null || (info.Check < 0 && !info.Expandable && !info.TreeRow)) return;
             int x = cellX + Theme.S(6) + (info.GroupOf != null ? Theme.S(18) : 0) + Indent(info);
             int s = Theme.S(GlyphW);
-            if (info.GroupOf == null)
+            if (HasChevronSlot(info))
             {
                 if (info.Expandable) chevron = new Rectangle(x, row.Y + (row.Height - s) / 2, s, s);
                 x += s + Theme.S(GlyphGap);
@@ -329,7 +339,7 @@ namespace SpacePie
         {
             if (info == null || (info.Check < 0 && !info.Expandable && !info.TreeRow)) return 0;
             int w = info.Check >= 0 ? Theme.S(GlyphW + GlyphGap) : 0;
-            if (info.GroupOf == null) w += Theme.S(GlyphW + GlyphGap);
+            if (HasChevronSlot(info)) w += Theme.S(GlyphW + GlyphGap);
             return w + Indent(info);
         }
 
@@ -432,6 +442,9 @@ namespace SpacePie
             hotItem = null;
         }
 
+        /// <summary>The rows were replaced (their selection with them): selection-dependent buttons follow.</summary>
+        public void RowsReplaced() { OnSelectedIndexChanged(EventArgs.Empty); }
+
         protected override void OnDrawColumnHeader(DrawListViewColumnHeaderEventArgs e)
         {
             var g = e.Graphics;
@@ -476,7 +489,8 @@ namespace SpacePie
             var g = e.Graphics;
             var row = e.Bounds;
             using (var b = new SolidBrush(BackColor)) g.FillRectangle(b, row);
-            bool strong = e.Item.Selected && Focused;
+            // Selected rows are always drawn in full (also while another control has the focus): a click away deselects them.
+            bool strong = e.Item.Selected;
             var rr = new Rectangle(row.X + Theme.S(2), row.Y + 1, row.Width - Theme.S(4), row.Height - 2);
             bool linked = highlighted.Contains(e.Item);
             if (e.Item.Selected)
