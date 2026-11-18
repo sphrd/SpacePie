@@ -611,7 +611,7 @@ namespace SpacePie
 
                 // Suggestions are found again after a change outside the app (v1.7.2 kept the old list). They are the
                 // selected drive's, so the scanned test folder is opened first (on CI it is on another drive than C:).
-                SelectDir(root);
+                SelectDir(top);
                 suggestions = null;
                 viewTabs.SelectedIndex = pages.IndexOf(pSuggest);
                 FillSuggestions();
