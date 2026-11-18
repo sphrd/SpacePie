@@ -208,8 +208,7 @@ namespace SpacePie
         string SuggestionDisk()
         {
             if (active == null || active.ReadOnly) return null;
-            string d = DriveRoot(active.Path);
-            return d != null && roots.Any(r => CountsAsDrive(r) && SamePath(r.Path, d)) ? d : null;
+            return DriveRoot(active.Path);
         }
 
         /// <summary>The root of the drive holding path (e.g. C:\), or null.</summary>
@@ -295,7 +294,7 @@ namespace SpacePie
             sugHeadline.Text = rows.Count == 0 ? "Nothing to free" : Fmt.Size(ticked.Sum(t => t.Size)) + " selected";
             sugHeadline.Sub = rows.Count == 0 ? "" : "out of " + Fmt.Size(total) + " detected";
             var drive = suggestDisk != null ? roots.FirstOrDefault(r => CountsAsDrive(r) && SamePath(r.Path, suggestDisk)) : null;
-            p.Caption.Text = "Drive: " + (drive != null ? drive.DisplayName : "No drive selected") + ".  " +
+            p.Caption.Text = "Drive: " + (drive != null ? drive.DisplayName : suggestDisk ?? "No drive selected") + ".  " +
                 (rows.Count == 0 ? "No caches, temporary files or leftovers worth deleting were found." : string.Format(
                 "Checked: {0:N0} item{1}.  White: safe, rebuilt or downloaded again when needed.  Amber: review first.",
                 ticked.Count, ticked.Count == 1 ? "" : "s"));

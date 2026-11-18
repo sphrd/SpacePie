@@ -609,7 +609,9 @@ namespace SpacePie
                 string bt = HoverText(bundle);
                 check(bt.StartsWith("Test cache\n" + P("c1") + "\n" + P("c2")) && bt.EndsWith("... and 2 more"), "hover: a suggestion in several places lists its paths");
 
-                // Suggestions are found again after a change outside the app (v1.7.2 kept the old list).
+                // Suggestions are found again after a change outside the app (v1.7.2 kept the old list). They are the
+                // selected drive's, so the scanned test folder is opened first (on CI it is on another drive than C:).
+                SelectDir(root);
                 suggestions = null;
                 viewTabs.SelectedIndex = pages.IndexOf(pSuggest);
                 FillSuggestions();
