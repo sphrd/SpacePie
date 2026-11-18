@@ -635,10 +635,12 @@ namespace SpacePie
                 string fromTitle = chart.Title;
                 suggestionsDirty = true;
                 pSuggest.Stale = true;
+                int genBefore = suggestGen;
                 viewTabs.SelectedIndex = pages.IndexOf(pSuggest);
                 Application.DoEvents();
-                check(suggestFinding && chart.Title == pSuggest.ChartTitle,
-                    "suggestions: opened while looking again, the chart shows the suggestions at once (\"" + chart.Title + "\", was \"" + fromTitle + "\", looking " + suggestFinding + ")");
+                // A search of a small drive can already have ended here: a new search started is what counts.
+                check(suggestGen > genBefore && chart.Title == pSuggest.ChartTitle,
+                    "suggestions: opened while looking again, the chart shows the suggestions at once (\"" + chart.Title + "\", was \"" + fromTitle + "\", looking " + suggestFinding + ", searches " + (suggestGen - genBefore) + ")");
                 for (int i = 0; i < 100 && suggestFinding; i++) await Task.Delay(100);
                 viewTabs.SelectedIndex = pages.IndexOf(pContents);
                 // The selection buttons are off with nothing selected and on for a deletable row.
