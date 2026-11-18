@@ -83,6 +83,7 @@ final class DeleteJob {
             current = t.emptyTrash ? "Trash" : t.path
             // Caches skip items in use quietly; whatever stays in the Trash is reported.
             quiet = t.contentsOnly && !t.emptyTrash
+            unlocking = t.emptyTrash
             if t.emptyTrash { deleteContents(t.path, t.exclude) }
             else if trash {
                 moveToTrash(t.contentsOnly ? DeleteJob.children(t.path, t.exclude) : [t.path])
@@ -91,6 +92,7 @@ final class DeleteJob {
             else if t.contentsOnly { deleteContents(t.path, t.exclude) }
             else { delete(t.path) }
             quiet = false
+            unlocking = false
             if !stopped { lock.lock(); _finished.append(t.path); lock.unlock() }
         }
     }
@@ -148,12 +150,14 @@ final class DeleteJob {
 
     /// The folder whose contents are being deleted: kept as it is (never unlocked or given other permissions).
     private var contentsRoot = ""
+    /// Emptying a Trash: protections of the user's own items are lifted first, as Finder does (other deletes report them).
+    private var unlocking = false
 
     /// Like Finder before it empties the Trash: an item of the user's loses its lock flags and its access list (e.g.
     /// "everyone deny delete", common on copies of system or app folders), and a folder becomes readable and writable,
     /// so it and what is inside it can be removed. Items of other accounts are left as they are.
     private func unlockForDelete(_ path: String) {
-        if PathUtil.same(path, contentsRoot) { return }
+        if !unlocking || PathUtil.same(path, contentsRoot) { return }
         var st = stat()
         guard lstat(path, &st) == 0, st.st_uid == getuid() else { return }
         if st.st_flags & UInt32(UF_IMMUTABLE | UF_APPEND) != 0 { lchflags(path, 0) }
@@ -182,6 +186,7 @@ final class DeleteJob {
         if stopped { return }
         if rmdir(dir) == 0 { gone(dir); return }
         let e = errno
+        if chflags(dir, 0) == 0 && rmdir(dir) == 0 { gone(dir); return }
         if e == EACCES || e == EPERM {
             unlockForDelete(PathUtil.parent(dir))
             if rmdir(dir) == 0 { gone(dir); return }

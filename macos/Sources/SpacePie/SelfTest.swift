@@ -455,7 +455,8 @@ final class SelfTestRun {
                 let total = list.reduce(Int64(0)) { $0 + $1.size }
                 self.check(w.pSuggest.headline.text == Fmt.size(total) + " selected" && w.pSuggest.headline.sub == "out of " + Fmt.size(total) + " detected",
                            "suggestions view: headline \"\(w.pSuggest.headline.text) \(w.pSuggest.headline.sub)\"")
-                self.check(w.pSuggest.caption.text.hasPrefix("Checked: 3 items.") && !w.pSuggest.caption.text.contains("can be freed"),
+                self.check(w.pSuggest.caption.text.hasPrefix("Drive: ") && w.pSuggest.caption.text.contains("Checked: 3 items.")
+                           && !w.pSuggest.caption.text.contains("can be freed"),
                            "suggestions view: caption \"\(w.pSuggest.caption.text)\"")
                 self.check(Suggestion.checked(list).count == 3 && w.btnSugDelete.isEnabled, "suggestions view: Select all checks all 3 items")
                 w.checkAllSuggestions(false)

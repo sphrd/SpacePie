@@ -134,6 +134,8 @@ namespace SpacePie
             if (suggestFinding)
             {
                 suggestAgain = true;
+                // Nothing shown yet: the running search may predate the latest scan, so it looks again when it ends.
+                if (suggestions == null) suggestionsDirty = true;
                 if (suggestions == null)
                 {
                     p.Caption.Text = "Looking for space that can be freed...";
@@ -173,7 +175,7 @@ namespace SpacePie
                 {
                     if (IsDisposed) return;
                     suggestFinding = false;
-                    if (gen != suggestGen || !string.Equals(disk, suggestDisk, StringComparison.OrdinalIgnoreCase))
+                    if (gen != suggestGen || !string.Equals(disk, suggestDisk, StringComparison.OrdinalIgnoreCase) || (suggestAgain && suggestionsDirty))
                     {
                         suggestionsDirty = true;
                         FillSuggestions();
@@ -193,7 +195,6 @@ namespace SpacePie
                         }
                     }
                     ShowSuggestions();
-                    if (suggestAgain && suggestionsDirty) FillSuggestions();
                 }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
