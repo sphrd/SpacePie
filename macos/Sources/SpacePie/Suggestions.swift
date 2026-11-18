@@ -5,6 +5,7 @@ import AppKit
 final class Suggestion {
     var name = "", note = "", location = ""
     var safe = true                       // safe = rebuilt or downloaded again automatically
+    var alwaysShow = false
     var targets: [DeleteTarget] = []
     var checked: [Bool] = []              // per target: picked in the Suggestions view
     var expanded = false
@@ -83,8 +84,35 @@ extension MainWindowController {
 
     func fillSuggestions(clear: Bool = false, quiet: Bool = false) {
         let p = pSuggest!
+        let volumes = roots.filter { $0.isDrive && !$0.readOnly }.map { $0.path }
+        guard let active = active, !active.readOnly,
+              let disk = MainWindowController.suggestionDisk(for: active.path, volumes: volumes) else {
+            p.setHeadline("")
+            p.setCaption("Select a drive to see its suggestions.")
+            p.setRows([], "Select a drive to see its suggestions.")
+            if activePage === p { rowSlice = [:]; chart.showLogo(p.chartTitle, "", "Select a drive to see its suggestions.") }
+            updateButtons()
+            return
+        }
+        if disk != suggestDisk {
+            suggestDisk = disk
+            suggestions = nil
+            suggestDirty = true
+            sugRead = [:]
+            sugOpenDirs.removeAll()
+        }
         if suggestions != nil && !suggestDirty { showSuggestions(); return }
-        if suggestFinding && !suggestDirty && !clear { suggestionsChartWhileLooking(); return }      // already looking (e.g. the start-up refills)
+        // One search at a time: a running search looks again when it ends if anything changed meanwhile.
+        if suggestFinding {
+            if clear || suggestions == nil {
+                suggestDirty = true
+                p.setHeadline("")
+                p.setCaption("Looking for space that can be freed...")
+                p.setRows([], "Looking for space that can be freed...")
+            }
+            suggestionsChartWhileLooking()
+            return
+        }
         suggestDirty = false
         suggestFinding = true
         lastSuggestFind = Date()
@@ -100,15 +128,22 @@ extension MainWindowController {
         }
         if !(suggestions == nil || clear) { suggestionsChartWhileLooking() }
         updateButtons()
-        let scanned = roots.filter { !$0.readOnly }.compactMap { $0.node }
-        let volumes = roots.filter { $0.isDrive && !$0.readOnly }.map { $0.path }
-        readInBackground({ [unowned self] in self.findSuggestions(scanned, volumes: volumes) }, { [weak self] found in
-            guard let self = self, gen == self.suggestGen else { return }
+        let scanned = roots.filter {
+            !$0.readOnly && MainWindowController.suggestionDisk(for: $0.path, volumes: volumes) == disk
+        }.compactMap { $0.node }
+        readInBackground({ [unowned self] in self.findSuggestions(scanned, volumes: volumes, disk: disk) }, { [weak self] found in
+            guard let self = self else { return }
             self.suggestFinding = false
+            guard gen == self.suggestGen, disk == self.suggestDisk else {
+                self.suggestDirty = true
+                self.fillSuggestions(quiet: true)
+                return
+            }
             self.sugRead = [:]   // folders read for expanded rows outside the scans: read again when shown
             Suggestion.carryOver(found, from: self.suggestions)
             self.suggestions = MainWindowController.stableOrder(found, self.suggestions)
             self.showSuggestions()
+            if self.suggestDirty { self.fillSuggestions(quiet: true) }
         })
     }
 
@@ -148,6 +183,15 @@ extension MainWindowController {
         pSuggest?.stale = true
     }
 
+    /// The selected drive may have changed: the view compares it when it is filled and only looks again for a new drive.
+    func suggestionScopeChanged() {
+        pSuggest?.stale = true
+    }
+
+    static func suggestionDisk(for path: String, volumes: [String]) -> String? {
+        volumes.filter { PathUtil.isWithin(path, $0) }.max { $0.count < $1.count }.map { PathUtil.trim($0) }
+    }
+
     /// A scan is done (or a saved scan is up to date): look for space that can be freed right away in the background
     /// (next to the installed apps), so the Suggestions view is ready when it is opened.
     func findSuggestionsAfterScan() {
@@ -157,7 +201,7 @@ extension MainWindowController {
     }
 
     /// The suggestions shown in the view.
-    var shownSuggestions: [Suggestion] { (suggestions ?? []).filter { $0.size > 0 && !$0.targets.isEmpty } }
+    var shownSuggestions: [Suggestion] { (suggestions ?? []).filter { $0.alwaysShow || ($0.size > 0 && !$0.targets.isEmpty) } }
 
     /// The suggestions as a tree: one row per suggestion (chevron, checkbox). Expanded, a suggestion with several
     /// locations shows one row per location (named by its own folder or file); a suggestion of one folder shows what is
@@ -170,7 +214,7 @@ extension MainWindowController {
         let keep = Set(p.selectedItems.compactMap { suggestKey($0) })
         var rows: [ItemInfo] = []
         for s in list {
-            let shown = s.targets.filter { $0.size > 0 }
+            let shown = s.targets.filter { $0.size > 0 || s.alwaysShow }
             let only = shown.count == 1 ? shown[0] : nil
             let oneFolder = only.map { $0.isDir && !$0.emptyTrash } ?? false
             let it = ItemInfo()
@@ -183,7 +227,7 @@ extension MainWindowController {
             if !s.safe { it.color = T.WARN_FG }
             let expandable = shown.count > 1 || oneFolder
             it.chevron = expandable ? (s.expanded ? 1 : 0) : -1
-            it.check = s.checkState
+            it.check = s.targets.isEmpty ? -1 : s.checkState
             rows.append(it)
             if !s.expanded || !expandable { continue }
             if let t = only, oneFolder { addSuggestionContents(it, t.path, 0, &rows, total, exclude: t.exclude); continue }
@@ -310,15 +354,18 @@ extension MainWindowController {
         let checked = Suggestion.checked(list)
         let size = checked.reduce(Int64(0)) { $0 + $1.size }
         pSuggest.setHeadline(list.isEmpty ? "" : "\(Fmt.size(size)) selected", sub: list.isEmpty ? "" : "out of \(Fmt.size(total)) detected")
-        pSuggest.setCaption(list.isEmpty ? "Nothing to suggest." :
-            "Checked: \(Fmt.count(checked.count)) item\(checked.count == 1 ? "" : "s").  White: safe, rebuilt or downloaded again when needed.  Amber: review first.")
+        let volumes = roots.filter { $0.isDrive && !$0.readOnly }
+        let disk = active.flatMap { MainWindowController.suggestionDisk(for: $0.path, volumes: volumes.map { $0.path }) }
+        let label = disk.flatMap { path in volumes.first { PathUtil.same($0.path, path) }?.displayName } ?? "No drive selected"
+        pSuggest.setCaption("Drive: \(label).  " + (list.isEmpty ? "Nothing to suggest." :
+            "Checked: \(Fmt.count(checked.count)) item\(checked.count == 1 ? "" : "s").  White: safe, rebuilt or downloaded again when needed.  Amber: review first."))
     }
 
     /// The check marks changed: rows, caption and buttons follow (the row selection stays).
     func suggestChecksChanged() {
         for it in pSuggest.items {
             guard let s = it.suggestion else { continue }
-            if it.groupOf == nil { it.check = s.checkState }
+            if it.groupOf == nil { it.check = s.targets.isEmpty ? -1 : s.checkState }
             else if let t = it.targets?.first, let i = s.index(of: t) { it.check = s.isChecked(i) ? 1 : 0 }
         }
         pSuggest.table.redrawCells()
@@ -415,74 +462,55 @@ extension MainWindowController {
 
     // MARK: catalogue (runs on a background thread while the trees are held still)
 
-    func findSuggestions(_ scanned: [DirNode], volumes: [String] = []) -> [Suggestion] {
+    func findSuggestions(_ scanned: [DirNode], volumes: [String] = [], disk: String? = nil) -> [Suggestion] {
         if Demo.on { return Demo.suggestions() }   // pictures: never this Mac's caches
         let home = PathUtil.home
         let lib = home + "/Library"
         let caches = lib + "/Caches"
         var list: [Suggestion] = []
 
-        // The Trash, also on the other drives: emptied (its contents deleted for good), even when "Move to Trash" is chosen.
-        let trashDir = home + "/.Trash"
-        let trash = Suggestion("Trash", safe: true, note: "Deleted items waiting in the Trash (also on the other drives). Emptying it frees the space for good.")
-        let trashItems = DeleteJob.children(trashDir).count
-        let trashSize = trashItems > 0 ? measureFolder(trashDir) : 0
-        if trashSize > 0 {
-            let t = DeleteTarget(path: trashDir, label: "Trash", isDir: true, size: trashSize, note: "empty the Trash")
-            t.contentsOnly = true; t.emptyTrash = true
-            trash.targets.append(t)
+        let includeHome = disk == nil || MainWindowController.suggestionDisk(for: home, volumes: volumes) == disk
+        list.append(MainWindowController.trashSuggestion(home: home, volumes: disk.map { [$0] } ?? volumes,
+                                                        includeHome: includeHome, inspect: { self.inspectTrash($0) }))
+
+        if includeHome {
+            // Caches that get their own row are not counted again in "User caches".
+            let ownRows: Set<String> = ["com.apple.Safari", "Google", "Firefox", "Microsoft Edge", "BraveSoftware", "Yarn", "pip", "Homebrew",
+                                        "go-build", "CocoaPods"]
+            let userCaches = Suggestion("User caches", safe: true, note: "Files apps keep to start and work faster. Rebuilt when needed; quit apps first. Files in use are skipped.")
+            addContents(userCaches, caches, exclude: ownRows)
+            finish(&list, userCaches)
+            cacheRow(&list, "Logs", lib + "/Logs", true, "Diagnostic logs of apps. Only needed to investigate a problem.")
+
+            let dev = lib + "/Developer"
+            cacheRow(&list, "Xcode DerivedData", dev + "/Xcode/DerivedData", true, "Xcode's build products and indexes. Rebuilt on the next build.")
+            cacheRow(&list, "Xcode Archives", dev + "/Xcode/Archives", false, "Archived app builds. Keep the ones you may need to symbolicate crashes or resubmit.")
+            let support = Suggestion("Device support files", safe: true, note: "Debug symbols Xcode copies from iPhones, Apple Watches and Apple TVs. Copied again when a device connects.")
+            for kind in ["iOS", "watchOS", "tvOS", "visionOS"] { addContents(support, dev + "/Xcode/\(kind) DeviceSupport") }
+            finish(&list, support)
+            cacheRow(&list, "CoreSimulator caches", dev + "/CoreSimulator/Caches", true, "Simulator caches. Rebuilt when a simulator runs.")
+
+            let browser = "Web pages stored to load faster. Quit the browser first; sites load a little slower once."
+            cacheRow(&list, "Safari cache", caches + "/com.apple.Safari", true, browser)
+            cacheRow(&list, "Google Chrome cache", caches + "/Google/Chrome", true, browser)
+            cacheRow(&list, "Microsoft Edge cache", caches + "/Microsoft Edge", true, browser)
+            cacheRow(&list, "Brave cache", caches + "/BraveSoftware", true, browser)
+            let firefox = Suggestion("Firefox cache", safe: true, note: browser)
+            for d in DeleteJob.children(caches + "/Firefox/Profiles") { addContents(firefox, d + "/cache2") }
+            finish(&list, firefox)
+
+            let devNote = "Developer cache: downloaded packages. Downloaded again when a project needs them."
+            cacheRow(&list, "npm cache", home + "/.npm/_cacache", true, devNote)
+            cacheRow(&list, "Yarn cache", caches + "/Yarn", true, devNote)
+            cacheRow(&list, "pnpm store", lib + "/pnpm/store", true, devNote)
+            cacheRow(&list, "pip cache", caches + "/pip", true, devNote)
+            cacheRow(&list, "Homebrew cache", caches + "/Homebrew", true, "Downloaded Homebrew bottles and sources. Downloaded again when needed.")
+            cacheRow(&list, "Gradle caches", home + "/.gradle/caches", true, devNote)
+            cacheRow(&list, "Maven repository", home + "/.m2/repository", true, devNote)
+            cacheRow(&list, "Cargo registry cache", home + "/.cargo/registry/cache", true, devNote)
+            cacheRow(&list, "Go build cache", caches + "/go-build", true, "Go's compiled packages. Rebuilt on the next build.")
+            cacheRow(&list, "CocoaPods cache", caches + "/CocoaPods", true, devNote)
         }
-        for v in volumes where !PathUtil.same(v, "/") {
-            let d = PathUtil.join(v, ".Trashes/\(getuid())")
-            guard !DeleteJob.children(d).isEmpty else { continue }
-            let size = measureFolder(d)
-            if size <= 0 { continue }
-            let t = DeleteTarget(path: d, label: "Trash on " + PathUtil.name(v), isDir: true, size: size, note: "empty the Trash")
-            t.contentsOnly = true; t.emptyTrash = true
-            trash.targets.append(t)
-        }
-        trash.size = trash.targets.reduce(Int64(0)) { $0 + $1.size }
-        if trash.size > 0 {
-            trash.location = trash.targets.count == 1 && trashSize > 0 ? "\(trashDir) (\(Fmt.count(trashItems)) items)" : "\(Fmt.count(trash.targets.count)) drives"
-            list.append(trash)
-        }
-
-        // Caches that get their own row are not counted again in "User caches".
-        let ownRows: Set<String> = ["com.apple.Safari", "Google", "Firefox", "Microsoft Edge", "BraveSoftware", "Yarn", "pip", "Homebrew",
-                                    "go-build", "CocoaPods"]
-        let userCaches = Suggestion("User caches", safe: true, note: "Files apps keep to start and work faster. Rebuilt when needed; quit apps first. Files in use are skipped.")
-        addContents(userCaches, caches, exclude: ownRows)
-        finish(&list, userCaches)
-        cacheRow(&list, "Logs", lib + "/Logs", true, "Diagnostic logs of apps. Only needed to investigate a problem.")
-
-        let dev = lib + "/Developer"
-        cacheRow(&list, "Xcode DerivedData", dev + "/Xcode/DerivedData", true, "Xcode's build products and indexes. Rebuilt on the next build.")
-        cacheRow(&list, "Xcode Archives", dev + "/Xcode/Archives", false, "Archived app builds. Keep the ones you may need to symbolicate crashes or resubmit.")
-        let support = Suggestion("Device support files", safe: true, note: "Debug symbols Xcode copies from iPhones, Apple Watches and Apple TVs. Copied again when a device connects.")
-        for kind in ["iOS", "watchOS", "tvOS", "visionOS"] { addContents(support, dev + "/Xcode/\(kind) DeviceSupport") }
-        finish(&list, support)
-        cacheRow(&list, "CoreSimulator caches", dev + "/CoreSimulator/Caches", true, "Simulator caches. Rebuilt when a simulator runs.")
-
-        let browser = "Web pages stored to load faster. Quit the browser first; sites load a little slower once."
-        cacheRow(&list, "Safari cache", caches + "/com.apple.Safari", true, browser)
-        cacheRow(&list, "Google Chrome cache", caches + "/Google/Chrome", true, browser)
-        cacheRow(&list, "Microsoft Edge cache", caches + "/Microsoft Edge", true, browser)
-        cacheRow(&list, "Brave cache", caches + "/BraveSoftware", true, browser)
-        let firefox = Suggestion("Firefox cache", safe: true, note: browser)
-        for d in DeleteJob.children(caches + "/Firefox/Profiles") { addContents(firefox, d + "/cache2") }
-        finish(&list, firefox)
-
-        let devNote = "Developer cache: downloaded packages. Downloaded again when a project needs them."
-        cacheRow(&list, "npm cache", home + "/.npm/_cacache", true, devNote)
-        cacheRow(&list, "Yarn cache", caches + "/Yarn", true, devNote)
-        cacheRow(&list, "pnpm store", lib + "/pnpm/store", true, devNote)
-        cacheRow(&list, "pip cache", caches + "/pip", true, devNote)
-        cacheRow(&list, "Homebrew cache", caches + "/Homebrew", true, "Downloaded Homebrew bottles and sources. Downloaded again when needed.")
-        cacheRow(&list, "Gradle caches", home + "/.gradle/caches", true, devNote)
-        cacheRow(&list, "Maven repository", home + "/.m2/repository", true, devNote)
-        cacheRow(&list, "Cargo registry cache", home + "/.cargo/registry/cache", true, devNote)
-        cacheRow(&list, "Go build cache", caches + "/go-build", true, "Go's compiled packages. Rebuilt on the next build.")
-        cacheRow(&list, "CocoaPods cache", caches + "/CocoaPods", true, devNote)
 
         // node_modules folders of the user's own projects in the scanned trees (outermost only). Never one of an app,
         // an editor extension or a tool (see isProjectNodeModules).
@@ -498,26 +526,120 @@ extension MainWindowController {
         if !nm.targets.isEmpty { nm.location = "\(Fmt.count(nm.targets.count)) projects in the scanned folders"; list.append(nm) }
 
         // Old installers and disk images in Downloads: worth a look, not automatic.
-        let dl = Suggestion("Old installers in Downloads", safe: false, note: "Installer packages and archives older than 30 days. Keep the ones you still need. (Disk images: see Disk images.)")
-        let downloads = home + "/Downloads"
-        let cutoff = Date().addingTimeInterval(-30 * 86400)
-        // Without Full Disk Access, listing Downloads makes macOS ask; only look when a scan has read it already.
-        let mayList = FullDiskAccess.granted || (findScanned(downloads, exact: true).map { !$0.insideSkipped && $0.fileList != nil } ?? false)
-        for p in mayList ? DeleteJob.children(downloads) : [] {
-            let ext = (p as NSString).pathExtension.lowercased()
-            guard ["pkg", "zip"].contains(ext), let a = try? FileManager.default.attributesOfItem(atPath: p),
-                  (a[.type] as? FileAttributeType) == .typeRegular,
-                  let mod = a[.modificationDate] as? Date, mod < cutoff else { continue }
-            let size = (a[.size] as? NSNumber)?.int64Value ?? 0
-            dl.targets.append(DeleteTarget(path: p, label: PathUtil.name(p), size: size, note: "old download"))
-            dl.size += size
+        if includeHome {
+            let dl = Suggestion("Old installers in Downloads", safe: false, note: "Installer packages and archives older than 30 days. Keep the ones you still need. (Disk images: see Disk images.)")
+            let downloads = home + "/Downloads"
+            let cutoff = Date().addingTimeInterval(-30 * 86400)
+            // Without Full Disk Access, listing Downloads makes macOS ask; only look when a scan has read it already.
+            let mayList = FullDiskAccess.granted || (findScanned(downloads, exact: true).map { !$0.insideSkipped && $0.fileList != nil } ?? false)
+            for p in mayList ? DeleteJob.children(downloads) : [] {
+                let ext = (p as NSString).pathExtension.lowercased()
+                guard ["pkg", "zip"].contains(ext), let a = try? FileManager.default.attributesOfItem(atPath: p),
+                      (a[.type] as? FileAttributeType) == .typeRegular,
+                      let mod = a[.modificationDate] as? Date, mod < cutoff else { continue }
+                let size = (a[.size] as? NSNumber)?.int64Value ?? 0
+                dl.targets.append(DeleteTarget(path: p, label: PathUtil.name(p), size: size, note: "old download"))
+                dl.size += size
+            }
+            dl.location = downloads
+            if !dl.targets.isEmpty { list.append(dl) }
         }
-        dl.location = downloads
-        if !dl.targets.isEmpty { list.append(dl) }
         // What other cleaners look for too (system caches and logs, removed apps' leftovers, disk images, broken downloads,
         // old updates, more Xcode data, deleted users, broken background items, Mail attachments, Mail trash).
-        findMoreSuggestions(scanned, into: &list)
+        findMoreSuggestions(scanned, includeMacLocations: disk == nil || disk == "/" || includeHome, into: &list)
+        if let disk = disk { MainWindowController.filterSuggestions(&list, disk: disk, volumes: volumes) }
         return IgnoreList.apply(list)
+    }
+
+    static func filterSuggestions(_ list: inout [Suggestion], disk: String, volumes: [String]) {
+        for s in list {
+            s.targets.removeAll { suggestionDisk(for: $0.path, volumes: volumes) != disk }
+            s.size = s.targets.reduce(Int64(0)) { $0 + $1.size }
+            if !s.targets.isEmpty && s.name != "Trash" {
+                s.location = s.targets.count == 1 ? s.targets[0].path : "\(Fmt.count(s.targets.count)) locations"
+            }
+        }
+        list.removeAll { !$0.alwaysShow && $0.targets.isEmpty }
+    }
+
+    enum TrashContents {
+        case empty
+        case missing
+        case contents(size: Int64, incomplete: Bool)
+        case unreadable(String)
+    }
+
+    /// A Trash folder: from the scanned tree when a scan read it, otherwise read now.
+    func inspectTrash(_ path: String) -> TrashContents {
+        if let n = findScanned(path, exact: true), PathUtil.same(n.fullPath, path), !n.insideSkipped, n.fileList != nil {
+            if n.children.isEmpty && n.files == 0 { return .empty }
+            return .contents(size: n.size, incomplete: n.descendants().contains { $0.denied || $0.skipped != .no })
+        }
+        do {
+            let names = try FileManager.default.contentsOfDirectory(atPath: path)
+            if names.isEmpty { return .empty }
+            let root = Scanner().run(path)
+            return .contents(size: root.size, incomplete: root.descendants().contains { $0.denied || $0.skipped != .no })
+        } catch {
+            let e = error as NSError
+            if e.domain == NSCocoaErrorDomain && (e.code == NSFileNoSuchFileError || e.code == NSFileReadNoSuchFileError) {
+                return .missing
+            }
+            return .unreadable(error.localizedDescription)
+        }
+    }
+
+    /// The hidden Trash folders a drive itself can hold: macOS (.Trashes), Windows ($RECYCLE.BIN, RECYCLER) and Linux
+    /// (.Trash-<uid>). When .Trashes as a whole can't be read (an HFS drive keeps it closed), this user's folder in it.
+    static func driveTrashFolders(_ volume: String, rootNames: [String]) -> [(path: String, fallback: String?)] {
+        var names = [".Trashes", "$RECYCLE.BIN", "RECYCLER"]
+        names += rootNames.filter { $0.hasPrefix(".Trash-") }.sorted()
+        return names.map { name in
+            (PathUtil.join(volume, name), name == ".Trashes" ? PathUtil.join(volume, ".Trashes/\(getuid())") : nil)
+        }
+    }
+
+    static func trashSuggestion(home: String, volumes: [String], includeHome: Bool = true,
+                                rootNames: (String) -> [String] = { (try? FileManager.default.contentsOfDirectory(atPath: $0)) ?? [] },
+                                inspect: (String) -> TrashContents) -> Suggestion {
+        let trash = Suggestion("Trash", safe: false, note: "Emptying Trash permanently deletes its contents.")
+        trash.alwaysShow = true
+        var issues: [String] = []
+        // The Mac's own Trash (and the iCloud Drive Trash Finder shows with it) on its drive; a drive's hidden Trash
+        // folders on the other drives.
+        var locations: [(path: String, fallback: String?, label: String)] = []
+        if includeHome {
+            locations.append((home + "/.Trash", nil, "Trash"))
+            locations.append((home + "/Library/Mobile Documents/.Trash", nil, "iCloud Drive Trash"))
+        }
+        for v in volumes where !PathUtil.same(v, "/") {
+            for f in driveTrashFolders(v, rootNames: rootNames(v)) {
+                locations.append((f.path, f.fallback, "Hidden Trash on \(PathUtil.name(v)) (\(PathUtil.name(f.path)))"))
+            }
+        }
+        for loc in locations {
+            var path = loc.path
+            var state = inspect(path)
+            if case .unreadable = state, let fb = loc.fallback {
+                path = fb
+                state = inspect(fb)
+            }
+            switch state {
+            case .empty, .missing:
+                break
+            case .unreadable(let reason):
+                issues.append("\(loc.label) could not be read: \(reason)")
+            case .contents(let size, let incomplete):
+                let t = DeleteTarget(path: path, label: loc.label, isDir: true, size: size, note: "empty the Trash")
+                t.contentsOnly = true; t.emptyTrash = true
+                trash.targets.append(t)
+                if incomplete { issues.append("\(loc.label) could not be fully measured") }
+            }
+        }
+        trash.size = trash.targets.reduce(Int64(0)) { $0 + $1.size }
+        trash.location = trash.targets.isEmpty ? (issues.isEmpty ? "Empty" : "Unavailable") : "\(Fmt.count(trash.targets.count)) locations"
+        if !issues.isEmpty { trash.note += " " + issues.joined(separator: "; ") + "." }
+        return trash
     }
 
     func cacheRow(_ list: inout [Suggestion], _ name: String, _ dir: String, _ safe: Bool, _ note: String) {

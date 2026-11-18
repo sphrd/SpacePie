@@ -14,6 +14,7 @@ namespace SpacePie
         public string Name, Note, Location;
         public bool Safe;                         // safe = rebuilt or re-downloaded automatically
         public bool NeedsAdmin;
+        public bool AlwaysShow;                   // listed even when there is nothing in it (the Recycle Bin)
         public List<DeleteTarget> Targets = new List<DeleteTarget>();
         public long Size;
         public bool Expanded;
@@ -39,6 +40,10 @@ namespace SpacePie
         bool suggestionsDirty;
         DateTime lastSuggestFind = DateTime.MinValue;
         bool suggestFinding;
+        /// <summary>The view was filled again while a search ran: it looks again when that search ends.</summary>
+        bool suggestAgain;
+        /// <summary>The drive (root, e.g. C:\) the suggestions shown were found for.</summary>
+        string suggestDisk;
 
         /// <summary>
         /// A scan is done: look for space that can be freed right away in the background (next to the installed apps),
@@ -97,11 +102,49 @@ namespace SpacePie
         void FillSuggestions()
         {
             var p = pSuggest;
+            string disk = SuggestionDisk();
+            if (disk == null)
+            {
+                const string none = "Select a drive to see its suggestions.";
+                suggestions = null;
+                suggestDisk = null;
+                sugRead.Clear();
+                sugOpenDirs.Clear();
+                p.Caption.Text = none;
+                p.Empty = none;
+                p.ChartSub = "";
+                if (sugHeadline != null) { sugHeadline.Text = ""; sugHeadline.Sub = ""; }
+                SetRows(p.List, new List<ListViewItem>(), none);
+                if (ActivePage == p && !scanning) { rowSlice.Clear(); chart.ShowLogo(p.ChartTitle, "", none); }
+                UpdateSuggestionButtons();
+                return;
+            }
+            p.Empty = "Nothing to suggest.";
+            if (!string.Equals(disk, suggestDisk, StringComparison.OrdinalIgnoreCase))
+            {
+                suggestDisk = disk;
+                suggestions = null;
+                suggestionsDirty = true;
+                sugRead.Clear();
+                sugOpenDirs.Clear();
+            }
             if (suggestions != null && !suggestionsDirty) { ShowSuggestions(); return; }
-            // Already looking (started after the scan) and nothing changed since: that search shows its result; meanwhile
-            // the chart shows this view (never the previous view's chart).
-            if (suggestFinding && !suggestionsDirty) { SuggestionsChartWhileLooking(); return; }
+            // One search at a time (it holds the scanned trees): a running search looks again when it ends if anything
+            // changed meanwhile. The chart shows this view meanwhile (never the previous view's chart).
+            if (suggestFinding)
+            {
+                suggestAgain = true;
+                if (suggestions == null)
+                {
+                    p.Caption.Text = "Looking for space that can be freed...";
+                    if (sugHeadline != null) { sugHeadline.Text = "Looking..."; sugHeadline.Sub = ""; }
+                    SetRows(p.List, new List<ListViewItem>(), "Looking for space that can be freed...");
+                }
+                SuggestionsChartWhileLooking();
+                return;
+            }
             suggestionsDirty = false;
+            suggestAgain = false;
             lastSuggestFind = DateTime.UtcNow;
             // Keep the user's choices across a new search: ticks by path, expanded suggestions by name.
             var ticks = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -110,7 +153,7 @@ namespace SpacePie
                 foreach (var s in suggestions)
                 {
                     if (s.Expanded) open.Add(s.Name);
-                    foreach (var tg in s.Targets) ticks[tg.RecycleBin ? "<bin>" : tg.Path] = tg.Checked;
+                    foreach (var tg in s.Targets) ticks[tg.RecycleBin ? "<bin>" + tg.Path : tg.Path] = tg.Checked;
                 }
             int gen = ++suggestGen;
             // The first time the list says it is looking; later the rows stay while it looks again (no jumping).
@@ -122,14 +165,20 @@ namespace SpacePie
             }
             SuggestionsChartWhileLooking();
             UpdateSuggestionButtons();
-            var scanned = roots.Where(r => r.Node != null && !r.ReadOnly).Select(r => r.Node).ToList();
+            var scanned = roots.Where(r => r.Node != null && !r.ReadOnly && OnDrive(r.Path, disk)).Select(r => r.Node).ToList();
             List<Suggestion> found = null;
             suggestFinding = true;
-            Task.Factory.StartNew(() => { found = FindSuggestions(scanned); })
+            Task.Factory.StartNew(() => { found = FindSuggestions(scanned, disk); })
                 .ContinueWith(t =>
                 {
-                    if (gen != suggestGen || IsDisposed) return;
+                    if (IsDisposed) return;
                     suggestFinding = false;
+                    if (gen != suggestGen || !string.Equals(disk, suggestDisk, StringComparison.OrdinalIgnoreCase))
+                    {
+                        suggestionsDirty = true;
+                        FillSuggestions();
+                        return;
+                    }
                     var before = suggestions;
                     suggestions = StableOrder(t.IsFaulted ? new List<Suggestion>() : found, before);
                     sugRead.Clear();   // folders read for expanded rows outside the scans: read again when shown
@@ -140,11 +189,53 @@ namespace SpacePie
                         foreach (var tg in s.Targets)
                         {
                             bool was;
-                            tg.Checked = ticks.TryGetValue(tg.RecycleBin ? "<bin>" : tg.Path, out was) ? was : s.Safe;
+                            tg.Checked = ticks.TryGetValue(tg.RecycleBin ? "<bin>" + tg.Path : tg.Path, out was) ? was : s.Safe;
                         }
                     }
                     ShowSuggestions();
+                    if (suggestAgain && suggestionsDirty) FillSuggestions();
                 }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        /// <summary>The selected drive may have changed: the view compares it when it is filled and only looks again for a new drive.</summary>
+        void SuggestionScopeChanged()
+        {
+            if (pSuggest != null) pSuggest.Stale = true;
+        }
+
+        /// <summary>The drive the suggestions are for: the drive of the root Contents is on (null when none is selected).</summary>
+        string SuggestionDisk()
+        {
+            if (active == null || active.ReadOnly) return null;
+            string d = DriveRoot(active.Path);
+            return d != null && roots.Any(r => CountsAsDrive(r) && SamePath(r.Path, d)) ? d : null;
+        }
+
+        /// <summary>The root of the drive holding path (e.g. C:\), or null.</summary>
+        static string DriveRoot(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return null;
+            if (path.Length >= 2 && path[1] == ':') return char.ToUpperInvariant(path[0]) + @":\";
+            try { var r = Path.GetPathRoot(path); return string.IsNullOrEmpty(r) ? null : r; } catch (Exception) { return null; }
+        }
+
+        static bool OnDrive(string path, string disk)
+        {
+            string d = DriveRoot(path);
+            return d != null && SamePath(d, disk);
+        }
+
+        /// <summary>Only what is on the drive: targets elsewhere are dropped, sizes and locations follow.</summary>
+        static void FilterSuggestions(List<Suggestion> list, string disk)
+        {
+            foreach (var s in list)
+            {
+                s.Targets.RemoveAll(t => !OnDrive(t.Path, disk));
+                s.Remeasure();
+                if (s.Targets.Count > 0 && !s.Targets[0].RecycleBin)
+                    s.Location = s.Targets.Count == 1 ? s.Targets[0].Path : string.Format("{0:N0} locations", s.Targets.Count);
+            }
+            list.RemoveAll(s => !s.AlwaysShow && s.Targets.Count == 0);
         }
 
         /// <summary>
@@ -161,17 +252,17 @@ namespace SpacePie
             var lv = p.List;
             string top = lv.TopItem != null ? ((ItemInfo)lv.TopItem.Tag).Name : null;
             var rows = new List<ListViewItem>();
-            foreach (var s in suggestions.Where(x => x.Size > 0))
+            foreach (var s in suggestions.Where(x => x.AlwaysShow || x.Size > 0))
             {
                 var shown = s.Targets.Where(x => x.Size > 0).ToList();
                 var only = shown.Count == 1 ? shown[0] : null;
                 bool oneFolder = only != null && only.IsDir && !only.RecycleBin;
                 var head = new ItemInfo
                 {
-                    Targets = s.Targets, Data = s, Name = s.Name, Size = s.Size, FolderIcon = true, Folder = s.Location,
+                    Targets = s.Targets.Count > 0 ? s.Targets : null, Data = s, Name = s.Name, Size = s.Size, FolderIcon = true, Folder = s.Location,
                     Path = s.Targets.Count == 1 && !s.Targets[0].RecycleBin ? s.Targets[0].Path : null,
                     Note = s.Note + (s.NeedsAdmin && !isAdmin ? "  Needs Run as administrator." : ""),
-                    Percent = total > 0 ? 100.0 * s.Size / total : 0, Check = s.CheckState,
+                    Percent = total > 0 ? 100.0 * s.Size / total : 0, Check = s.Targets.Count > 0 ? s.CheckState : -1,
                     Expandable = shown.Count > 1 || oneFolder, Expanded = s.Expanded
                 };
                 var lvi = Row(head, head.Name, Fmt.Size(head.Size), head.Percent.ToString("0.0") + " %", head.Folder, head.Note);
@@ -182,7 +273,7 @@ namespace SpacePie
                 var level = shown.Select(tg => new ItemInfo
                 {
                     Targets = new List<DeleteTarget> { tg }, Data = tg, GroupOf = head, Name = tg.Label, Size = tg.Size, TreeRow = true,
-                    FolderIcon = tg.IsDir || tg.RecycleBin, Folder = tg.RecycleBin ? "All drives" : tg.Path, Path = tg.RecycleBin ? null : tg.Path,
+                    FolderIcon = tg.IsDir || tg.RecycleBin, Folder = tg.RecycleBin ? tg.BinName : tg.Path, Path = tg.RecycleBin ? null : tg.Path,
                     Note = tg.ContentsOnly ? "contents only" : tg.Note, Percent = total > 0 ? 100.0 * tg.Size / total : 0, Check = tg.Checked ? 1 : 0,
                     Expandable = tg.IsDir && !tg.RecycleBin, Expanded = tg.IsDir && !tg.RecycleBin && sugOpenDirs.Contains(tg.Path)
                 }).ToList();
@@ -202,9 +293,11 @@ namespace SpacePie
             var ticked = CheckedSuggestionTargets();
             sugHeadline.Text = rows.Count == 0 ? "Nothing to free" : Fmt.Size(ticked.Sum(t => t.Size)) + " selected";
             sugHeadline.Sub = rows.Count == 0 ? "" : "out of " + Fmt.Size(total) + " detected";
-            p.Caption.Text = rows.Count == 0 ? "No caches, temporary files or leftovers worth deleting were found." : string.Format(
+            var drive = suggestDisk != null ? roots.FirstOrDefault(r => CountsAsDrive(r) && SamePath(r.Path, suggestDisk)) : null;
+            p.Caption.Text = "Drive: " + (drive != null ? drive.DisplayName : "No drive selected") + ".  " +
+                (rows.Count == 0 ? "No caches, temporary files or leftovers worth deleting were found." : string.Format(
                 "Checked: {0:N0} item{1}.  White: safe, rebuilt or downloaded again when needed.  Amber: review first.",
-                ticked.Count, ticked.Count == 1 ? "" : "s");
+                ticked.Count, ticked.Count == 1 ? "" : "s"));
             p.ChartSub = Fmt.Size(total) + " can be freed";
             p.ChartTotal = 0;
             UpdateSuggestionButtons();
@@ -432,64 +525,30 @@ namespace SpacePie
 
         static string Env(string name) { return Environment.GetEnvironmentVariable(name) ?? ""; }
 
-        List<Suggestion> FindSuggestions(List<DirNode> scanned)
+        /// <summary>The suggestions on disk (a drive root such as C:\; null = every drive). Places that are always on the
+        /// Windows or user profile drive are only looked at for that drive.</summary>
+        List<Suggestion> FindSuggestions(List<DirNode> scanned, string disk = null)
         {
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             string progData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             string sysDrive = Path.GetPathRoot(win);
+            bool includeSystem = disk == null || SamePath(disk, sysDrive) || OnDrive(home, disk);
             var list = new List<Suggestion>();
 
+            // The Recycle Bin of the drive: listed even when empty; emptying it deletes for good, so it starts unchecked.
+            string bin = disk ?? sysDrive;
             long rbItems;
-            long rb = DeleteJob.RecycleBinSize(out rbItems);
-            if (rb > 0)
-                list.Add(new Suggestion
-                {
-                    Name = "Recycle Bin", Location = string.Format("All drives ({0:N0} items)", rbItems), Safe = true, Size = rb,
-                    Note = "Deleted items waiting in the bin. Emptying it frees the space for good.",
-                    Targets = { new DeleteTarget { RecycleBin = true, Label = "Recycle Bin", Note = "empty the bin", Size = rb } }
-                });
-
-            Contents(list, "Temporary files", Path.GetTempPath(), true, false, "Files programs left behind. Files in use are skipped.");
-            Contents(list, "Windows temporary files", Path.Combine(win, "Temp"), true, true, "Windows' own temporary files. Files in use are skipped.");
-            Contents(list, "Windows Update downloads", Path.Combine(win, @"SoftwareDistribution\Download"), true, true,
-                "Installed update packages. Windows downloads them again if it needs them.");
-            Contents(list, "Delivery Optimization cache", Path.Combine(win, @"ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache"),
-                true, true, "Update pieces shared with other PCs. Rebuilt as needed.");
-            var dumps = new Suggestion { Name = "Crash dumps", Safe = true, Note = "Memory dumps from crashed programs and Windows. Only needed to investigate a crash." };
-            AddContents(dumps, Path.Combine(local, "CrashDumps"));
-            AddContents(dumps, Path.Combine(win, "Minidump"));
-            AddFile(dumps, Path.Combine(win, "MEMORY.DMP"));
-            AddContents(dumps, Path.Combine(progData, @"Microsoft\Windows\WER\ReportArchive"));
-            AddContents(dumps, Path.Combine(progData, @"Microsoft\Windows\WER\ReportQueue"));
-            Finish(list, dumps, true);
-            var thumbs = new Suggestion { Name = "Thumbnail cache", Safe = true, Note = "Explorer's picture previews. Rebuilt when folders are opened; files in use are skipped." };
-            string explorer = Path.Combine(local, @"Microsoft\Windows\Explorer");
-            if (Directory.Exists(explorer))
-                try { foreach (var f in Directory.GetFiles(explorer, "thumbcache_*.db")) AddFile(thumbs, f); } catch (Exception) { }
-            Finish(list, thumbs, false);
-
-            Browser(list, "Microsoft Edge cache", Path.Combine(local, @"Microsoft\Edge\User Data"));
-            Browser(list, "Google Chrome cache", Path.Combine(local, @"Google\Chrome\User Data"));
-            Browser(list, "Brave cache", Path.Combine(local, @"BraveSoftware\Brave-Browser\User Data"));
-            Browser(list, "Opera cache", Path.Combine(Env("APPDATA"), @"Opera Software\Opera Stable"));
-            var firefox = new Suggestion { Name = "Firefox cache", Safe = true, Note = "Web pages stored to load faster. Close Firefox first; sites load a little slower once." };
-            string ffProfiles = Path.Combine(local, @"Mozilla\Firefox\Profiles");
-            if (Directory.Exists(ffProfiles))
-                try { foreach (var d in Directory.GetDirectories(ffProfiles)) AddContents(firefox, Path.Combine(d, "cache2")); } catch (Exception) { }
-            Finish(list, firefox, false);
-
-            const string dev = "Developer cache: downloaded packages. Downloaded again when a project needs them.";
-            Contents(list, "npm cache", Path.Combine(local, "npm-cache"), true, false, dev);
-            Contents(list, "Yarn cache", Path.Combine(local, @"Yarn\Cache"), true, false, dev);
-            Contents(list, "pnpm store", Path.Combine(local, @"pnpm\store"), true, false, dev);
-            Contents(list, "pip cache", Path.Combine(local, @"pip\Cache"), true, false, dev);
-            Contents(list, "NuGet packages", Path.Combine(home, @".nuget\packages"), true, false, dev);
-            Contents(list, "Gradle caches", Path.Combine(home, @".gradle\caches"), true, false, dev);
-            Contents(list, "Maven repository", Path.Combine(home, @".m2\repository"), true, false, dev);
-            Contents(list, "Cargo registry cache", Path.Combine(home, @".cargo\registry\cache"), true, false, dev);
-            Contents(list, "Go build cache", Path.Combine(local, "go-build"), true, false, dev);
+            long rb = DeleteJob.RecycleBinSize(bin, out rbItems);
+            var recycle = new Suggestion
+            {
+                Name = "Recycle Bin", Safe = false, AlwaysShow = true, Size = rb,
+                Location = rb > 0 ? string.Format("{0} ({1:N0} items)", DeleteTarget.BinNameOf(bin), rbItems) : "Empty",
+                Note = "Emptying the Recycle Bin permanently deletes its contents."
+            };
+            if (rb > 0) recycle.Targets.Add(new DeleteTarget { RecycleBin = true, Path = bin, Label = DeleteTarget.BinNameOf(bin), Note = "empty the bin", Size = rb });
+            list.Add(recycle);
 
             // node_modules folders of the user's own projects (outermost only). Never inside installed programs or tools: those
             // ship their packages in node_modules too (VS Code, Windows widgets, Electron apps, editor extensions).
@@ -503,39 +562,83 @@ namespace SpacePie
                 }
             if (nm.Targets.Count > 0) { nm.Location = string.Format("{0:N0} projects in the scanned drives", nm.Targets.Count); list.Add(nm); }
 
-            // Old installers and disk images in Downloads: worth a look, not automatic.
-            var dl = new Suggestion { Name = "Old installers in Downloads", Safe = false, Note = "Setup files and disk images older than 30 days. Keep the ones you still need." };
-            string downloads = Path.Combine(home, "Downloads");
-            if (Directory.Exists(downloads))
+            if (includeSystem)
             {
-                var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".exe", ".msi", ".msix", ".iso", ".img", ".zip", ".7z", ".rar" };
-                try
-                {
-                    foreach (var f in new DirectoryInfo(downloads).GetFiles())
-                        if (exts.Contains(f.Extension) && f.LastWriteTime < DateTime.Now.AddDays(-30))
-                        {
-                            dl.Targets.Add(new DeleteTarget { Path = f.FullName, Label = f.Name, Size = f.Length, Note = "old download" });
-                            dl.Size += f.Length;
-                        }
-                }
-                catch (Exception) { }
-                dl.Location = downloads;
-            }
-            if (dl.Targets.Count > 0) list.Add(dl);
+                Contents(list, "Temporary files", Path.GetTempPath(), true, false, "Files programs left behind. Files in use are skipped.");
+                Contents(list, "Windows temporary files", Path.Combine(win, "Temp"), true, true, "Windows' own temporary files. Files in use are skipped.");
+                Contents(list, "Windows Update downloads", Path.Combine(win, @"SoftwareDistribution\Download"), true, true,
+                    "Installed update packages. Windows downloads them again if it needs them.");
+                Contents(list, "Delivery Optimization cache", Path.Combine(win, @"ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache"),
+                    true, true, "Update pieces shared with other PCs. Rebuilt as needed.");
+                var dumps = new Suggestion { Name = "Crash dumps", Safe = true, Note = "Memory dumps from crashed programs and Windows. Only needed to investigate a crash." };
+                AddContents(dumps, Path.Combine(local, "CrashDumps"));
+                AddContents(dumps, Path.Combine(win, "Minidump"));
+                AddFile(dumps, Path.Combine(win, "MEMORY.DMP"));
+                AddContents(dumps, Path.Combine(progData, @"Microsoft\Windows\WER\ReportArchive"));
+                AddContents(dumps, Path.Combine(progData, @"Microsoft\Windows\WER\ReportQueue"));
+                Finish(list, dumps, true);
+                var thumbs = new Suggestion { Name = "Thumbnail cache", Safe = true, Note = "Explorer's picture previews. Rebuilt when folders are opened; files in use are skipped." };
+                string explorer = Path.Combine(local, @"Microsoft\Windows\Explorer");
+                if (Directory.Exists(explorer))
+                    try { foreach (var f in Directory.GetFiles(explorer, "thumbcache_*.db")) AddFile(thumbs, f); } catch (Exception) { }
+                Finish(list, thumbs, false);
 
-            string old = Path.Combine(sysDrive, "Windows.old");
-            if (Directory.Exists(old))
-            {
-                var s = new Suggestion
+                Browser(list, "Microsoft Edge cache", Path.Combine(local, @"Microsoft\Edge\User Data"));
+                Browser(list, "Google Chrome cache", Path.Combine(local, @"Google\Chrome\User Data"));
+                Browser(list, "Brave cache", Path.Combine(local, @"BraveSoftware\Brave-Browser\User Data"));
+                Browser(list, "Opera cache", Path.Combine(Env("APPDATA"), @"Opera Software\Opera Stable"));
+                var firefox = new Suggestion { Name = "Firefox cache", Safe = true, Note = "Web pages stored to load faster. Close Firefox first; sites load a little slower once." };
+                string ffProfiles = Path.Combine(local, @"Mozilla\Firefox\Profiles");
+                if (Directory.Exists(ffProfiles))
+                    try { foreach (var d in Directory.GetDirectories(ffProfiles)) AddContents(firefox, Path.Combine(d, "cache2")); } catch (Exception) { }
+                Finish(list, firefox, false);
+
+                const string dev = "Developer cache: downloaded packages. Downloaded again when a project needs them.";
+                Contents(list, "npm cache", Path.Combine(local, "npm-cache"), true, false, dev);
+                Contents(list, "Yarn cache", Path.Combine(local, @"Yarn\Cache"), true, false, dev);
+                Contents(list, "pnpm store", Path.Combine(local, @"pnpm\store"), true, false, dev);
+                Contents(list, "pip cache", Path.Combine(local, @"pip\Cache"), true, false, dev);
+                Contents(list, "NuGet packages", Path.Combine(home, @".nuget\packages"), true, false, dev);
+                Contents(list, "Gradle caches", Path.Combine(home, @".gradle\caches"), true, false, dev);
+                Contents(list, "Maven repository", Path.Combine(home, @".m2\repository"), true, false, dev);
+                Contents(list, "Cargo registry cache", Path.Combine(home, @".cargo\registry\cache"), true, false, dev);
+                Contents(list, "Go build cache", Path.Combine(local, "go-build"), true, false, dev);
+
+                // Old installers and disk images in Downloads: worth a look, not automatic.
+                var dl = new Suggestion { Name = "Old installers in Downloads", Safe = false, Note = "Setup files and disk images older than 30 days. Keep the ones you still need." };
+                string downloads = Path.Combine(home, "Downloads");
+                if (Directory.Exists(downloads))
                 {
-                    Name = "Previous Windows installation", Location = old, Safe = false, NeedsAdmin = true,
-                    Note = "Windows.old. After deleting it you can no longer go back to the previous version of Windows."
-                };
-                s.Size = MeasureFolder(old);
-                s.Targets.Add(new DeleteTarget { Path = old, Label = "Windows.old", IsDir = true, Size = s.Size, Note = "previous Windows" });
-                list.Add(s);
+                    var exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".exe", ".msi", ".msix", ".iso", ".img", ".zip", ".7z", ".rar" };
+                    try
+                    {
+                        foreach (var f in new DirectoryInfo(downloads).GetFiles())
+                            if (exts.Contains(f.Extension) && f.LastWriteTime < DateTime.Now.AddDays(-30))
+                            {
+                                dl.Targets.Add(new DeleteTarget { Path = f.FullName, Label = f.Name, Size = f.Length, Note = "old download" });
+                                dl.Size += f.Length;
+                            }
+                    }
+                    catch (Exception) { }
+                    dl.Location = downloads;
+                }
+                if (dl.Targets.Count > 0) list.Add(dl);
+
+                string old = Path.Combine(sysDrive, "Windows.old");
+                if (Directory.Exists(old))
+                {
+                    var s = new Suggestion
+                    {
+                        Name = "Previous Windows installation", Location = old, Safe = false, NeedsAdmin = true,
+                        Note = "Windows.old. After deleting it you can no longer go back to the previous version of Windows."
+                    };
+                    s.Size = MeasureFolder(old);
+                    s.Targets.Add(new DeleteTarget { Path = old, Label = "Windows.old", IsDir = true, Size = s.Size, Note = "previous Windows" });
+                    list.Add(s);
+                }
             }
-            FindMoreSuggestions(scanned, list);
+            FindMoreSuggestions(scanned, list, includeSystem);
+            if (disk != null) FilterSuggestions(list, disk);
             return IgnoreList.Apply(list);
         }
 

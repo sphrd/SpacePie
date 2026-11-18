@@ -32,5 +32,7 @@
     <string>Copyright (c) 2026 sphrd - MIT License</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>SpacePie asks Finder to open the Get Info window of the file or folder you selected.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>SpacePie reads external drives to measure the space their files and folders use.</string>
 </dict>
 </plist>

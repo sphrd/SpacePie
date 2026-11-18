@@ -573,6 +573,7 @@ extension MainWindowController {
         btnAppsRefresh.isEnabled = idle && !appsLoading
         btnUninstall.isEnabled = idle && (selectedApp.map { !$0.uninstalled } ?? false)
         btnRemoveLeftovers.isEnabled = idle && (apps ?? []).contains { $0.uninstalled && !$0.checkedLeftovers.isEmpty }
+        btnRemoveLeftovers.tip = "Available after an uninstall leaves files behind. Check the remaining items, then move them to the Trash. For installed apps, use Uninstall instead."
     }
 
     // MARK: checks and expanding (as in Suggestions)

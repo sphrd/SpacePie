@@ -48,7 +48,7 @@ enum Demo {
              (lib + "/Developer/CoreSimulator/Devices/A8B0EFA3", 1_100 * MB)], contents: false)
         add("Disk images", false, "Disk images (.dmg, .iso, .img...) not opened for 30 days and not mounted: usually installers already used. Keep the ones you still need.",
             [(home + "/Downloads/ubuntu-24.04-desktop-arm64.iso", 6 * GB), (home + "/Desktop/Xcode_16.1.xip", 3_300 * MB)], contents: false)
-        add("Trash", true, "Deleted items waiting in the Trash. Emptying it frees the space for good.", [(home + "/.Trash", 4_200 * MB)], trash: true)
+        add("Trash", false, "Emptying Trash permanently deletes its contents.", [(home + "/.Trash", 4_200 * MB)], trash: true)
         add("Old installers in Downloads", false, "Installer packages and archives older than 30 days. Keep the ones you still need.",
             [(home + "/Downloads/Office-Installer.pkg", 2_100 * MB), (home + "/Downloads/driver-pack-2.zip", 1_200 * MB), (home + "/Downloads/Blender-4.2.zip", 480 * MB)], contents: false)
         add("User caches", true, "Files apps keep to start and work faster. Rebuilt when needed; quit apps first. Files in use are skipped.",
@@ -123,6 +123,47 @@ enum Demo {
         return InstalledApp.sorted(list)
     }
 
+    static func system() -> [SysGroup] {
+        let snapshots = SysGroup("snapshots", "Time Machine local snapshots", "Local copies kept between Time Machine backups; macOS removes them when space is needed.")
+        for days in [1, 2, 3] {
+            let item = SysItem(.snapshot)
+            item.date = Date().addingTimeInterval(-Double(days) * 86400)
+            item.name = "Snapshot " + Fmt.date(item.date!)
+            item.meaning = "Time Machine's local copy of Macintosh HD; its size is not reported by macOS."
+            item.volume = "/"
+            snapshots.items.append(item)
+        }
+        let purgeable = SysGroup("purgeable", "Purgeable space",
+                                 "Space macOS frees by itself when an app needs it. To free most of it now, delete the local snapshots above.")
+        let purge = SysItem(.purgeable)
+        purge.name = "Macintosh HD"; purge.size = 28 * GB
+        purge.meaning = "Freed by macOS automatically when space is needed. To free it now, delete the Time Machine local snapshots above; the rest frees itself."
+        purgeable.items = [purge]; purgeable.size = purge.size; purgeable.reclaim = purge.size
+        let backups = SysGroup("backups", "iPhone / iPad backups", "Local device backups; keep the ones you may need to restore.")
+        let backup = SysItem(.backup)
+        backup.name = "Alex's iPhone"; backup.size = 32 * GB
+        backup.path = home + "/Library/Application Support/MobileSync/Backup/demo-iphone"
+        backup.meaning = "Local iPhone backup. Removing it does not affect the phone."
+        backups.items = [backup]; backups.size = backup.size; backups.reclaim = backup.size
+        let drives = SysGroup("drives", "Drives and health", "Available space and drive health.")
+        for volume in volumes {
+            let item = SysItem(.drive)
+            item.name = volume.label; item.path = volume.path; item.size = volume.free
+            item.percent = Double(volume.total - volume.free) / Double(volume.total)
+            item.meaning = "\(Fmt.size(volume.free)) available of \(Fmt.size(volume.total)); APFS; SMART: Verified"
+            drives.items.append(item)
+        }
+        return [snapshots, purgeable, backups, drives]
+    }
+
+    static func previous(_ node: DirNode) -> PrevNode {
+        let result = PrevNode()
+        result.name = node.name
+        result.bytes = node.bytes * 4 / 5; result.alloc = node.alloc * 4 / 5; result.files = node.files
+        result.children = Dictionary(uniqueKeysWithValues: node.children.map { ($0.name, previous($0)) })
+        return result
+    }
+
     /// The app's own icon when it is installed here, else the generic app icon (row size).
     private static func icon(_ path: String?) -> NSImage {
         if let p = path { return InstalledApp.loadIcon(p) }
@@ -175,10 +216,31 @@ final class DemoShotRun {
         steps.waitUntil(240) { w.dupeFinder == nil }
         steps.wait(1.5)
         steps.then { self.shots.shot("screenshot-duplicates") }
+        steps.then { page(w.pFiles) }
+        steps.waitUntil(20) { w.readers == 0 && !w.pFiles.items.isEmpty }
+        steps.wait(1.5)
+        steps.then { w.statusLabel.stringValue = self.scanLine(w); self.shots.shot("screenshot-files"); page(w.pTypes) }
+        steps.waitUntil(20) { w.readers == 0 && !w.pTypes.items.isEmpty }
+        steps.wait(1.5)
+        steps.then { w.statusLabel.stringValue = self.scanLine(w); self.shots.shot("screenshot-file-types") }
+        steps.then {
+            if let root = w.active, let node = root.node {
+                root.previous = Demo.previous(node)
+                root.previousTime = Date().addingTimeInterval(-7 * 86400)
+            }
+            page(w.pChanges)
+        }
+        steps.waitUntil(20) { w.readers == 0 && !w.pChanges.items.isEmpty }
+        steps.wait(1.5)
+        steps.then { w.statusLabel.stringValue = self.scanLine(w); self.shots.shot("screenshot-changes") }
         var scanStatus = ""
         steps.then { scanStatus = self.scanLine(w) }
-        // Suggestions: the largest of those with the most items opened, one item unchecked (a mixed check).
-        steps.then { page(w.pSuggest) }
+        // Suggestions: the largest of those with the most items opened, one item unchecked (a mixed check). They are the
+        // Mac's own drive's (made-up home folder), so that drive is selected for them.
+        steps.then {
+            if let mac = w.findRoot("/") { w.selectRoot(mac) }
+            page(w.pSuggest)
+        }
         steps.waitUntil(30) { w.suggestions != nil && !w.suggestFinding }
         steps.then {
             let shown = w.shownSuggestions.sorted { $0.size > $1.size }
@@ -190,13 +252,20 @@ final class DemoShotRun {
             w.showSuggestions()
         }
         steps.wait(1.5)
-        steps.then { w.statusLabel.stringValue = scanStatus; self.shots.shot("screenshot-suggestions") }
+        steps.then {
+            w.statusLabel.stringValue = scanStatus; self.shots.shot("screenshot-suggestions")
+            if let data = w.findRoot("/Volumes/Data"), let n = data.node { w.selectDir(openDir.flatMap { w.isAttached($0) ? $0 : nil } ?? n) }
+        }
         // Apps: the largest app opened with all its files.
         steps.then { page(w.pApps) }
         steps.waitUntil(30) { w.apps != nil && !w.appsLoading }
         steps.then { if let h = w.pApps.items.first(where: { $0.app != nil && $0.groupOf == nil }) { w.expandApps([h], true) } }
         steps.wait(1.5)
         steps.then { w.statusLabel.stringValue = scanStatus; self.shots.shot("screenshot-apps") }
+        steps.then { page(w.pSystem) }
+        steps.waitUntil(30) { w.systemGroups != nil && !w.systemLoading }
+        steps.wait(1.5)
+        steps.then { w.statusLabel.stringValue = scanStatus; self.shots.shot("screenshot-system") }
         // Delete list: the four largest files.
         steps.then { page(w.pFiles) }
         steps.waitUntil(20) { w.readers == 0 && !w.pFiles.items.isEmpty }

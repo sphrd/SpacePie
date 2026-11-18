@@ -57,7 +57,8 @@ with its subfolders in the outer rings)
 - **Back, Forward and a path bar:** go back to the folders you opened (also with
   the mouse side buttons), and jump to any parent from the path above the list.
 - **This PC:** the level above every drive lists all drives, scanned folders and
-  saved scans with their used space and free space, as a list and a chart. Go
+  saved scans with their used space and free space, as a list across the full
+  width (no chart). Go
   **Up** from a drive, or click **This PC** in the path bar; double-click a drive
   that is not scanned yet to scan it.
 - **Nothing cut off:** wherever a name or a text is too long and ends in "...",
@@ -82,11 +83,12 @@ with its subfolders in the outer rings)
   without leaving the folder; double-click to open it. The pie chart shows the folder
   and, in two outer rings, its subfolders. Click a part to open it; click the
   centre (the folder's name) to go back up. For a drive it also shows free space.
-- **The chart, in every view:** every item of at least 2 % of the total (7.2° of
+- **The chart:** every item of at least 2 % of the total (7.2° of
   the circle) gets a slice of its own, in true proportion; all smaller items
-  together form one grey "N smaller items" slice.
+  together form one grey "N smaller items" slice. The drive overview (This PC /
+  This Mac) has no chart; opening a drive or folder shows it again.
 - **Suggestions** (the green view under Contents): how much can be freed, in
-  large print, and what: the Recycle Bin / Trash (on every drive), temporary
+  large print, and what: the Recycle Bin / Trash of the selected drive, temporary
   files, user and system caches and logs, caches of browsers and developer tools
   (Xcode, simulators that can no longer run, device support files, Homebrew...),
   the `node_modules` folders of your own projects (never those inside installed
@@ -101,7 +103,18 @@ with its subfolders in the outer rings)
   (**Select all** / **Deselect all**); the large line shows how much you checked out
   of all that was found, and **Clean up permanently** next to it deletes the checked
   items for good, right there.
-  Safe items start checked; items to review first start unchecked. Items only an
+  Safe items start checked; items to review first start unchecked. On macOS,
+  Trash stays visible even when empty or unreadable and starts unchecked. On the
+  Mac's drive it is the Mac's Trash (including the iCloud Drive Trash Finder
+  shows with it); on an external drive it is that drive's own hidden Trash
+  folders (`.Trashes`, `$RECYCLE.BIN`, `RECYCLER`, `.Trash-*`). Selecting it and
+  confirming cleanup permanently empties them; items locked or with a "deny
+  delete" access list are unlocked first, like Finder does, and items owned by
+  another account can be deleted as administrator. Other cleanup does not empty
+  Trash. On Windows, the Recycle Bin of the selected drive stays visible even
+  when empty and starts unchecked; cleaning it up empties that drive's bin for
+  good. Suggestions show only items on the selected drive (the one Contents is
+  on). Items only an
   administrator may change are deleted after macOS asks for your password once
   (Windows: Run as administrator). Right-click a suggestion or a location and
   choose **Never suggest this** to hide it for good; **Ignored (n)...** lists
@@ -129,8 +142,11 @@ with its subfolders in the outer rings)
   before removal), and every drive's free space and health. A drive that is
   almost full gets an amber warning that leads to the suggestions.
 - **System (macOS):** Time Machine local snapshots (delete one or all),
-  purgeable space (macOS frees it when needed), iPhone / iPad backups, and every
-  volume's free space and health (SMART status), with the same low-space warning.
+  purgeable space, iPhone / iPad backups, and every volume's free space and
+  health (SMART status), with the same low-space warning. Purgeable space is
+  freed by macOS by itself when an app needs room and already counts as
+  available; no app can purge it all on request, so to free most of it now,
+  delete the local snapshots.
 - **Files:** the largest files, with a name search (`*.iso`, `invoice`; `*` matches
   every file, `*.` the files without an extension) and
   filters by type, size and date: not changed, or **not opened**, for months or
@@ -157,7 +173,15 @@ with its subfolders in the outer rings)
 
 ![Apps: every installed app with its logo and size; expanded, it shows all its files (demo data)](assets/screenshot-apps.png)
 
+![System on macOS: Time Machine local snapshots, purgeable space, device backups and drives (demo data)](assets/screenshot-system.png)
+
+![Files: the largest files with search and type, size and date filters (demo data)](assets/screenshot-files.png)
+
+![File types: space grouped by extension (demo data)](assets/screenshot-file-types.png)
+
 ![Duplicates: groups of identical files and the space their extra copies take (demo data)](assets/screenshot-duplicates.png)
+
+![Changes: which folders grew since an earlier scan, with the timeline (demo data)](assets/screenshot-changes.png)
 
 **Cleaning up**
 
@@ -241,13 +265,21 @@ or later.
   **System Settings > Privacy & Security > Full Disk Access**, then reopen the
   app. Without it, macOS asks separately for every protected folder (Desktop,
   Documents, Downloads, iCloud Drive...) and hides some sizes.
+- **Free space:** drive charts use the filesystem's available blocks, plus
+  purgeable space when macOS reports it. An unavailable capacity is shown as
+  unknown, not as a full drive or as "System / not readable".
+- **External drives:** macOS asks once whether SpacePie may access files on
+  removable volumes. If a drive can't be read, SpacePie says why and links to
+  **System Settings > Privacy & Security > Files and Folders**.
 
 ## Using it
 
 1. The app scans your system drive as soon as it opens.
 2. To analyze another drive, go **Up** to **This PC** and double-click it (or
    choose it in the drive box and press **Scan**). For any folder, type or choose
-   it, or drag it onto the window, and press **Scan**.
+   it, or drag it onto the window, and press **Scan**. A drive already
+   scanned since the app opened is shown again from memory (kept current by live
+   updates); **Rescan** scans it again.
 3. Explore the folders (expand them in place or open them), the views on the
    left and the chart. **Files**, **File types** and **Duplicates** work on the
    folder open in **Contents**.

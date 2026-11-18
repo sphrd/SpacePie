@@ -514,6 +514,40 @@ patterns (Part 3) are applied through the WinForms mapping below.
     build. CI imports the .p12 into a temporary keychain and build.sh signs with it; a CI step checks the requirement.
     Gatekeeper still rejects (origin=sphrd): first launch = Open Anyway in Privacy & Security. Not a Developer ID: the owner
     may get one ($99) later for notarization; Windows signing: SignPath Foundation (free OSS) or Certum Open Source.
+- 2026-11-16..18 (macOS, synced to Windows where it applies):
+  - "SpacePie does not scan external drive": the drive was mounted at `/Volumes/SPHRD's T7 ` (trailing space; macOS
+    added it because a stale empty `/Volumes/SPHRD's T7` folder took the name) and the path box trimmed spaces, so the
+    empty folder was scanned (0 files, 1 folder). `normalizePath` / `NormalizePath` keep the path as given when it exists
+    and only trim a typed path that does not. exFAT itself was fine (`getattrlistbulk` checked on an FSKit exFAT image,
+    32 threads). A scan whose top folder can't be opened now says why (EPERM: link to Privacy & Security > Files and
+    Folders > Removable Volumes); Info.plist has `NSRemovableVolumesUsageDescription`.
+  - "browse external drive and scan it, then in the contents window its still showing me the Macintosh": a scan selects
+    its drive at once (`startScan(select:)`; the rescan after a failed replay passes false) and keeps it after.
+  - "on the outer most path with all the drives, the chart doesnt need to be displayed": This Mac / This PC collapse the
+    chart pane (`syncChartVisibility` / `SyncChartVisibility`), restored at its width elsewhere.
+  - "when changing disk at the top, the app should work for that disk... suggestions tab is mixing both disks": answer
+    "suggestions" only (Apps and System stay machine-wide). Suggestions are those of the active root's drive
+    (`suggestionDisk`, `filterSuggestions`), caption "Drive: <name>.", one search at a time (a running search looks again
+    when it ends; concurrent searches each held the tree readers and delayed `whenNoReaders`, which made the app slow).
+  - "everytime i switch between disks it rescans ... it could cache the scan until app closes": the drive picker shows a
+    drive scanned this session from memory (live updates keep it current); Scan / Enter / Rescan still rescan.
+  - Trash: always listed, unchecked (emptying is permanent). "on the machine's drive there is empty trash which empties the
+    trash. on external drives the trash indicates only the hidden trash": Mac drive = `~/.Trash` + iCloud Drive Trash
+    (`~/Library/Mobile Documents/.Trash`, which Finder shows merged); external drive = its `.Trashes` (fallback
+    `.Trashes/<uid>`), `$RECYCLE.BIN`, `RECYCLER`, `.Trash-*`. Emptying clears lock flags, "deny delete" ACLs and read-only
+    modes of the user's own items like Finder (never on the Trash folder itself), reports failures (no longer quiet), and
+    offers Delete as administrator for what stays. Windows: Recycle Bin per drive (`SHQueryRecycleBinW` /
+    `SHEmptyRecycleBinW` with the root).
+  - Free space showed 0 B and the rest as "System / not readable": the important-usage capacity can be 0 or missing on
+    external volumes; capacity is now `statfs` blocks with the important-usage value only when larger.
+  - "System / not readable" after emptying the Trash = Time Machine local snapshots holding the deleted data (checked with
+    `tmutil listlocalsnapshots /`). Purgeable space: no supported API purges it all (tools that do fill the disk until
+    macOS purges, or thin snapshots); the System view explains it frees itself and that deleting snapshots frees most now.
+  - Screenshots retaken with the demo volume (2560x1389, full Retina, not scaled); the demo-shots run selects Macintosh HD
+    for the Suggestions picture (its made-up items are the Mac's). Rerun `make_demo_mac.py` before each run, because the
+    "deleting" picture really deletes the demo `node_modules`. Website: one block per view with its full-width picture and
+    a sticky one-row jump bar; the separate gallery is gone.
+  - Windows changes were made without a C# compiler on the Mac: CI (or `build.ps1` on Windows) is the first compile.
 
 ## WinForms mapping of the design language
 
@@ -925,3 +959,10 @@ patterns (Part 3) are applied through the WinForms mapping below.
   deselects, selected rows always drawn in full; a drive's free space large in the chart centre; the Suggestions chart
   shows at once while they are looked for again; the window stays on the screen when zooming raises its minimum width.
   update window centred on the app; no dark corners on the scan bar's Cancel.
+- v2.5.0 (2026-11-18): external drives scan (paths keep a trailing space that is part of a mount point's name; an
+  unreadable drive says why); scanning another drive shows it; the drive picker reuses this session's scans; no chart on
+  This PC / This Mac; Suggestions per selected drive, one search at a time; Trash / Recycle Bin per drive, always listed,
+  unchecked, with the iCloud Drive Trash on the Mac's drive and an external drive's own hidden Trash folders, locked and
+  "deny delete" items unlocked like Finder, failures reported, Delete as administrator for what stays; free space from the
+  file system's blocks (no more 0 B free on external drives); purgeable space explained; progress while the saved scan
+  loads and catches up; screenshots retaken and the website shows every view with its full-size picture.

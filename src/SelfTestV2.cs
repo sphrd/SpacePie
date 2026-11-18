@@ -122,13 +122,17 @@ namespace SpacePie
                     "tree-list: expanding {0} shows its {1} rows below it at depth 1, collapsing hides them", ex != null ? ex.Name : "?", grown));
 
                 // Up from the top of a scan leads to This PC (every drive and scanned folder), then disabled.
+                viewTabs.SelectedIndex = pages.IndexOf(pContents);
                 GoUp();
                 bool pc = thisPc && current == null && contents.Items.Count == roots.Count && !btnUp.Enabled;
-                // Only drives count: the scanned test folder shows its own size and gets no chart slice.
+                // This PC has no chart: the list takes the full width.
+                bool chartHidden = split2.Panel2Collapsed;
+                // Only drives count: the scanned test folder shows its own size.
                 var folderRow = contents.Items.Cast<ListViewItem>().Select(x => (ItemInfo)x.Tag).FirstOrDefault(x => x.Dir == top);
-                bool noDouble = folderRow != null && folderRow.Size == top.Size && folderRow.ChartSize == 0;
-                check(noDouble, "this pc: a scanned folder shows its own size (" + (folderRow != null ? Fmt.Size(folderRow.Size) : "?") + "), not its drive's, and is not in the chart");
+                bool noDouble = folderRow != null && folderRow.Size == top.Size;
+                check(noDouble, "this pc: a scanned folder shows its own size (" + (folderRow != null ? Fmt.Size(folderRow.Size) : "?") + "), not its drive's");
                 SelectDir(top);
+                check(chartHidden && !split2.Panel2Collapsed, "this pc: the chart pane is hidden there and back when a folder opens");
                 check(pc && !thisPc, "this pc: Up from the scanned folder lists the " + roots.Count + " drives and folders; Up is then disabled");
             }
 
@@ -234,10 +238,21 @@ namespace SpacePie
                 string pf = Environment.GetEnvironmentVariable("ProgramW6432") ?? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
                 bool uaOk = AppsUsage.Rot13("{6Q809377-6NS0-444O-8957-N3773S02200R}\\Nccf\\n.rkr") == "{6D809377-6AF0-444B-8957-A3773F02200E}\\Apps\\a.exe"
                     && string.Equals(AppsUsage.ExpandKnownFolder("{6D809377-6AF0-444B-8957-A3773F02200E}\\Apps\\a.exe"), pf.TrimEnd('\\') + "\\Apps\\a.exe", StringComparison.OrdinalIgnoreCase);
+                // Suggestions per drive: places on other drives are dropped, the Recycle Bin stays even when empty.
+                var onC = new Suggestion { Name = "DSA drive test", Safe = true };
+                onC.Targets.Add(new DeleteTarget { Path = @"C:\dsa\a", Label = "a", Size = 10 });
+                onC.Targets.Add(new DeleteTarget { Path = @"D:\dsa\b", Label = "b", Size = 20 });
+                var onD = new Suggestion { Name = "DSA drive test D", Safe = true };
+                onD.Targets.Add(new DeleteTarget { Path = @"D:\dsa\c", Label = "c", Size = 5 });
+                var emptyBin = new Suggestion { Name = "Recycle Bin", AlwaysShow = true };
+                var perDrive = new List<Suggestion> { onC, onD, emptyBin };
+                FilterSuggestions(perDrive, @"c:\");
+                bool driveOk = perDrive.Count == 2 && perDrive[0] == onC && onC.Targets.Count == 1 && onC.Size == 10 && perDrive[1] == emptyBin;
                 bool findsOk = true;
-                try { FindMoreSuggestions(new List<DirNode> { top }, new List<Suggestion>()); } catch (Exception) { findsOk = false; }
-                check(ignoreOk && unusedOk && uaOk && findsOk, string.Format(
-                    "more checks: ignore list ({0}), unused apps ({1}), UserAssist names ({2}), new suggestions run ({3})", ignoreOk, unusedOk, uaOk, findsOk));
+                try { FindMoreSuggestions(new List<DirNode> { top }, new List<Suggestion>(), true); } catch (Exception) { findsOk = false; }
+                check(ignoreOk && unusedOk && uaOk && findsOk && driveOk, string.Format(
+                    "more checks: ignore list ({0}), unused apps ({1}), UserAssist names ({2}), new suggestions run ({3}), suggestions of one drive ({4})",
+                    ignoreOk, unusedOk, uaOk, findsOk, driveOk));
             }
 
             // Scan files: saved, opened read-only next to the live scan, never confused with it, then closed.

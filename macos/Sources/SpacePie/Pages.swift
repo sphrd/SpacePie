@@ -81,6 +81,7 @@ extension MainWindowController {
 
     func showPage() {
         let p = activePage
+        syncChartVisibility()
         HoverTip.shared.reset()
         for q in pages { q.root.isHidden = q !== p }
         listPanel.needsLayout = true
@@ -94,11 +95,12 @@ extension MainWindowController {
 
     /// The chart follows the open view.
     func refreshChart() {
+        syncChartVisibility()
+        if chartPanel.superview == nil { rowSlice = [:]; return }
         if chartOnHold { showScanLogo(); return }
         let p = activePage
         if p === pContents {
-            if thisPc { updateChartThisPc() }
-            else if let c = current, isAttached(c) { updateChart(c) }
+            if let c = current, isAttached(c) { updateChart(c) }
             else if let a = active, a.node == nil { updateChartUnscanned(a) }
             return
         }
@@ -117,6 +119,24 @@ extension MainWindowController {
         chart.setData(p.chartTitle, p.chartSub, buildSlices(p, total, p.chartScope))
     }
 
+    func syncChartVisibility() {
+        let hide = activePage === pContents && thisPc
+        if hide && chartPanel.superview != nil {
+            chartWidthBeforeHiding = chartPanel.frame.width
+            split2.removeArrangedSubview(chartPanel)
+            chartPanel.removeFromSuperview()
+            split2.adjustSubviews()
+        } else if !hide && chartPanel.superview == nil {
+            split2.addArrangedSubview(chartPanel)
+            split2.setHoldingPriority(NSLayoutConstraint.Priority(270), forSubviewAt: 1)
+            split2.adjustSubviews()
+            if chartWidthBeforeHiding > 0 && split2.bounds.width > 0 {
+                let position = split2.bounds.width - chartWidthBeforeHiding - split2.dividerThickness
+                split2.setPosition(max(MainWindowController.listMinWidth, position), ofDividerAt: 0)
+            }
+        }
+    }
+
     /// The scanned tree changed (scan, rescan, delete, measure): views refill when they are shown next.
     func viewsChanged() {
         if pages.isEmpty { return }
@@ -131,7 +151,7 @@ extension MainWindowController {
     func contentsChanged() {
         for p in pages where p.followsFolder && p !== pContents { p.stale = true }
         let a = activePage
-        if a === pContents { if thisPc { updateChartThisPc() } else if let c = current { updateChart(c) } }
+        if a === pContents { refreshChart() }
         else if a.stale { a.stale = false; a.fill() }
     }
 
@@ -242,6 +262,8 @@ extension MainWindowController {
                 f.detail = Fmt.pct(100 * Double(r.free) / Double(r.total)) + " of drive"
                 slices.append(f)
                 sub = "\(Fmt.size(r.used)) used of \(Fmt.size(r.total))  -  \(Fmt.size(r.free)) free"
+            } else if r.isDrive {
+                sub = "Capacity unavailable - showing scanned files only"
             }
         }
         chart.setData(title, sub, slices, rings: 2)

@@ -56,7 +56,7 @@ enum IgnoreList {
         for s in list where !l.names.contains(s.name) {
             s.targets.removeAll { l.paths.contains(PathUtil.trim($0.path)) }
             s.size = s.targets.reduce(Int64(0)) { $0 + $1.size }
-            if s.targets.isEmpty || s.size <= 0 { continue }
+            if !s.alwaysShow && (s.targets.isEmpty || s.size <= 0) { continue }
             if s.targets.count > 1 && !s.location.hasSuffix("drives") { s.location = "\(Fmt.count(s.targets.count)) locations" }
             else if s.targets.count == 1 && !s.targets[0].emptyTrash { s.location = s.targets[0].path }
             out.append(s)
@@ -69,92 +69,94 @@ extension MainWindowController {
     /// More places other Mac cleaners look (CleanMyMac's System Junk, Trash Bins, Mail Attachments and Uninstaller
     /// leftovers), with the same rules as the rest: one line on what deleting means, items to review start unchecked,
     /// never anything inside an app. Runs on a background thread while the trees are held still.
-    func findMoreSuggestions(_ scanned: [DirNode], into list: inout [Suggestion]) {
+    func findMoreSuggestions(_ scanned: [DirNode], includeMacLocations: Bool = true, into list: inout [Suggestion]) {
         let home = PathUtil.home, lib = home + "/Library"
         let admin = "macOS asks for your administrator password."
 
-        // System caches and logs (all users): not macOS's own caches.
-        let sysCaches = Suggestion("System caches", safe: true, note: "Caches of apps and services for all users (not macOS's own). Rebuilt when needed. " + admin)
-        let appleCaches = Set(DeleteJob.children("/Library/Caches").map { PathUtil.name($0) }.filter { $0.hasPrefix("com.apple.") })
-        addContents(sysCaches, "/Library/Caches", exclude: appleCaches)
-        finish(&list, sysCaches)
-        let sysLogs = Suggestion("System logs", safe: true, note: "Logs of installers, apps and services for all users, and old (rotated) macOS logs. Only needed to investigate a problem. " + admin)
-        addContents(sysLogs, "/Library/Logs")
-        for f in DeleteJob.children("/private/var/log") where MainWindowController.isRotatedLog(PathUtil.name(f)) {
-            var st = stat()
-            guard lstat(f, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { continue }
-            let size = DirNode.onDisk ? Int64(st.st_blocks) * 512 : Int64(st.st_size)
-            if size > 0 { sysLogs.targets.append(DeleteTarget(path: f, label: PathUtil.name(f), size: size, note: "old log")); sysLogs.size += size }
-        }
-        finish(&list, sysLogs)
+        if includeMacLocations {
+            // System caches and logs (all users): not macOS's own caches.
+            let sysCaches = Suggestion("System caches", safe: true, note: "Caches of apps and services for all users (not macOS's own). Rebuilt when needed. " + admin)
+            let appleCaches = Set(DeleteJob.children("/Library/Caches").map { PathUtil.name($0) }.filter { $0.hasPrefix("com.apple.") })
+            addContents(sysCaches, "/Library/Caches", exclude: appleCaches)
+            finish(&list, sysCaches)
+            let sysLogs = Suggestion("System logs", safe: true, note: "Logs of installers, apps and services for all users, and old (rotated) macOS logs. Only needed to investigate a problem. " + admin)
+            addContents(sysLogs, "/Library/Logs")
+            for f in DeleteJob.children("/private/var/log") where MainWindowController.isRotatedLog(PathUtil.name(f)) {
+                var st = stat()
+                guard lstat(f, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else { continue }
+                let size = DirNode.onDisk ? Int64(st.st_blocks) * 512 : Int64(st.st_size)
+                if size > 0 { sysLogs.targets.append(DeleteTarget(path: f, label: PathUtil.name(f), size: size, note: "old log")); sysLogs.size += size }
+            }
+            finish(&list, sysLogs)
 
-        // Mail: attachments Mail saved when they were opened (downloaded again from the message), and the local trash.
-        let mailDl = Suggestion("Mail attachments", safe: true, note: "Attachments Mail saved when you opened them. Mail gets them again from the message when needed.")
-        addContents(mailDl, lib + "/Containers/com.apple.mail/Data/Library/Mail Downloads")
-        addContents(mailDl, lib + "/Mail Downloads")
-        finish(&list, mailDl)
-        if FullDiskAccess.granted {
-            let mailTrash = Suggestion("Mail trash", safe: false, note: "Messages in Mail's Trash and Deleted Messages mailboxes on this Mac. Quit Mail first. Messages kept on the mail server stay there.")
-            for v in DeleteJob.children(lib + "/Mail") where PathUtil.name(v).hasPrefix("V") && PathUtil.isDir(v) {
-                for account in DeleteJob.children(v) where PathUtil.isDir(account) {
-                    for box in ["Deleted Messages.mbox", "Trash.mbox"] {
-                        for m in MainWindowController.messageFolders(PathUtil.join(account, box)) { addContents(mailTrash, m) }
+            // Mail: attachments Mail saved when they were opened (downloaded again from the message), and the local trash.
+            let mailDl = Suggestion("Mail attachments", safe: true, note: "Attachments Mail saved when you opened them. Mail gets them again from the message when needed.")
+            addContents(mailDl, lib + "/Containers/com.apple.mail/Data/Library/Mail Downloads")
+            addContents(mailDl, lib + "/Mail Downloads")
+            finish(&list, mailDl)
+            if FullDiskAccess.granted {
+                let mailTrash = Suggestion("Mail trash", safe: false, note: "Messages in Mail's Trash and Deleted Messages mailboxes on this Mac. Quit Mail first. Messages kept on the mail server stay there.")
+                for v in DeleteJob.children(lib + "/Mail") where PathUtil.name(v).hasPrefix("V") && PathUtil.isDir(v) {
+                    for account in DeleteJob.children(v) where PathUtil.isDir(account) {
+                        for box in ["Deleted Messages.mbox", "Trash.mbox"] {
+                            for m in MainWindowController.messageFolders(PathUtil.join(account, box)) { addContents(mailTrash, m) }
+                        }
                     }
                 }
+                for t in mailTrash.targets { t.label = PathUtil.name(PathUtil.parent(MainWindowController.mboxOf(t.path))) }
+                finish(&list, mailTrash)
             }
-            for t in mailTrash.targets { t.label = PathUtil.name(PathUtil.parent(MainWindowController.mboxOf(t.path))) }
-            finish(&list, mailTrash)
-        }
 
-        // More Xcode data (DerivedData, archives, device support and simulator caches are listed above).
-        let dev = lib + "/Developer"
-        cacheRow(&list, "Xcode device logs", dev + "/Xcode/iOS Device Logs", true, "Logs Xcode copied from connected devices. Copied again when needed.")
-        cacheRow(&list, "Xcode previews", dev + "/Xcode/UserData/Previews", true, "SwiftUI preview builds. Rebuilt when a preview is shown.")
-        cacheRow(&list, "Xcode documentation", dev + "/Shared/Documentation/DocSets", true, "Downloaded documentation sets. Downloaded again when needed.")
-        let sims = Suggestion("Unavailable simulators", safe: true, note: "Simulators of iOS versions no longer installed: they can't be started any more.")
-        for udid in MainWindowController.unavailableSimulators() {
-            let d = dev + "/CoreSimulator/Devices/" + udid
-            guard PathUtil.isDir(d) else { continue }
-            let size = measureFolder(d)
-            if size > 0 { sims.targets.append(DeleteTarget(path: d, label: "Simulator " + udid.prefix(8), isDir: true, size: size, note: "unavailable")); sims.size += size }
-        }
-        finish(&list, sims)
-
-        // Leftovers of apps that are no longer installed (named after their bundle id; review first).
-        let orphans = Suggestion("Leftovers of removed apps", safe: false, note: "Settings, caches and data of apps that are no longer on this Mac (matched by their app id). Check them before deleting.")
-        for t in orphanLeftovers() { orphans.targets.append(t); orphans.size += t.size }
-        orphans.location = "\(Fmt.count(orphans.targets.count)) items"
-        if !orphans.targets.isEmpty { list.append(orphans) }
-
-        // Broken background items: launch agents and daemons whose program is gone.
-        let broken = Suggestion("Broken background items", safe: true, note: "Launch agents and daemons whose program is gone (left by removed apps). They only fail at every start. Items in /Library: " + admin)
-        for dir in [lib + "/LaunchAgents", "/Library/LaunchAgents", "/Library/LaunchDaemons"] {
-            for p in DeleteJob.children(dir) where MainWindowController.isBrokenLaunchItem(p) {
-                var st = stat()
-                let size: Int64 = lstat(p, &st) == 0 ? max(Int64(st.st_blocks) * 512, 1) : 1
-                broken.targets.append(DeleteTarget(path: p, label: PathUtil.name(p), size: size, note: "program missing"))
-                broken.size += size
+            // More Xcode data (DerivedData, archives, device support and simulator caches are listed above).
+            let dev = lib + "/Developer"
+            cacheRow(&list, "Xcode device logs", dev + "/Xcode/iOS Device Logs", true, "Logs Xcode copied from connected devices. Copied again when needed.")
+            cacheRow(&list, "Xcode previews", dev + "/Xcode/UserData/Previews", true, "SwiftUI preview builds. Rebuilt when a preview is shown.")
+            cacheRow(&list, "Xcode documentation", dev + "/Shared/Documentation/DocSets", true, "Downloaded documentation sets. Downloaded again when needed.")
+            let sims = Suggestion("Unavailable simulators", safe: true, note: "Simulators of iOS versions no longer installed: they can't be started any more.")
+            for udid in MainWindowController.unavailableSimulators() {
+                let d = dev + "/CoreSimulator/Devices/" + udid
+                guard PathUtil.isDir(d) else { continue }
+                let size = measureFolder(d)
+                if size > 0 { sims.targets.append(DeleteTarget(path: d, label: "Simulator " + udid.prefix(8), isDir: true, size: size, note: "unavailable")); sims.size += size }
             }
-        }
-        broken.location = "\(Fmt.count(broken.targets.count)) items"
-        if !broken.targets.isEmpty { list.append(broken) }
+            finish(&list, sims)
 
-        // Deleted users: kept disk images of removed accounts, and home folders without an account.
-        let users = Suggestion("Deleted users", safe: false, note: "Folders of user accounts that no longer exist. Check that nothing in them is still needed. " + admin)
-        addContents(users, "/Users/Deleted Users")
-        let homes = MainWindowController.accountHomes(), uids = MainWindowController.accountIds()
-        if !homes.isEmpty && !uids.isEmpty {
-            for p in DeleteJob.children("/Users") where PathUtil.isDir(p) {
-                let n = PathUtil.name(p)
-                if n.hasPrefix(".") || ["Shared", "Deleted Users", "Guest"].contains(n) || homes.contains(PathUtil.trim(p)) { continue }
-                // Owned by an account that exists (e.g. a folder an installer made for root): not a deleted user's.
-                var st = stat()
-                if lstat(p, &st) != 0 || uids.contains(st.st_uid) { continue }
-                let size = measureFolder(p)
-                if size > 0 { users.targets.append(DeleteTarget(path: p, label: n, isDir: true, size: size, note: "no such user")); users.size += size }
+            // Leftovers of apps that are no longer installed (named after their bundle id; review first).
+            let orphans = Suggestion("Leftovers of removed apps", safe: false, note: "Settings, caches and data of apps that are no longer on this Mac (matched by their app id). Check them before deleting.")
+            for t in orphanLeftovers() { orphans.targets.append(t); orphans.size += t.size }
+            orphans.location = "\(Fmt.count(orphans.targets.count)) items"
+            if !orphans.targets.isEmpty { list.append(orphans) }
+
+            // Broken background items: launch agents and daemons whose program is gone.
+            let broken = Suggestion("Broken background items", safe: true, note: "Launch agents and daemons whose program is gone (left by removed apps). They only fail at every start. Items in /Library: " + admin)
+            for dir in [lib + "/LaunchAgents", "/Library/LaunchAgents", "/Library/LaunchDaemons"] {
+                for p in DeleteJob.children(dir) where MainWindowController.isBrokenLaunchItem(p) {
+                    var st = stat()
+                    let size: Int64 = lstat(p, &st) == 0 ? max(Int64(st.st_blocks) * 512, 1) : 1
+                    broken.targets.append(DeleteTarget(path: p, label: PathUtil.name(p), size: size, note: "program missing"))
+                    broken.size += size
+                }
             }
+            broken.location = "\(Fmt.count(broken.targets.count)) items"
+            if !broken.targets.isEmpty { list.append(broken) }
+
+            // Deleted users: kept disk images of removed accounts, and home folders without an account.
+            let users = Suggestion("Deleted users", safe: false, note: "Folders of user accounts that no longer exist. Check that nothing in them is still needed. " + admin)
+            addContents(users, "/Users/Deleted Users")
+            let homes = MainWindowController.accountHomes(), uids = MainWindowController.accountIds()
+            if !homes.isEmpty && !uids.isEmpty {
+                for p in DeleteJob.children("/Users") where PathUtil.isDir(p) {
+                    let n = PathUtil.name(p)
+                    if n.hasPrefix(".") || ["Shared", "Deleted Users", "Guest"].contains(n) || homes.contains(PathUtil.trim(p)) { continue }
+                    // Owned by an account that exists (e.g. a folder an installer made for root): not a deleted user's.
+                    var st = stat()
+                    if lstat(p, &st) != 0 || uids.contains(st.st_uid) { continue }
+                    let size = measureFolder(p)
+                    if size > 0 { users.targets.append(DeleteTarget(path: p, label: n, isDir: true, size: size, note: "no such user")); users.size += size }
+                }
+            }
+            finish(&list, users)
         }
-        finish(&list, users)
 
         // From the scanned index: disk images not opened for 30 days, unfinished downloads, old update packages.
         let found = indexFindings(scanned)

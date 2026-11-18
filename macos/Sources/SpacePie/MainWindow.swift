@@ -148,6 +148,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     let contextMenu = NSMenu()
     lazy var updates = UpdateController(parent: window)
     var split2Positioned = false
+    var chartWidthBeforeHiding: CGFloat = 0
     /// layoutRoot is running / was asked again meanwhile (the list pane changed size while the toolbar was laid out).
     private var inLayoutRoot = false, layoutRootAgain = false
     /// Zoom of everything in the window (⌘+ / ⌘- / ⌘0); remembered between starts.
@@ -193,6 +194,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     lazy var btnSugIgnored = RoundButton("Ignored", .secondary) { [unowned self] in self.showIgnoredSuggestions() }
     var suggestGen = 0
     var suggestions: [Suggestion]?
+    var suggestDisk: String?          // the drive the suggestions shown were found for
     // Folders opened inside the suggestions (by path), and folders read for them that no scan covers.
     var sugOpenDirs = Set<String>()
     var sugRead: [String: DirNode] = [:]
@@ -227,6 +229,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     var sysStop: StopFlag?                // Stop on the delete strip while local snapshots are deleted
     // Fast restart (Snapshot.swift)
     var fastStart = false                 // start-up shows the last scan and replays the changes since
+    var loadingSnapshot = false
     var fsDeep: [String] = []             // folders to scan again as a whole (FSEvents could not list their changes)
     var onReplayDone: ((String, String?) -> Void)?   // root path, why it fell back to a scan (nil = replayed)
     // Delete list
@@ -713,13 +716,25 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         }
     }
 
-    static func capacity(_ path: String) -> (Int64, Int64) {
+    static func capacity(_ path: String, includePurgeable: Bool = true) -> (Int64, Int64) {
         if Demo.on { return Demo.capacity(path) }
-        let url = URL(fileURLWithPath: path)
-        guard let v = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey]) else { return (0, 0) }
-        let total = Int64(v.volumeTotalCapacity ?? 0)
-        let free = v.volumeAvailableCapacityForImportantUsage ?? Int64(v.volumeAvailableCapacity ?? 0)
-        return (total, free)
+        var filesystem = statfs()
+        guard statfs(path, &filesystem) == 0 else {
+            let reason = String(cString: strerror(errno))
+            NSLog("SpacePie: could not read volume capacity at %@: %@", path, reason)
+            return (0, 0)
+        }
+        // Important-usage capacity is optional on external filesystems; it must not hide physically free blocks.
+        let important = includePurgeable
+            ? (try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
+            : nil
+        return capacity(filesystem, importantAvailable: important)
+    }
+
+    static func capacity(_ filesystem: statfs, importantAvailable: Int64?) -> (Int64, Int64) {
+        let total = Int64(filesystem.f_blocks) * Int64(filesystem.f_bsize)
+        let available = Int64(filesystem.f_bavail) * Int64(filesystem.f_bsize)
+        return (total, min(total, max(0, available, importantAvailable ?? 0)))
     }
 
     func refreshCapacity(_ r: ScanRoot) {
@@ -763,6 +778,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         if busy || scanning { drivesChanged = true; return }
         drivesChanged = false
         loadDrives()
+        suggestionScopeChanged()
         refreshTree(current)
     }
 
@@ -778,7 +794,16 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         m.popUp(positioning: nil, at: NSPoint(x: 0, y: pathPanel.bounds.height + 4), in: pathPanel)
     }
 
-    @objc private func chooseDrive(_ sender: NSMenuItem) { if let p = sender.representedObject as? String { scanPath(p) } }
+    /// A drive scanned in this session is shown from memory (live updates keep it current); Rescan scans it again.
+    @objc private func chooseDrive(_ sender: NSMenuItem) {
+        guard let p = sender.representedObject as? String else { return }
+        if let r = findRoot(p), r.node != nil || r.scanning {
+            selectRoot(r)
+            if let i = pages.firstIndex(where: { $0 === pContents }) { pageIndex = i }
+            return
+        }
+        scanPath(p)
+    }
 
     private func openFullDiskAccess() { NSWorkspace.shared.open(FullDiskAccess.settingsURL) }
 
@@ -789,16 +814,15 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         if (obj.userInfo?["NSTextMovement"] as? Int) == NSTextMovement.return.rawValue { startScan() }
     }
 
-    func scanPath(_ path: String) {
+    func scanPath(_ path: String, select: Bool = true) {
         if busy || scanning { return }
         pathField.stringValue = path
-        startScan()
+        startScan(select: select)
     }
 
-    func startScan() {
+    func startScan(select: Bool = true) {
         if busy || scanning { return }
-        var path = (pathField.stringValue as NSString).expandingTildeInPath.trimmingCharacters(in: .whitespaces)
-        if path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+        let path = MainWindowController.normalizePath(pathField.stringValue)
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
             alert("Folder not found", path); return
@@ -814,12 +838,13 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         target.scanning = true
         let oldNode = target.node
         setScanning(true, "Scanning " + target.path + "...")
-        refreshTree(current)
-        if current == nil && oldNode == nil { selectRoot(target) }
+        if select { selectRoot(target) } else { refreshTree(current) }
         let started = Date()
         var snapInfo = Snapshot.infoNow(path)        // the event id from before the scan: changes during it are replayed too
         DispatchQueue.global(qos: .userInitiated).async {
             let result = s.run(path)
+            // The top folder could not be opened: keep the reason, so the scan does not just end empty.
+            let rootError: Int32 = result.fileList == nil && result.denied ? MainWindowController.openError(path) : 0
             DispatchQueue.main.async {
                 self.whenNoReaders {
                     target.scanning = false
@@ -834,12 +859,16 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
                         self.saveSnapshot(target, result, snapInfo)
                     }
                     self.startWatching(target)
-                    var goTo: DirNode?
-                    if let c = self.current, let old = oldNode, c.top === old { goTo = MainWindowController.findByPath(result, c.fullPath) ?? result }
-                    else if let a = self.active, a !== target { goTo = self.current }
-                    else { goTo = result }
-                    if self.active === target { self.current = nil }
-                    self.refreshTree(goTo, fallback: target)
+                    if self.thisPc {
+                        self.showThisPc()
+                    } else {
+                        var goTo: DirNode?
+                        if let c = self.current, let old = oldNode, c.top === old { goTo = MainWindowController.findByPath(result, c.fullPath) ?? result }
+                        else if let a = self.active, a !== target { goTo = self.current }
+                        else { goTo = result }
+                        if self.active === target { self.current = nil }
+                        self.refreshTree(goTo, fallback: self.active === target ? target : self.active)
+                    }
                     self.markSuggestionsDirty()
                     self.viewsChanged()
                     self.updateDriveLabel()
@@ -852,9 +881,40 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
                     if target.isDrive && !s.cancelled && self.selfTestDir == nil && !self.systemLoading { self.loadSystem() }
                     if !s.cancelled { self.findSuggestionsAfterScan() }
                     if !s.cancelled { self.checkLowSpace(target) }
+                    if rootError != 0 && !s.cancelled { self.reportUnreadableRoot(target, rootError) }
                     self.onScanFinished?()
                 }
             }
+        }
+    }
+
+    /// errno of opening a folder for listing (0 = it opens).
+    static func openError(_ path: String) -> Int32 {
+        let fd = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+        if fd >= 0 { Darwin.close(fd); return 0 }
+        return errno
+    }
+
+    static let filesAndFoldersURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")!
+
+    /// The scanned drive or folder itself could not be read: say why, and where macOS's permission is changed.
+    func reportUnreadableRoot(_ r: ScanRoot, _ code: Int32) {
+        let reason = String(cString: strerror(code))
+        let name = r.displayName
+        statusLabel.stringValue = "\(name) could not be read: \(reason). Nothing was scanned."
+        if selfTestDir != nil || autoAccept { return }
+        guard code == EPERM || code == EACCES else {
+            alert("\(name) could not be read", "macOS reported: \(reason). Check that the drive is connected and opens in Finder, then scan again.")
+            return
+        }
+        let external = r.isDrive && !r.isSystem
+        let text = external
+            ? "macOS refused SpacePie access to this drive (\(reason)). Turn on SpacePie under System Settings > Privacy & Security > Files and Folders > Removable Volumes (or under Full Disk Access), then scan again."
+            : "macOS refused SpacePie access to this folder (\(reason)). Give SpacePie Full Disk Access in System Settings > Privacy & Security, then scan again."
+        let d = PromptDialog(icon: .warn, heading: "\(name) could not be read", text: text,
+                             buttons: [("Open System Settings", .primary), ("OK", .secondary)], defaultIndex: 0, cancelIndex: 1)
+        d.show(over: window) { i in
+            if i == 0 { NSWorkspace.shared.open(external ? MainWindowController.filesAndFoldersURL : FullDiskAccess.settingsURL) }
         }
     }
 
@@ -931,11 +991,11 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         if !on && drivesChanged { DispatchQueue.main.async { self.volumesChanged() } }
     }
 
-    private func startProgressTimer() {
+    func startProgressTimer() {
         if progressTimer != nil { return }
         progressTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { [weak self] _ in self?.updateProgress() }
     }
-    private func stopProgressTimer() { progressTimer?.invalidate(); progressTimer = nil }
+    func stopProgressTimer() { progressTimer?.invalidate(); progressTimer = nil }
 
     /// The progress of a whole-drive scan: size on disk found so far against the drive's used space (both count
     /// allocated blocks; file lengths would run ahead: cloud files not downloaded, sparse and compressed files). Past
@@ -949,12 +1009,14 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
 
     /// Space in use on the volume holding path, purgeable space included (it is still on the disk and scanned).
     static func usedOnDisk(_ path: String) -> Int64 {
-        guard let v = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]),
-              let total = v.volumeTotalCapacity, let free = v.volumeAvailableCapacity else { return 0 }
-        return Int64(max(0, total - free))
+        let (total, free) = capacity(path, includePurgeable: false)
+        return max(0, total - free)
     }
 
     func updateProgress() {
+        if !scanning, let replay = roots.compactMap({ $0.replay }).first {
+            scanBar.set("Updating the saved scan...", "\(Fmt.count(replay.events)) changes received; \(Fmt.count(fsPending.count + fsDeep.count)) paths waiting", -1)
+        }
         if let s = scanner {
             let detail = "\(Fmt.count(s.filesSeen)) files, \(Fmt.count(s.dirsSeen)) folders  --  \(Fmt.shorten(s.current, 90))"
             if s.cancelled { scanBar.set("Cancelling... (finishing current folder)", detail, -1) }
@@ -1033,8 +1095,9 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
                 : "Saved scan of \(Fmt.date(r.scanned))"
             return
         }
-        guard let r = active, r.total > 0 else { driveLabel.stringValue = ""; return }
+        guard let r = active else { driveLabel.stringValue = ""; return }
         refreshCapacity(r)
+        guard r.total > 0 else { driveLabel.stringValue = r.displayName + "  -  capacity unavailable"; return }
         driveLabel.stringValue = "\(r.displayName)  \(Fmt.size(r.free)) free of \(Fmt.size(r.total)) (\(Int((100 * Double(r.free) / Double(max(1, r.total))).rounded()))% free)"
     }
 
@@ -1223,15 +1286,14 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         contents.scrollRowToVisible(i)
     }
 
-    /// A real drive of This Mac (not a scanned folder, not a saved scan): only these count in its totals and chart.
+    /// A real drive of This Mac (not a scanned folder, not a saved scan).
     static func countsAsDrive(_ r: ScanRoot) -> Bool { r.isDrive && !r.readOnly }
 
-    /// The drives that count in This Mac's totals and chart.
+    /// The drives that count in This Mac's totals.
     var thisPcDrives: [ScanRoot] { roots.filter { MainWindowController.countsAsDrive($0) } }
 
     /// One row per drive, saved scan and scanned folder; scanned ones open into their folders. A drive shows its used
-    /// space (of its capacity) and has a chart slice; a scanned folder or saved scan shows its own size (of its volume)
-    /// and has none.
+    /// space (of its capacity); a scanned folder or saved scan shows its own size (of its volume).
     func thisPcRows() -> [ItemInfo] {
         var items: [ItemInfo] = []
         for r in roots {
@@ -1282,18 +1344,10 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         updateButtons()
     }
 
-    /// This PC chart: the used space of every drive (scanned folders and saved scans have no slice).
-    func updateChartThisPc() {
-        if chartOnHold { showScanLogo(); return }
-        let drives = thisPcDrives
-        let total = drives.reduce(Int64(0)) { $0 + $1.total }
-        let used = drives.reduce(Int64(0)) { $0 + $1.used }
-        let slices = buildSlices(pContents, max(1, used), "of the used space")
-        chart.setData(MainWindowController.thisPcName, total > 0 ? "\(Fmt.size(total)) in \(drives.count) drive\(drives.count == 1 ? "" : "s")" : "", slices)
-    }
     func showUnscanned(_ r: ScanRoot) {
         thisPc = false
         current = nil
+        if active !== r { suggestionScopeChanged() }
         active = r
         refreshCapacity(r)
         if !busy && !scanning { pathField.stringValue = r.path }
@@ -1305,7 +1359,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             : "\(r.displayName) has not been scanned yet.\nPress Scan, or double-click the drive in \(MainWindowController.thisPcName), to analyze it.")
         viewsChanged()
         pContents.setCaption(r.displayName + (r.scanning ? "  -  scanning..." : "  -  not scanned"))
-        if activePage === pContents { updateChartUnscanned(r) }
+        if activePage === pContents { refreshChart() }
         updateDriveLabel()
         updateButtons()
     }
@@ -1316,6 +1370,7 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         thisPc = false
         current = d
         if let r = rootOf(d.top), r !== active {
+            suggestionScopeChanged()
             active = r
             updateDriveLabel()
             if !busy && !scanning { pathField.stringValue = r.path }

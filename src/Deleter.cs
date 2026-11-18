@@ -6,11 +6,21 @@ using System.Threading;
 
 namespace SpacePie
 {
-    /// <summary>Something to delete: a file, a folder, only the contents of a folder, or the Recycle Bin itself.</summary>
+    /// <summary>Something to delete: a file, a folder, only the contents of a folder, or the Recycle Bin of a drive (Path is
+    /// the drive's root).</summary>
     internal sealed class DeleteTarget
     {
         public string Path = "", Label = "", Note = "";
         public bool IsDir, ContentsOnly, RecycleBin;
+
+        /// <summary>"Recycle Bin on C:" for a Recycle Bin target.</summary>
+        public string BinName { get { return BinNameOf(Path); } }
+
+        public static string BinNameOf(string root)
+        {
+            return string.IsNullOrEmpty(root) ? "Recycle Bin" : "Recycle Bin on " + root.TrimEnd('\\');
+        }
+
         /// <summary>Ticked in a selection tree (suggestions).</summary>
         public bool Checked;
         public long Size;
@@ -50,8 +60,8 @@ namespace SpacePie
             foreach (var t in targets)
             {
                 if (Stop) return;
-                Current = t.RecycleBin ? "Recycle Bin" : t.Path;
-                if (t.RecycleBin) { EmptyRecycleBin(); continue; }
+                Current = t.RecycleBin ? t.BinName : t.Path;
+                if (t.RecycleBin) { EmptyRecycleBin(t.Path); continue; }
                 quiet = t.ContentsOnly;
                 if (recycle) Recycle(t.ContentsOnly ? Children(t.Path) : new List<string> { t.Path });
                 else if (t.ContentsOnly) DeleteContents(t.Path);
@@ -127,23 +137,23 @@ namespace SpacePie
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         static extern int SHQueryRecycleBinW(string root, ref SHQUERYRBINFO info);
 
-        /// <summary>Size and item count of the Recycle Bin on all drives (0, 0 when it cannot be read).</summary>
-        public static long RecycleBinSize(out long items)
+        /// <summary>Size and item count of the Recycle Bin on the drive with root (e.g. C:\; 0, 0 when it cannot be read).</summary>
+        public static long RecycleBinSize(string root, out long items)
         {
             var info = new SHQUERYRBINFO { cbSize = Marshal.SizeOf(typeof(SHQUERYRBINFO)) };
             items = 0;
-            if (SHQueryRecycleBinW(null, ref info) != 0) return 0;
+            if (SHQueryRecycleBinW(string.IsNullOrEmpty(root) ? null : root, ref info) != 0) return 0;
             items = info.i64NumItems;
             return info.i64Size;
         }
 
-        void EmptyRecycleBin()
+        void EmptyRecycleBin(string root)
         {
             long items;
-            RecycleBinSize(out items);
-            int hr = SHEmptyRecycleBinW(IntPtr.Zero, null, 0x1 | 0x2 | 0x4);   // no confirmation, no progress, no sound
+            RecycleBinSize(root, out items);
+            int hr = SHEmptyRecycleBinW(IntPtr.Zero, string.IsNullOrEmpty(root) ? null : root, 0x1 | 0x2 | 0x4);   // no confirmation, no progress, no sound
             if (hr == 0) FilesDeleted += items;
-            else if (items > 0) lock (Errors) Errors.Add("Recycle Bin  -  could not be emptied (0x" + hr.ToString("X8") + ")");
+            else if (items > 0) lock (Errors) Errors.Add(DeleteTarget.BinNameOf(root) + "  -  could not be emptied (0x" + hr.ToString("X8") + ")");
         }
 
         /// <summary>Moves items to the Recycle Bin (silently; Windows still warns before deleting an item too big for the bin).</summary>

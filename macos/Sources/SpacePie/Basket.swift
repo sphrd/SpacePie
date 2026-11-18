@@ -131,7 +131,7 @@ extension MainWindowController {
                 s.checked = checks
                 s.size = keep.reduce(Int64(0)) { $0 + $1.size }
             }
-            suggestions = list.filter { !$0.targets.isEmpty && $0.size > 0 }
+            suggestions = list.filter { $0.alwaysShow || (!$0.targets.isEmpty && $0.size > 0) }
         }
         updateBasketTitle()
     }
@@ -449,12 +449,23 @@ extension MainWindowController {
                     if job.stopped { self.statusLabel.stringValue += "  Stopped: what was not deleted yet stays." }
                     if !errors.isEmpty && showErrors && self.selfTestDir == nil {
                         let stuck = MainWindowController.stillThere(targets)
-                        self.deleteErrorsDialog(errors, trash: trash, elevate: !stuck.isEmpty).show(over: self.window) { i in
-                            guard i == 0, !stuck.isEmpty else { return }
-                            self.removeAsAdmin(stuck, trash: trash, what: "\(Fmt.count(stuck.count)) item\(stuck.count == 1 ? "" : "s")") { r in
+                        // What stays in an emptied Trash belongs to another account (root...): deleted as administrator.
+                        let trashLeft = targets.filter { $0.emptyTrash }.flatMap { DeleteJob.children($0.path, $0.exclude) }
+                        let all = stuck + trashLeft
+                        self.deleteErrorsDialog(errors, trash: trash, elevate: !all.isEmpty).show(over: self.window) { i in
+                            guard i == 0, !all.isEmpty else { return }
+                            let finish: (AdminRemove.Result?) -> Void = { r in
                                 guard let r = r, !r.left.isEmpty, !r.cancelled else { return }
                                 self.alert("\(Fmt.count(r.left.count)) item\(r.left.count == 1 ? "" : "s") could not be removed, even as administrator",
                                            r.error ?? "macOS protects them (System Integrity Protection) or they are on a read-only volume.", details: r.left)
+                            }
+                            if !trash || trashLeft.isEmpty {
+                                self.removeAsAdmin(all, trash: trash, what: "\(Fmt.count(all.count)) item\(all.count == 1 ? "" : "s")", finish)
+                            } else {
+                                self.removeAsAdmin(trashLeft, trash: false, what: "\(Fmt.count(trashLeft.count)) item\(trashLeft.count == 1 ? "" : "s") left in the Trash") { r in
+                                    if r?.cancelled == true || stuck.isEmpty { finish(r); return }
+                                    self.removeAsAdmin(stuck, trash: true, what: "\(Fmt.count(stuck.count)) item\(stuck.count == 1 ? "" : "s")", finish)
+                                }
                             }
                         }
                     }

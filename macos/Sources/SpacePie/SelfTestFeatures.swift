@@ -309,9 +309,11 @@ extension SelfTestRun {
             write("k3/deep/e.bin", 1500); write("top.bin", 1000)
             try? fm.removeItem(atPath: Snapshot.file(for: sd))
             w.scanPath(sd)
+            self.check(w.active === w.findRoot(sd) && !w.thisPc, "scan: the newly selected folder is shown immediately")
         }
         steps.waitUntil(30) { !w.scanning && w.findRoot(sd)?.node != nil && PathUtil.exists(Snapshot.file(for: sd)) }
         steps.then {
+            self.check(w.current?.fullPath == sd, "scan: the newly scanned folder remains open after completion")
             self.check(PathUtil.exists(Snapshot.file(for: sd)) && PathUtil.parent(Snapshot.file(for: sd)) == self.dir + "-snapshots",
                        "snapshot: saved after the full scan (\(PathUtil.name(Snapshot.file(for: sd))))")
             // "Quit": the folder is forgotten.

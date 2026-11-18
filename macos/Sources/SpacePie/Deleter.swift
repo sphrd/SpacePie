@@ -81,7 +81,8 @@ final class DeleteJob {
         for t in targets {
             if stopped { break }
             current = t.emptyTrash ? "Trash" : t.path
-            quiet = t.contentsOnly || t.emptyTrash
+            // Caches skip items in use quietly; whatever stays in the Trash is reported.
+            quiet = t.contentsOnly && !t.emptyTrash
             if t.emptyTrash { deleteContents(t.path, t.exclude) }
             else if trash {
                 moveToTrash(t.contentsOnly ? DeleteJob.children(t.path, t.exclude) : [t.path])
@@ -124,16 +125,48 @@ final class DeleteJob {
 
     /// Deletes everything inside a folder and keeps the folder.
     private func deleteContents(_ dir: String, _ exclude: Set<String>) {
-        for p in DeleteJob.children(dir, exclude) {
+        let names: [String]
+        do {
+            names = try FileManager.default.contentsOfDirectory(atPath: dir)
+        } catch {
+            lock.lock()
+            _failed.append(dir)
+            _errors.append(dir + "  -  could not read contents (" + error.localizedDescription + ")")
+            lock.unlock()
+            return
+        }
+        contentsRoot = PathUtil.trim(dir)
+        defer { contentsRoot = "" }
+        for name in names where !exclude.contains(name) {
             if stopped { return }
+            let p = PathUtil.join(dir, name)
             var st = stat()
-            if lstat(p, &st) != 0 { continue }
+            if lstat(p, &st) != 0 { error(p, errno); continue }
             if (st.st_mode & S_IFMT) == S_IFDIR { deleteTree(p) } else { deleteFile(p, st) }
         }
     }
 
+    /// The folder whose contents are being deleted: kept as it is (never unlocked or given other permissions).
+    private var contentsRoot = ""
+
+    /// Like Finder before it empties the Trash: an item of the user's loses its lock flags and its access list (e.g.
+    /// "everyone deny delete", common on copies of system or app folders), and a folder becomes readable and writable,
+    /// so it and what is inside it can be removed. Items of other accounts are left as they are.
+    private func unlockForDelete(_ path: String) {
+        if PathUtil.same(path, contentsRoot) { return }
+        var st = stat()
+        guard lstat(path, &st) == 0, st.st_uid == getuid() else { return }
+        if st.st_flags & UInt32(UF_IMMUTABLE | UF_APPEND) != 0 { lchflags(path, 0) }
+        if let empty = acl_init(0) {
+            _ = acl_set_link_np(path, ACL_TYPE_EXTENDED, empty)
+            acl_free(UnsafeMutableRawPointer(empty))
+        }
+        if (st.st_mode & S_IFMT) == S_IFDIR { chmod(path, (st.st_mode & 0o7777) | S_IRWXU) }
+    }
+
     private func deleteTree(_ dir: String) {
         current = dir
+        unlockForDelete(dir)
         // A folder not downloaded from iCloud cannot be listed while downloads are off; allow fetching its names here
         // (the files inside stay in the cloud and are only removed).
         let list = { try? FileManager.default.contentsOfDirectory(atPath: dir) }
@@ -147,21 +180,32 @@ final class DeleteJob {
             }
         }
         if stopped { return }
-        if rmdir(dir) != 0 {
-            let e = errno
-            if chflags(dir, 0) == 0 && rmdir(dir) == 0 { gone(dir); return }
-            error(dir, e)
-        } else { gone(dir) }
+        if rmdir(dir) == 0 { gone(dir); return }
+        let e = errno
+        if e == EACCES || e == EPERM {
+            unlockForDelete(PathUtil.parent(dir))
+            if rmdir(dir) == 0 { gone(dir); return }
+        }
+        error(dir, e)
     }
 
     private func deleteFile(_ path: String, _ st: stat) {
         current = path
-        if st.st_flags & UInt32(UF_IMMUTABLE) != 0 { lchflags(path, 0) }
-        if unlink(path) == 0 {
+        if st.st_flags & UInt32(UF_IMMUTABLE | UF_APPEND) != 0 { lchflags(path, 0) }
+        var ok = unlink(path) == 0
+        var code = ok ? 0 : errno
+        if !ok && (code == EACCES || code == EPERM) {
+            // The item or the folder holding it forbids deleting (lock, access list, read-only): unlock both and retry.
+            unlockForDelete(path)
+            unlockForDelete(PathUtil.parent(path))
+            ok = unlink(path) == 0
+            if !ok { code = errno }
+        }
+        if ok {
             let size = DirNode.onDisk ? Int64(st.st_blocks) * 512 : Int64(st.st_size)
             lock.lock(); _files += 1; _bytes += size; _gone.append(path); lock.unlock()
         }
-        else { error(path, errno) }
+        else { error(path, code) }
         if DeleteJob.throttle > 0 { usleep(DeleteJob.throttle) }
     }
 

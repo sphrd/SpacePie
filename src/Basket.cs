@@ -45,7 +45,7 @@ namespace SpacePie
                 {
                     Targets = new List<DeleteTarget> { t }, Name = t.Label, Size = t.Size, FolderIcon = t.IsDir,
                     Path = t.RecycleBin ? null : t.Path, Note = t.Note, Percent = total > 0 ? 100.0 * t.Size / total : 0,
-                    Folder = t.RecycleBin ? "All drives" : t.ContentsOnly ? t.Path : Native.ParentDir(t.Path) ?? t.Path
+                    Folder = t.RecycleBin ? t.BinName : t.ContentsOnly ? t.Path : Native.ParentDir(t.Path) ?? t.Path
                 };
                 rows.Add(Row(it, it.Name, Fmt.Size(it.Size), it.Percent.ToString("0.0") + " %", it.Folder, it.Note));
             }
@@ -99,7 +99,7 @@ namespace SpacePie
         {
             if (t.RecycleBin)
             {
-                if (basket.Any(b => b.RecycleBin)) return false;
+                if (basket.Any(b => b.RecycleBin && SamePath(b.Path, t.Path))) return false;
                 basket.Add(t);
                 return true;
             }
@@ -272,7 +272,7 @@ namespace SpacePie
         /// <summary>One line per target for the confirmation's details box: path, then (after a tab) its size and any remark.</summary>
         static List<string> TargetLines(IEnumerable<DeleteTarget> targets, Func<DeleteTarget, string> remark = null)
         {
-            return targets.Select(t => (t.RecycleBin ? "Empty the Recycle Bin" : t.Path + (t.ContentsOnly ? "  (its contents)" : "")) + "\t" + Fmt.Size(t.Size)
+            return targets.Select(t => (t.RecycleBin ? "Empty the " + t.BinName : t.Path + (t.ContentsOnly ? "  (its contents)" : "")) + "\t" + Fmt.Size(t.Size)
                 + (remark != null ? remark(t) : "")).ToList();
         }
 
@@ -456,7 +456,7 @@ namespace SpacePie
             foreach (var t in all.Distinct())
             {
                 bool tried = attempted.Contains(t) || attempted.Any(a => !a.RecycleBin && !t.RecycleBin && SamePath(a.Path, t.Path)) ||
-                    (t.RecycleBin && attempted.Any(a => a.RecycleBin));
+                    (t.RecycleBin && attempted.Any(a => a.RecycleBin && SamePath(a.Path, t.Path)));
                 if (!tried) continue;
                 long? left = MeasureTarget(t);
                 if (left == null || (left.Value == 0 && (t.ContentsOnly || t.RecycleBin || t.IsDir))) { gone.Add(t); continue; }
@@ -464,7 +464,13 @@ namespace SpacePie
                 t.Note = "partly deleted -- the rest is in use or access was denied";
             }
             basket.RemoveAll(gone.Contains);
-            if (suggestions != null) foreach (var s in suggestions) { s.Targets.RemoveAll(gone.Contains); s.Remeasure(); }
+            if (suggestions != null)
+                foreach (var s in suggestions)
+                {
+                    s.Targets.RemoveAll(gone.Contains);
+                    s.Remeasure();
+                    if (s.AlwaysShow && s.Targets.Count == 0) s.Location = "Empty";
+                }
             BasketChanged();
             if (suggestions != null && ActivePage == pSuggest) ShowSuggestions();
             else if (pSuggest != null) pSuggest.Stale = true;
@@ -473,7 +479,7 @@ namespace SpacePie
         /// <summary>What is left of a target now (null = it no longer exists).</summary>
         long? MeasureTarget(DeleteTarget t)
         {
-            if (t.RecycleBin) { long n; return DeleteJob.RecycleBinSize(out n); }
+            if (t.RecycleBin) { long n; return DeleteJob.RecycleBinSize(t.Path, out n); }
             if (t.IsDir)
             {
                 if (!Native.IsDirectory(t.Path)) return null;

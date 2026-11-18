@@ -36,7 +36,7 @@
     "Live updates without rescanning",
     "Size on disk or file size; cloud files that are not downloaded are never downloaded",
     "Pie chart or treemap of the open list",
-    "Cleanup suggestions with a checkbox tree of every location",
+    "Cleanup suggestions per drive with a checkbox tree of every location",
     "Installed apps with their real size, uninstall with leftovers",
     "System view: Windows update leftovers, restore points, hibernation and page files, Time Machine local snapshots",
     "Largest files with search and filters by type, size and date",
@@ -152,10 +152,28 @@
   .scanbar canvas { width: 16px; height: 16px; flex: none; }
 
   /* views as tabs */
-  .tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
-  .tab-label { display: inline-block; font-size: 13px; font-weight: 600; padding: 2px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--accent-light); margin-bottom: 10px; }
-  .tab-label.green { color: var(--free); border-color: rgba(76,195,138,.45); }
+  .tabs { display: grid; grid-template-columns: minmax(0, 1fr); gap: 40px; }
+  .tab-view { min-width: 0; border-top: 1px solid var(--border); padding-top: 24px; }
+  .tab-view p { color: var(--muted); margin: 0; max-width: 960px; }
+  .tab-view figure, .feature-shot { margin: 18px 0 0; }
+  .tab-view figcaption, .feature-shot figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  .tab-label { font-size: 22px; font-weight: 600; color: var(--accent-light); margin: 0 0 10px; }
+  .tab-label.green { color: var(--free); }
   .chart-notes { margin-bottom: 16px; }
+  .tab-label.amber { color: #e0a030; }
+  .tab-view { scroll-margin-top: 132px; }
+  .tabs .tab-view:first-child { border-top: 0; padding-top: 0; }
+  .tab-points { margin: 10px 0 0; padding-left: 18px; color: var(--muted); max-width: 960px; }
+  .tab-points li + li { margin-top: 6px; }
+  .tab-points strong { color: var(--fg); font-weight: 600; }
+  .tab-nav { position: sticky; top: 60px; z-index: 4; display: flex; flex-wrap: nowrap; gap: 8px; padding: 12px 0; margin: 0 0 24px; background: var(--bg); border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+  .tab-nav::-webkit-scrollbar { display: none; }
+  .tab-nav a { flex: none; white-space: nowrap; border: 1px solid var(--border); border-radius: 999px; padding: 4px 14px; font-size: 14px; color: var(--accent-light); background: var(--surface); }
+  .tab-nav a:hover { border-color: var(--accent); color: var(--fg); }
+  .tab-nav a.green { color: var(--free); }
+  .tab-nav a.amber { color: #e0a030; }
+  .shots-stack { display: grid; gap: 24px; margin-top: 8px; }
+  .shots-stack .feature-shot:first-child .shot-btn { max-width: 875px; margin: 0 auto; }
 
   /* split panel */
   .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -183,11 +201,7 @@
   .group td { background: var(--bg); color: var(--muted); font-size: 13px; padding: 8px 16px; }
   .fine { color: var(--muted); font-size: 14px; margin: 14px 0 0; max-width: 860px; }
 
-  /* gallery + lightbox */
-  .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-  .gallery figure { margin: 0; }
-  .gallery .shot-btn img { aspect-ratio: 1600 / 867; object-fit: contain; object-position: center; background: var(--bg); }
-  .gallery figcaption { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  /* lightbox */
   .lightbox { position: fixed; inset: 0; z-index: 20; background: rgba(20,24,30,.94); display: none; align-items: center; justify-content: center; flex-direction: column; padding: 56px 16px 20px; }
   .lightbox.open { display: flex; }
   .lightbox img { max-width: 100%; max-height: calc(100vh - 140px); border-radius: 12px; border: 1px solid var(--border); }
@@ -225,7 +239,6 @@
 
   @media (max-width: 900px) {
     .stats { grid-template-columns: repeat(2, 1fr); }
-    .gallery { grid-template-columns: repeat(2, 1fr); }
     .grid.three, .split { grid-template-columns: 1fr; }
     .top nav a.opt { display: none; }
   }
@@ -242,7 +255,6 @@
     .lead { font-size: 16px; }
     section { padding-top: 56px; }
     .grid, .tabs { grid-template-columns: 1fr; }
-    .gallery { grid-template-columns: 1fr; }
     .stats { gap: 10px; }
     .stat { padding: 14px; }
     .stat b { font-size: 24px; }
@@ -283,7 +295,7 @@
       <a class="opt" href="#how">How it works</a>
       <a href="#features">Features</a>
       <a class="opt" href="#accuracy">Accuracy</a>
-      <a href="#screenshots">Screenshots</a>
+      <a href="#views">Tour</a>
       <a href="#faq">FAQ</a>
     </nav>
     <a class="btn primary" href="#download">Download</a>
@@ -321,7 +333,7 @@
 
     <figure class="hero-shot">
       <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" data-caption="SpacePie: the views bar, folder contents as an expandable tree-list and the pie chart (demo data)">
-        <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" alt="SpacePie main window: the views bar on the left, folder contents with sizes as an expandable tree-list in the middle and a pie chart of where the space went (demo data)" width="1600" height="867" fetchpriority="high">
+        <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" alt="SpacePie main window: the views bar on the left, folder contents with sizes as an expandable tree-list in the middle and a pie chart of where the space went (demo data)" width="2560" height="1389" fetchpriority="high">
       </button>
       <figcaption>It starts analyzing your system drive the moment it opens. See where your space went, find big, old and duplicate files, follow cleanup suggestions, uninstall apps together with everything they left behind, and delete what you don't need, to the Recycle Bin / Trash or permanently.</figcaption>
     </figure>
@@ -369,27 +381,88 @@
       </div>
     </section>
 
-    <!-- Views -->
+    <!-- Views: every view of the app, each with its full-size screenshot -->
     <section id="views" aria-labelledby="views-h">
-      <p class="eyebrow">Seeing where the space went</p>
-      <h2 id="views-h">Every view you need, one click away</h2>
-      <p class="lead">The chart always shows the open list, as a pie chart or a treemap, and hovering a slice highlights its row and the other way round, also for subfolders in the outer rings, the treemap and expanded rows. Every item of at least 2&nbsp;% of the total gets a slice of its own, in true proportion; smaller items together form one grey slice.</p>
-      <div class="grid chart-notes">
-        <div class="card"><h3>Pie or treemap</h3><p>A pie chart with subfolders in two outer rings, or a treemap of rectangles sized by space with folders nested inside. One click to switch; the choice is remembered.</p></div>
-        <div class="card"><h3>Knows what it is</h3><p>Well-known folders and files (the Windows component store, <code>hiberfil.sys</code>, browser and developer caches, iPhone backups, Xcode data, <code>node_modules</code>&hellip;) are named, with whether they can go and where to clean them up properly.</p></div>
-        <div class="card"><h3>Back, Forward and a path bar</h3><p>Go back to the folders you opened (also with the mouse side buttons) and jump to any parent from the path above the list.</p></div>
-      </div>
-      <h3 class="sub">The views</h3>
+      <p class="eyebrow">A tour of SpacePie</p>
+      <h2 id="views-h">Every view, one click away</h2>
+      <p class="lead">The views bar on the left switches between them. The chart on the right always shows the open list, as a pie chart or a treemap; hovering a slice highlights its row and the other way round. Every item of at least 2&nbsp;% of the total gets a slice of its own, in true proportion; smaller items together form one grey slice. All screenshots use demo data; click one to see it larger.</p>
+      <nav class="tab-nav" aria-label="Views">
+        <a href="#view-contents">Contents</a>
+        <a href="#view-treemap">Treemap</a>
+        <a href="#view-this-pc">This Mac / This PC</a>
+        <a class="green" href="#view-suggestions">Suggestions</a>
+        <a href="#view-apps">Apps</a>
+        <a href="#view-system">System</a>
+        <a href="#view-files">Files</a>
+        <a href="#view-file-types">File types</a>
+        <a href="#view-duplicates">Duplicates</a>
+        <a href="#view-changes">Changes</a>
+        <a class="amber" href="#view-delete-list">Delete list</a>
+      </nav>
       <div class="tabs">
-        <div class="card"><span class="tab-label">Contents</span><p>The open folder's subfolders and files with size, share of the parent, change since the last scan, counts and dates, as a tree-list: expand folders in place to compare what is inside. Above every drive, <strong>This PC</strong> lists all drives with their used and free space. Click a part of the chart to open it, click the centre to go back up.</p></div>
-        <div class="card"><span class="tab-label green">Suggestions</span><p>How much you checked out of all that can be freed, in large print, and what: the Recycle Bin / Trash on every drive, temporary files, user and system caches and logs, developer caches, the <code>node_modules</code> folders of your own projects, mail attachments, unfinished downloads, unused disk images, old updates, leftovers of removed apps and more, each with what deleting it means. Expand one to see the actual files and folders in it, with their paths, and open folders further (<strong>Expand all</strong> / <strong>Collapse all</strong>). Check exactly what you want and delete it for good with <strong>Clean up permanently</strong>; safe items start checked, items to review first start unchecked. <strong>Never suggest this</strong> hides an item for good.</p></div>
-        <div class="card"><span class="tab-label">Apps</span><p>Every installed app with its own logo and its real size on disk. Expand an app to see everything that belongs to it: program folder, settings and caches, shared data, shortcuts and, on Windows, registry keys. <strong>Uninstall&hellip;</strong> removes the app and asks to delete whatever is left. <strong>Not opened for 6 months</strong> lists the apps you no longer use.</p></div>
-        <div class="card"><span class="tab-label">System</span><p>Windows: update leftovers in the component store, restore points, hibernation and page files, WSL / Docker virtual disks, a registry check of broken entries, and every drive's free space and health. macOS: Time Machine local snapshots, purgeable space, iPhone / iPad backups and every volume's health (SMART status).</p></div>
-        <div class="card"><span class="tab-label">Files</span><p>The largest files, with a name search (<code>*.iso</code>, <code>invoice</code>; <code>*.</code> finds files without an extension) and filters by type, size and date: not changed, or <strong>not opened</strong>, for months or years. Search the open folder or everything scanned at once. Instant, from memory.</p></div>
-        <div class="card"><span class="tab-label">File types</span><p>Space by extension or by category: videos, images, archives, disk images, installers and more.</p></div>
-        <div class="card"><span class="tab-label">Duplicates</span><p>Files with identical content. <strong>Select extra copies</strong> keeps the newest of each group, or <strong>Replace with links</strong> keeps every file where it is but stores the data once (Windows hard links, APFS clones on macOS). A repeat search only reads new or changed files.</p></div>
-        <div class="card"><span class="tab-label">Changes</span><p>Which folders grew or shrank since the previous scan, or between any two scans: a timeline shows the used space at every scan, and one small copy per day is kept to compare with.</p></div>
-        <div class="card"><span class="tab-label">Delete list</span><p>Always one click away: the amber row at the bottom of the views bar. Collect items from any view, review them together, then <strong>Move to Recycle Bin / Trash</strong> (can be undone) or <strong>Delete permanently</strong> (frees the space now).</p></div>
+        <article class="tab-view" id="view-contents">
+          <h3 class="tab-label">Contents and the pie chart</h3>
+          <p>The open folder's subfolders and files with their size, share of the parent, change since the last scan, counts and dates, as a tree-list: expand folders in place to compare what is inside. The pie chart shows the same rows, with subfolders in two outer rings; for a drive it also shows the free space and the space no folder accounts for (system data, local snapshots, folders that can't be read). Click a slice to open it, click the centre to go back up, and use Back, Forward (also the mouse side buttons) and the path bar above the list.</p>
+          <ul class="tab-points">
+            <li><strong>Knows what it is:</strong> well-known folders and files (the Windows component store, <code>hiberfil.sys</code>, browser and developer caches, iPhone backups, Xcode data, <code>node_modules</code>&hellip;) are named, with whether they can go and where to clean them up properly.</li>
+            <li><strong>Size on disk or file size,</strong> one click to switch; every list sorts by any column, and text cut off with &hellip; shows in full on hover.</li>
+          </ul>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" data-caption="Contents: folders expanded in place, with their sizes and a linked pie chart (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot.png" alt="SpacePie Contents with two folders expanded in place and a pie chart with subfolders in two outer rings" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>Contents with two folders expanded in place, and the pie chart of the drive with its free space.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-treemap">
+          <h3 class="tab-label">Treemap</h3>
+          <p>The same list as rectangles sized by space, with folders nested inside their parents, two levels deep. <strong>Pie</strong> / <strong>Treemap</strong> at the top of the chart switches, in every view, and the choice is remembered. Hover and click work as in the pie chart.</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-treemap.png" data-caption="Treemap: the same drive as rectangles sized by space, folders with their subfolders inside (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-treemap.png" alt="SpacePie Contents with a treemap of folders sized by space, subfolders nested inside" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>The drive as a treemap, with its free space.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-this-pc">
+          <h3 class="tab-label">This Mac / This PC</h3>
+          <p>Above every drive: all drives with their used and free space, internal and external, plus the folders and saved scans you opened. It is a plain list, so the chart makes room for it. Double-click a drive to scan it; a drive already scanned since the app opened is shown again at once, kept current by live updates (<strong>Rescan</strong> scans it again).</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-this-pc.png" data-caption="This Mac: every drive with its used and free space (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-this-pc.png" alt="SpacePie This Mac listing internal and external drives with their used and free space" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>This Mac: the internal drive, an external drive and the scanned Data drive.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-suggestions">
+          <h3 class="tab-label green">Suggestions</h3>
+          <p>How much you checked out of all that can be freed on the selected drive, in large print, and what: temporary files, user and system caches and logs, developer caches, the <code>node_modules</code> folders of your own projects, mail attachments, unfinished downloads, unused disk images, old updates, leftovers of removed apps and more, each with what deleting it means. Expand one to see the actual files and folders in it, with their paths, and open folders further. Check exactly what you want and delete it for good with <strong>Clean up permanently</strong>; safe items start checked, items to review first start unchecked in amber, and <strong>Never suggest this</strong> hides an item for good.</p>
+          <ul class="tab-points">
+            <li><strong>One drive at a time:</strong> the suggestions are those of the drive you are on, so it is always clear what is where.</li>
+            <li><strong>The Trash or Recycle Bin of that drive</strong> is always listed and starts unchecked, because emptying it is permanent. On the Mac's drive it is your Trash, including the iCloud Drive Trash Finder shows with it; on an external drive, that drive's own hidden Trash folders. Locked items are unlocked first, like Finder does, and anything that stays is listed with the reason.</li>
+          </ul>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" data-caption="Suggestions: space that can be freed on the selected drive, with a checkbox tree of every location (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" alt="SpacePie cleanup suggestions for the Mac's drive: checked locations, the Trash unchecked in amber and the space that can be freed" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>Suggestions for the Mac's drive, one suggestion expanded with one location unchecked.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-apps">
+          <h3 class="tab-label">Apps</h3>
+          <p>Every installed app with its own logo and its real size on disk. Expand an app to review its program folder, settings, caches and other matched files; on Windows, registry keys are included too. On macOS, <strong>Uninstall&hellip;</strong> moves the app and its checked files to the Trash together; on Windows it runs the official uninstaller, then checks what remains. <strong>Remove leftovers</strong> becomes available when an uninstall leaves items behind. <strong>Not opened for 6 months</strong> lists the apps you no longer use.</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" data-caption="Apps: installed apps with their sizes, one expanded to review its files (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" alt="SpacePie Apps showing installed applications and an expanded app's matched files" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>Installed apps, the largest expanded with everything that belongs to it.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-system">
+          <h3 class="tab-label">System</h3>
+          <p>Space the operating system keeps for itself. <strong>macOS:</strong> Time Machine local snapshots (delete one or all), purgeable space, iPhone / iPad backups and every volume's free space and health (SMART status). Purgeable space is freed by macOS on its own when an app needs room and already counts as available; to free most of it now, delete the local snapshots. <strong>Windows:</strong> update leftovers in the component store, restore points, hibernation and page files, WSL / Docker virtual disks, a registry check of broken entries, and every drive's free space and health.</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-system.png" data-caption="System on macOS: local snapshots, purgeable space, device backups and drives (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-system.png" alt="SpacePie System showing Time Machine snapshots, purgeable space, iPhone backups and drives" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>System on macOS.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-files">
+          <h3 class="tab-label">Files</h3>
+          <p>The largest files, with a name search (<code>*.iso</code>, <code>invoice</code>; <code>*.</code> finds files without an extension) and filters by type, size and date: not changed, or <strong>not opened</strong>, for months or years. Search the open folder or everything scanned at once. Instant, from memory.</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-files.png" data-caption="Files: the largest files with search and type, size and date filters (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-files.png" alt="SpacePie Files listing the largest files with search and filtering controls" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>The largest files of a drive.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-file-types">
+          <h3 class="tab-label">File types</h3>
+          <p>Space by extension or by category: videos, images, archives, disk images, installers and more. Double-click a type to list its files.</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-file-types.png" data-caption="File types: space grouped by extension (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-file-types.png" alt="SpacePie File types showing space used by each file extension" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>Space by extension.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-duplicates">
+          <h3 class="tab-label">Duplicates</h3>
+          <p>Files with identical content. <strong>Select extra copies</strong> keeps the newest of each group, or <strong>Replace with links</strong> keeps every file where it is but stores the data once (Windows hard links, APFS clones on macOS). A repeat search only reads new or changed files.</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" data-caption="Duplicates: identical files and the space their extra copies take (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" alt="SpacePie Duplicates showing groups of identical files and reclaimable space" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>Groups of identical files and the space their extra copies take.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-changes">
+          <h3 class="tab-label">Changes</h3>
+          <p>Which folders grew or shrank since the previous scan, or between any two scans: a timeline shows the used space at every scan, and one small copy per day is kept to compare with.</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-changes.png" data-caption="Changes: folder growth compared with an earlier scan (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-changes.png" alt="SpacePie Changes comparing folder sizes against the previous scan" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>What grew since the scan a week earlier.</figcaption></figure>
+        </article>
+        <article class="tab-view" id="view-delete-list">
+          <h3 class="tab-label amber">Delete list</h3>
+          <p>Always one click away: the amber row at the bottom of the views bar. Collect items from any view, review them together, then <strong>Move to Recycle Bin / Trash</strong> (can be undone) or <strong>Delete permanently</strong> (frees the space now). A confirmation that lists every item always comes first, and a red strip shows the progress while it deletes; see <a href="#safety">safe cleaning</a> below.</p>
+          <figure><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-list.png" data-caption="Delete list: review collected items before moving them to the Trash or deleting permanently (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-list.png" alt="SpacePie Delete list with collected files and Trash or permanent delete actions" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>Four large files collected for deletion.</figcaption></figure>
+        </article>
       </div>
     </section>
 
@@ -419,6 +492,10 @@
         </div>
       </div>
       <p class="warn"><strong>Delete permanently cannot be undone.</strong> Use Move to Recycle Bin / Trash if you may want something back.</p>
+      <div class="shots-stack">
+        <figure class="feature-shot"><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" data-caption="The confirmation before a permanent delete, listing every item (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" alt="SpacePie permanent delete confirmation listing every item and the total size" width="1400" height="738" loading="lazy" decoding="async"></button><figcaption>The confirmation lists every item.</figcaption></figure>
+        <figure class="feature-shot"><button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" data-caption="Deleting: a red progress strip counts files removed and space freed (demo data)"><img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" alt="SpacePie deleting files with progress, space freed and a Stop button" width="2560" height="1389" loading="lazy" decoding="async"></button><figcaption>Live progress while deleting, with Stop.</figcaption></figure>
+      </div>
     </section>
 
     <!-- History and more -->
@@ -512,51 +589,6 @@
         </table>
       </div>
       <p class="fine">On Windows the small size differences are file symbolic links: <code>robocopy</code> counts the file each one points to, SpacePie counts the link itself. Full numbers in the <a href="https://github.com/sphrd/SpacePie#accuracy-and-speed">README</a>.</p>
-    </section>
-
-    <!-- Gallery -->
-    <section id="screenshots" aria-labelledby="shots-h">
-      <p class="eyebrow">Screenshots</p>
-      <h2 id="shots-h">SpacePie screenshots</h2>
-      <p class="lead">Click a picture to enlarge it.</p>
-      <div class="gallery">
-        <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-treemap.png" data-caption="Treemap: the same drive as rectangles sized by space, folders with their subfolders inside (demo data)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-treemap.png" alt="SpacePie treemap: a drive shown as rectangles sized by space, folders with their subfolders inside" width="1600" height="867" loading="lazy" decoding="async">
-          </button>
-          <figcaption>Treemap of a drive</figcaption>
-        </figure>
-        <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" data-caption="Suggestions: how much can be freed, with a checkbox tree of every location (demo data)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-suggestions.png" alt="SpacePie cleanup suggestions on macOS: how much space can be freed, with a checkbox tree of every location" width="1600" height="867" loading="lazy" decoding="async">
-          </button>
-          <figcaption>Cleanup suggestions</figcaption>
-        </figure>
-        <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" data-caption="Apps: every installed app with its logo and size; expanded, it shows all its files (demo data)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-apps.png" alt="SpacePie Apps view on macOS: installed apps with their logos and sizes, one expanded to show all its files" width="1600" height="867" loading="lazy" decoding="async">
-          </button>
-          <figcaption>Installed apps and their files</figcaption>
-        </figure>
-        <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" data-caption="Duplicates: groups of identical files and the space their extra copies take (demo data)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-duplicates.png" alt="SpacePie duplicate files: groups of identical files and the space their extra copies take" width="1600" height="867" loading="lazy" decoding="async">
-          </button>
-          <figcaption>Duplicate files</figcaption>
-        </figure>
-        <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" data-caption="Deleting: the red progress strip counts the files removed and the space freed (demo data)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-deleting.png" alt="SpacePie deleting files: the progress strip counts files removed and space freed" width="1600" height="867" loading="lazy" decoding="async">
-          </button>
-          <figcaption>Deleting, with progress and Stop</figcaption>
-        </figure>
-        <figure>
-          <button class="shot-btn" type="button" data-full="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" data-caption="The confirmation before a permanent delete, listing every item (demo data)">
-            <img src="https://raw.githubusercontent.com/sphrd/SpacePie/main/assets/screenshot-delete-confirm.png" alt="SpacePie confirmation dialog before a permanent delete, listing every item and the total size" width="875" height="461" loading="lazy" decoding="async">
-          </button>
-          <figcaption>The confirmation lists every item</figcaption>
-        </figure>
-      </div>
     </section>
 
     <!-- FAQ -->

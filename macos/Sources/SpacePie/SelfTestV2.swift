@@ -8,6 +8,23 @@ extension SelfTestRun {
         let w = self.w
         let fm = FileManager.default
 
+        steps.then {
+            w.loadingSnapshot = true
+            w.updateRestoreProgress()
+            self.check(!w.scanBar.isHidden && !w.scanBar.cancelButton.isEnabled,
+                       "startup: loading a saved scan shows progress without a misleading Cancel action")
+            w.loadingSnapshot = false
+            if let root = w.active {
+                root.replay = Replay(Snapshot.infoNow(root.path), 0)
+                w.updateRestoreProgress()
+                w.updateProgress()
+                self.check(!w.scanBar.isHidden, "startup: replaying a saved scan keeps progress visible")
+                root.replay = nil
+            }
+            w.updateRestoreProgress()
+            self.check(w.scanBar.isHidden, "startup: restore progress disappears when the saved scan is up to date")
+        }
+
         // Last opened: the scan records each file's last-access time (never before its last change).
         steps.then {
             guard let top = self.root else { self.check(false, "last opened: nothing scanned"); return }
@@ -77,6 +94,34 @@ extension SelfTestRun {
             w.setZoom(before)
             if let v = saved { UserDefaults.standard.set(v, forKey: MainWindowController.zoomKey) } else { UserDefaults.standard.removeObject(forKey: MainWindowController.zoomKey) }
             self.check(ok && w.zoom == before, "zoom: 150 %, 200 % and 75 % scale the window's content, toolbar buttons never overlap or leave the window" + detail)
+        }
+
+        steps.then {
+            let spaced = self.P("drive ")
+            try? fm.createDirectory(atPath: spaced, withIntermediateDirectories: true)
+            try? fm.createDirectory(atPath: self.P("drive"), withIntermediateDirectories: true)
+            let exact = MainWindowController.normalizePath(spaced)
+            let typed = MainWindowController.normalizePath("  " + self.P("drive") + "  ")
+            self.check(exact == spaced && typed == self.P("drive"),
+                       "paths: a trailing space that is part of a folder's name is kept; stray spaces around a typed path are trimmed")
+            try? fm.removeItem(atPath: spaced)
+            try? fm.removeItem(atPath: self.P("drive"))
+        }
+
+        steps.then {
+            var filesystem = statfs()
+            filesystem.f_bsize = 4096
+            filesystem.f_blocks = 233 * 262144
+            filesystem.f_bavail = 66 * 262144
+            let zeroImportant = MainWindowController.capacity(filesystem, importantAvailable: 0)
+            let missingImportant = MainWindowController.capacity(filesystem, importantAvailable: nil)
+            let purgeable = MainWindowController.capacity(filesystem, importantAvailable: 70 << 30)
+            self.check(zeroImportant.0 == 233 << 30 && zeroImportant.1 == 66 << 30 && missingImportant.1 == 66 << 30
+                       && purgeable.1 == 70 << 30,
+                       "capacity: zero or missing important-usage values preserve 66 GB physically free; purgeable space remains available")
+            filesystem.f_bavail = 0
+            self.check(MainWindowController.capacity(filesystem, importantAvailable: nil).1 == 0,
+                       "capacity: a full disk still reports zero free")
         }
 
         // Drive progress: size on disk against the used space (a 1 GB sparse file adds 1 GB of length, nearly nothing on
@@ -157,19 +202,93 @@ extension SelfTestRun {
                 && sel.count == 1 && sel[0].scanRoot === w.rootOf(top) && w.crumbs.count == 1
                 && w.pContents.columns.count > 2 && (w.contents.tableColumns.first { $0.identifier.rawValue == "c2" }?.headerCell.stringValue.hasPrefix("% used") ?? false)
             w.crumbs.pick(0)
-            // Only real drives count in This Mac: the chart total is the drives' used space; the scanned scratch folder
-            // shows its own size, is a "Scanned folder" and has no slice.
-            w.updateChartThisPc()
-            let drivesUsed = w.thisPcDrives.reduce(Int64(0)) { $0 + $1.used }
+            // This Mac has no single parent to chart.
             let folderRow = w.pContents.items.first { $0.depth == 0 && $0.scanRoot === w.rootOf(top) }
-            let chartOk = w.chart.showingLogo || (w.chart.total == drivesUsed
-                && !w.chart.slices.contains { s in s.rows.contains { $0 < w.pContents.items.count && w.pContents.items[$0].noSlice } })
+            let chartHidden = w.chartPanel.superview == nil
             let folderOk = folderRow != nil && folderRow!.size == top.size && folderRow!.category == "Scanned folder" && folderRow!.noSlice
-            self.check(chartOk && folderOk,
-                       "this mac: the chart total (\(Fmt.size(w.chart.total))) is the drives' used space (\(Fmt.size(drivesUsed))); a scanned folder shows its own size and has no slice")
+            self.check(chartHidden && folderOk, "this mac: no chart; a scanned folder shows its own size")
             w.selectDir(top)
-            self.check(pc && !w.thisPc && w.current === top,
-                       "this pc: Up from the scanned folder lists the \(w.roots.count) drives and folders with it selected; Up is then disabled")
+            self.check(pc && !w.thisPc && w.current === top && w.chartPanel.superview === w.split2,
+                       "this pc: Up lists drives and folders; opening a folder restores the chart")
+        }
+
+        steps.then {
+            let trash = MainWindowController.trashSuggestion(home: "/test-home", volumes: ["/", "/Volumes/external", "/Volumes/unreadable"],
+                                                             rootNames: { _ in [] }) { path in
+                if path == "/test-home/.Trash" { return .contents(size: 0, incomplete: false) }
+                if path == "/Volumes/external/.Trashes" { return .contents(size: 500, incomplete: true) }
+                if path.hasPrefix("/Volumes/external/") { return .missing }
+                if path == "/Volumes/unreadable/.Trashes" || path == "/Volumes/unreadable/.Trashes/\(getuid())" { return .unreadable("access denied") }
+                if path.hasPrefix("/Volumes/unreadable/") { return .missing }
+                return .unreadable("access denied")
+            }
+            Suggestion.resetChecks([trash])
+            self.check(trash.alwaysShow && !trash.safe && trash.targets.count == 2 && trash.size == 500
+                       && trash.checkState == 0 && trash.note.contains("access denied") && trash.note.contains("not be fully measured"),
+                       "trash suggestion: zero-size items remain selectable, incomplete and unreadable locations are reported, unchecked by default")
+            var homeInspected: [String] = []
+            let empty = MainWindowController.trashSuggestion(home: "/test-home", volumes: []) { homeInspected.append($0); return .empty }
+            self.check(homeInspected == ["/test-home/.Trash", "/test-home/Library/Mobile Documents/.Trash"],
+                       "trash suggestion: the iCloud Drive Trash Finder shows is emptied with the Trash")
+            self.check(empty.alwaysShow && empty.targets.isEmpty && empty.location == "Empty", "trash suggestion remains visible when empty")
+            var inspected: [String] = []
+            let external = MainWindowController.trashSuggestion(home: "/Users/test", volumes: ["/Volumes/USB"], includeHome: false,
+                                                                rootNames: { _ in ["Photos", ".Trash-1000", ".Trashes"] }) { path in
+                inspected.append(path)
+                if path == "/Volumes/USB/.Trashes" { return .unreadable("closed") }
+                return .contents(size: 1, incomplete: false)
+            }
+            let wanted = ["/Volumes/USB/.Trashes", "/Volumes/USB/.Trashes/\(getuid())", "/Volumes/USB/$RECYCLE.BIN",
+                          "/Volumes/USB/RECYCLER", "/Volumes/USB/.Trash-1000"]
+            self.check(inspected == wanted && external.targets.count == 4 && external.targets[0].path == "/Volumes/USB/.Trashes/\(getuid())",
+                       "trash suggestion: an external drive empties only its own hidden Trash folders (macOS, Windows, Linux), never the Mac's Trash")
+            let target = DeleteTarget(path: self.P("missing-trash"), label: "Trash", isDir: true, size: 0)
+            target.emptyTrash = true
+            let job = DeleteJob()
+            job.run([target], trash: false)
+            self.check(!job.errors.isEmpty && job.failedPaths.contains(target.path), "trash: unreadable contents report failure")
+
+            let trashDir = self.P("trash-acl")
+            try? fm.createDirectory(atPath: trashDir + "/ro/inner", withIntermediateDirectories: true)
+            fm.createFile(atPath: trashDir + "/acl.bin", contents: Data(count: 10))
+            fm.createFile(atPath: trashDir + "/locked.bin", contents: Data(count: 10))
+            fm.createFile(atPath: trashDir + "/ro/inner/f.bin", contents: Data(count: 10))
+            _ = SystemInfo.run("/bin/chmod", ["+a", "everyone deny delete", trashDir + "/acl.bin"])
+            _ = SystemInfo.run("/usr/bin/chflags", ["uchg", trashDir + "/locked.bin"])
+            _ = SystemInfo.run("/bin/chmod", ["0555", trashDir + "/ro", trashDir + "/ro/inner"])
+            let full = DeleteTarget(path: trashDir, label: "Trash", isDir: true, size: 30)
+            full.contentsOnly = true; full.emptyTrash = true
+            let job2 = DeleteJob()
+            job2.run([full], trash: false)
+            let left = (try? fm.contentsOfDirectory(atPath: trashDir)) ?? ["?"]
+            self.check(left.isEmpty && job2.errors.isEmpty && PathUtil.isDir(trashDir),
+                       "trash: locked files, \"deny delete\" access lists and read-only folders are emptied like Finder does (left: \(left))")
+            try? fm.removeItem(atPath: trashDir)
+        }
+
+        steps.then {
+            let volumes = ["/", "/Volumes/USB", "/Volumes/USB2"]
+            let mixed = Suggestion("Mixed", safe: true, note: "")
+            mixed.targets = [
+                DeleteTarget(path: "/Users/test/cache", label: "home", size: 10),
+                DeleteTarget(path: "/Volumes/USB/cache", label: "USB", size: 20),
+                DeleteTarget(path: "/Volumes/USB2/cache", label: "USB2", size: 30)
+            ]
+            let other = Suggestion("Other disk", safe: true, note: "")
+            other.targets = [DeleteTarget(path: "/Users/test/log", label: "log", size: 5)]
+            var list = [mixed, other]
+            MainWindowController.filterSuggestions(&list, disk: "/Volumes/USB", volumes: volumes)
+            self.check(MainWindowController.suggestionDisk(for: "/Volumes/USB2/folder", volumes: volumes) == "/Volumes/USB2"
+                       && list.count == 1 && mixed.targets.count == 1 && mixed.targets[0].path == "/Volumes/USB/cache"
+                       && mixed.size == 20 && mixed.location == "/Volumes/USB/cache",
+                       "suggestions: only selected-disk targets and sizes remain, even with similarly named drives")
+            let system = Suggestion("System disk", safe: true, note: "")
+            system.targets = [DeleteTarget(path: "/Users/test/cache", label: "home", size: 10),
+                              DeleteTarget(path: "/Volumes/USB/cache", label: "USB", size: 20)]
+            var systemList = [system]
+            MainWindowController.filterSuggestions(&systemList, disk: "/", volumes: volumes)
+            self.check(system.targets.count == 1 && system.targets[0].path == "/Users/test/cache" && system.size == 10,
+                       "suggestions: the system disk excludes mounted external disks")
         }
 
         // Sorting by any column: grouped lists move whole groups and sort members inside them; the order survives refills.

@@ -76,6 +76,7 @@ namespace SpacePie
         /// <summary>The list pane (middle); the toolbar's selection buttons line up with its edges.</summary>
         readonly RoundedPanel listPanel;
         readonly SplitContainer split2;
+        int chartWidthBeforeHiding;
         readonly PieChart chart;
         readonly Segmented chartMode;
         static string TreemapMarker { get { return AppData.Path("treemap"); } }
@@ -133,7 +134,7 @@ namespace SpacePie
             foreach (var d in DriveInfo.GetDrives())
                 if (d.IsReady) pathBox.Choices.Add(d.Name);
             pathBox.Submitted += (s, e) => StartScan();
-            pathBox.ChoiceCommitted += (s, e) => StartScan();
+            pathBox.ChoiceCommitted += (s, e) => ChooseDrive(pathBox.Text);
             tips.SetToolTip(pathBox.Box, "Drive or folder to analyze (you can also drag a folder onto the window)");
 
             btnBrowse = Btn("Choose...", ButtonKind.Secondary, "Choose a folder", Browse);
@@ -690,7 +691,7 @@ namespace SpacePie
 
         string NormalizePath(string path)
         {
-            path = path.Trim().Trim('"');
+            if (!Directory.Exists(path)) path = path.Trim().Trim('"');
             if (path.Length == 2 && path[1] == ':') path += "\\";
             path = Path.GetFullPath(path);
             if (path.Length > 3 && path.EndsWith("\\") && !path.StartsWith(@"\\")) path = path.TrimEnd('\\');
@@ -704,8 +705,25 @@ namespace SpacePie
             StartScan();
         }
 
-        /// <summary>Scans in the background; the window stays usable and the scan bar shows progress.</summary>
-        async void StartScan()
+        /// <summary>A drive scanned in this session is shown from memory (live updates keep it current); Rescan scans it again.</summary>
+        void ChooseDrive(string path)
+        {
+            if (busy) return;
+            var r = FindRoot(path);
+            if (r != null && (r.Node != null || r.Scanning))
+            {
+                SelectRoot(r);
+                viewTabs.SelectedIndex = pages.IndexOf(pContents);
+                return;
+            }
+            StartScan();
+        }
+
+        void StartScan() { StartScan(true); }
+
+        /// <summary>Scans in the background; the window stays usable and the scan bar shows progress. With select, Contents
+        /// shows the root being scanned right away.</summary>
+        async void StartScan(bool select)
         {
             if (busy || scanning) return;
             string path;
@@ -727,7 +745,12 @@ namespace SpacePie
                 SortRoots();
             }
             // First scan of a drive in this session: show its saved scan at once and catch up from the change journal.
-            if (r.Node == null && r.IsDrive && SelfTestDir == null && ShotDir == null && Snapshot.Exists(path) && await FastStart(r)) return;
+            if (r.Node == null && r.IsDrive && SelfTestDir == null && ShotDir == null && Snapshot.Exists(path))
+            {
+                if (await FastStart(r)) return;
+                // The saved scan is shown already: the scan that follows does not take the view back if the user moved on.
+                if (r.Node != null) select = false;
+            }
             var s = new Scanner();
             scanner = s;
             scanRoot = r;
@@ -736,9 +759,9 @@ namespace SpacePie
             ulong jid = 0; long jusn = 0;
             bool journal = r.IsDrive && Snapshot.QueryJournal(path, out jid, out jusn);
             SetScanning(true, "Scanning " + r.Path + "...");
-            // Show the root being scanned unless the user is already looking at something else that is scanned.
-            RefreshTree(current);
-            if (current == null || current.Top == oldNode) { if (oldNode == null) SelectRoot(r); }
+            // Show the root being scanned (where the user is in it stays, when it is open already).
+            if (select && !(current != null && oldNode != null && current.Top == oldNode)) SelectRoot(r);
+            else RefreshTree(current);
 
             var sw = Stopwatch.StartNew();
             DirNode result = null;
@@ -766,14 +789,18 @@ namespace SpacePie
             RefreshCapacity(r);
             RememberScan(r, result, !s.Cancelled);
             StartWatching(r);
-            // Keep the user's place: map a selection inside the old tree onto the new one; otherwise stay put,
-            // unless nothing scanned was selected (e.g. at startup), then open the new result.
-            DirNode target;
-            if (current != null && oldNode != null && current.Top == oldNode) target = FindByPath(result, current.FullPath) ?? result;
-            else if (active != null && active != r) target = current;   // browsing another drive: stay there
-            else target = result;
-            if (active == r) current = null;
-            RefreshTree(target);
+            // This PC stays; otherwise keep the user's place: map a selection inside the old tree onto the new one; on
+            // another root stay there; on this root open the new result.
+            if (thisPc) ShowThisPc();
+            else
+            {
+                DirNode target;
+                if (current != null && oldNode != null && current.Top == oldNode) target = FindByPath(result, current.FullPath) ?? result;
+                else if (active != null && active != r) target = current;   // browsing another drive: stay there
+                else target = result;
+                if (active == r) current = null;
+                RefreshTree(target);
+            }
             ViewsChanged();
             UpdateDriveLabel();
             statusLabel.Text = string.Format("{0}: {1} in {2:N0} files and {3:N0} folders - scanned in {4:0.00} s, {5}{6}",
@@ -869,7 +896,7 @@ namespace SpacePie
                 r.Label = label + (kind.Length > 0 ? (label.Length > 0 ? " - " : "") + kind : "");
                 RefreshCapacity(r);
             }
-            if (active != null && !roots.Contains(active)) { active = null; current = null; }
+            if (active != null && !roots.Contains(active)) { active = null; current = null; SuggestionScopeChanged(); }
             SortRoots();
             pathBox.Choices.Clear();
             foreach (var r in roots) if (r.IsDrive) pathBox.Choices.Add(r.Path);
@@ -900,6 +927,7 @@ namespace SpacePie
         {
             thisPc = false;
             current = null;
+            if (active != r) SuggestionScopeChanged();
             active = r;
             RefreshCapacity(r);
             if (!busy) pathBox.Text = r.Path;
@@ -913,7 +941,7 @@ namespace SpacePie
             contents.Invalidate();
             ViewsChanged();
             pContents.Caption.Text = r.DisplayName + (r.Scanning ? "  -  scanning..." : "  -  not scanned");
-            if (ActivePage == pContents) UpdateChartUnscanned(r);
+            if (ActivePage == pContents) { SyncChartVisibility(); UpdateChartUnscanned(r); }
             UpdateDriveLabel();
             UpdateButtons();
         }
@@ -1236,7 +1264,8 @@ namespace SpacePie
         void RestartAsAdmin()
         {
             string arg = "";
-            string p = active != null ? active.Path : pathBox.Text.Trim();
+            string p = active != null ? active.Path : pathBox.Text;
+            if (!Directory.Exists(p)) p = p.Trim();
             if (p.Length > 0) arg = "\"" + p.TrimEnd('\\') + "\"";
             try
             {
@@ -1418,8 +1447,8 @@ namespace SpacePie
             foreach (var r in roots)
             {
                 var n = r.Node;
-                // Only real drives count their used space (and get a chart slice); a scanned folder or a saved scan
-                // shows its own size, so nothing is counted twice.
+                // Only real drives count their used space; a scanned folder or a saved scan shows its own size, so
+                // nothing is counted twice.
                 bool drive = CountsAsDrive(r);
                 long used = drive && r.Total > 0 ? r.Total - r.Free : n != null ? n.Size : 0;
                 var it = new ItemInfo
@@ -1458,16 +1487,6 @@ namespace SpacePie
             UpdateButtons();
         }
 
-        /// <summary>This PC chart: the used space of every drive.</summary>
-        void UpdateChartThisPc()
-        {
-            if (scanning) { ShowScanLogo(); return; }
-            var drives = roots.Where(r => CountsAsDrive(r) && r.Total > 0).ToList();
-            long total = drives.Sum(r => r.Total);
-            var slices = BuildSlices(contents, Math.Max(1, drives.Sum(r => r.Total - r.Free)), "of the used space");
-            chart.SetData("This PC", total > 0 ? Fmt.Size(total) + " in " + drives.Count + (drives.Count == 1 ? " drive" : " drives") : "", slices);
-        }
-
         static bool CountsAsDrive(ScanRoot r) { return r.IsDrive && !r.ReadOnly; }
 
         void ShowContents(DirNode d)
@@ -1479,6 +1498,7 @@ namespace SpacePie
             var r = RootOf(d.Top);
             if (r != null && r != active)
             {
+                SuggestionScopeChanged();
                 active = r;
                 UpdateDriveLabel();
                 if (!busy) pathBox.Text = r.Path;

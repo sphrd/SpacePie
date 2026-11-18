@@ -283,6 +283,7 @@ namespace SpacePie
         void ShowPage()
         {
             var p = ActivePage;
+            SyncChartVisibility();
             foreach (var q in pages) q.Root.Visible = q == p;
             if (p.Stale) { p.Stale = false; p.Fill(); }
             else RefreshChart();
@@ -294,12 +295,13 @@ namespace SpacePie
         /// <summary>The chart follows the open view.</summary>
         void RefreshChart()
         {
+            SyncChartVisibility();
+            if (split2 != null && split2.Panel2Collapsed) { rowSlice.Clear(); return; }
             var p = ActivePage;
             if (scanning) { ShowScanLogo(); return; }
             if (p == pContents)
             {
-                if (thisPc) UpdateChartThisPc();
-                else if (current != null && IsAttached(current)) UpdateChart(current);
+                if (current != null && IsAttached(current)) UpdateChart(current);
                 else if (active != null && active.Node == null) UpdateChartUnscanned(active);
                 return;
             }
@@ -312,6 +314,29 @@ namespace SpacePie
             long total = p.ChartTotal;
             if (total <= 0) foreach (ListViewItem it in p.List.Items) { var i = it.Tag as ItemInfo; if (i != null && i.GroupOf == null) total += Math.Max(0, i.ChartSize); }
             chart.SetData(p.ChartTitle, p.ChartSub, BuildSlices(p.List, total, p.ChartScope));
+        }
+
+        /// <summary>This PC (Contents above every drive) has no chart: the list takes the full width; any other view or
+        /// folder brings the chart pane back at the width it had.</summary>
+        void SyncChartVisibility()
+        {
+            if (split2 == null || viewTabs == null) return;
+            bool hide = ActivePage == pContents && thisPc;
+            if (hide == split2.Panel2Collapsed) return;
+            if (hide)
+            {
+                chartWidthBeforeHiding = split2.Panel2.Width;
+                split2.Panel2Collapsed = true;
+                return;
+            }
+            split2.Panel2Collapsed = false;
+            if (chartWidthBeforeHiding <= 0) return;
+            try
+            {
+                int max = split2.Width - split2.Panel2MinSize - split2.SplitterWidth;
+                split2.SplitterDistance = Math.Min(max, Math.Max(S(200), split2.Width - chartWidthBeforeHiding - split2.SplitterWidth));
+            }
+            catch (Exception) { }
         }
 
         /// <summary>The scanned tree changed (scan, rescan, delete, measure): views refill when they are shown next.</summary>
@@ -331,7 +356,7 @@ namespace SpacePie
         {
             foreach (var p in pages) if (p.FollowsFolder && p != pContents) p.Stale = true;
             var a = ActivePage;
-            if (a == pContents) { if (thisPc) UpdateChartThisPc(); else if (current != null) UpdateChart(current); }
+            if (a == pContents) RefreshChart();
             else if (a.Stale) { a.Stale = false; a.Fill(); }
         }
 
@@ -405,11 +430,11 @@ namespace SpacePie
             string where;
             if (it.IsDir) where = it.Dir.FullPath;
             else if (it.File != null) where = it.File.FullPath;
-            else if (it.Targets != null && it.Targets.Count == 1 && it.Targets[0].RecycleBin) where = "Recycle Bin on all drives";
+            else if (it.Targets != null && it.Targets.Count == 1 && it.Targets[0].RecycleBin) where = it.Targets[0].BinName;
             else if (it.Targets != null && it.Targets.Count > 1)
             {
                 // A suggestion bundling several places: list them all (up to 8).
-                var paths = it.Targets.Select(t => t.RecycleBin ? "Recycle Bin on all drives" : t.Path).ToList();
+                var paths = it.Targets.Select(t => t.RecycleBin ? t.BinName : t.Path).ToList();
                 where = string.Join("\n", paths.Take(8)) + (paths.Count > 8 ? string.Format("\n... and {0:N0} more", paths.Count - 8) : "");
             }
             else where = it.Path ?? it.Folder;

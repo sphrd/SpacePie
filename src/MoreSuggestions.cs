@@ -101,8 +101,8 @@ namespace SpacePie
                 if (n.Contains(s.Name)) continue;
                 s.Targets.RemoveAll(t => !t.RecycleBin && p.Contains(t.Path.TrimEnd('\\')));
                 s.Remeasure();
-                if (s.Targets.Count == 0 || s.Size <= 0) continue;
-                if (!s.Targets[0].RecycleBin)
+                if (!s.AlwaysShow && (s.Targets.Count == 0 || s.Size <= 0)) continue;
+                if (s.Targets.Count > 0 && !s.Targets[0].RecycleBin)
                     s.Location = s.Targets.Count == 1 ? s.Targets[0].Path : string.Format("{0:N0} locations", s.Targets.Count);
                 kept.Add(s);
             }
@@ -118,14 +118,40 @@ namespace SpacePie
         /// <summary>
         /// More places other cleaners look (CleanMyMac-style system junk, mail attachments, unfinished downloads, leftovers
         /// of removed apps and users), with the same rules as the rest: one line on what deleting means, items to review
-        /// start unchecked, never anything inside a program. Runs on a background thread.
+        /// start unchecked, never anything inside a program. Runs on a background thread. Without includeSystem only the
+        /// scanned trees are looked at (the other places are always on the Windows or user profile drive).
         /// </summary>
-        void FindMoreSuggestions(List<DirNode> scanned, List<Suggestion> list)
+        void FindMoreSuggestions(List<DirNode> scanned, List<Suggestion> list, bool includeSystem)
         {
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
             DateTime now = DateTime.UtcNow;
+
+            // Disk images in the scanned drives not opened for 30 days (not those in Downloads: "Old installers" lists them).
+            var images = new Suggestion { Name = "Disk images", Safe = false, Note = "Disk images (.iso, .img) not opened for 30 days: usually installers already used. Keep the ones you still need." };
+            string downloads = Path.Combine(home, "Downloads").TrimEnd('\\');
+            long monthAgo = now.AddDays(-30).ToFileTimeUtc();
+            foreach (var r in scanned)
+                foreach (var d in r.Descendants())
+                {
+                    if (d.FileList == null) continue;
+                    string dp = d.FullPath;
+                    if (string.Equals(dp.TrimEnd('\\'), downloads, StringComparison.OrdinalIgnoreCase) || IsSystemOrAppPath(dp)) continue;
+                    for (int i = 0; i < d.FileList.Length; i++)
+                    {
+                        var f = d.FileList[i];
+                        string ext = Path.GetExtension(f.Name).ToLowerInvariant();
+                        if (ext != ".iso" && ext != ".img") continue;
+                        long size = FileIndex.Measure(ref d.FileList[i]);
+                        if (size < 10L << 20 || f.OnlineOnly || f.LastUse <= 0 || f.LastUse > monthAgo) continue;
+                        images.Targets.Add(new DeleteTarget { Path = Native.Join(dp, f.Name), Label = f.Name, Size = size, Note = "disk image" });
+                        images.Size += size;
+                    }
+                }
+            Finish(list, images, true);
+
+            if (!includeSystem) return;
 
             // Old Windows logs (setup, servicing, updates): the files still written to are newer than a week.
             var logs = new Suggestion { Name = "Windows logs", Safe = true, NeedsAdmin = true, Note = "Logs of Windows setup, updates and services older than a week. Only needed to investigate a problem." };
@@ -155,29 +181,6 @@ namespace SpacePie
                         partial.Size += f.Length;
                     }
             Finish(list, partial, true);
-
-            // Disk images in the scanned drives not opened for 30 days (not those in Downloads: "Old installers" lists them).
-            var images = new Suggestion { Name = "Disk images", Safe = false, Note = "Disk images (.iso, .img) not opened for 30 days: usually installers already used. Keep the ones you still need." };
-            string downloads = Path.Combine(home, "Downloads").TrimEnd('\\');
-            long monthAgo = now.AddDays(-30).ToFileTimeUtc();
-            foreach (var r in scanned)
-                foreach (var d in r.Descendants())
-                {
-                    if (d.FileList == null) continue;
-                    string dp = d.FullPath;
-                    if (string.Equals(dp.TrimEnd('\\'), downloads, StringComparison.OrdinalIgnoreCase) || IsSystemOrAppPath(dp)) continue;
-                    for (int i = 0; i < d.FileList.Length; i++)
-                    {
-                        var f = d.FileList[i];
-                        string ext = Path.GetExtension(f.Name).ToLowerInvariant();
-                        if (ext != ".iso" && ext != ".img") continue;
-                        long size = FileIndex.Measure(ref d.FileList[i]);
-                        if (size < 10L << 20 || f.OnlineOnly || f.LastUse <= 0 || f.LastUse > monthAgo) continue;
-                        images.Targets.Add(new DeleteTarget { Path = Native.Join(dp, f.Name), Label = f.Name, Size = size, Note = "disk image" });
-                        images.Size += size;
-                    }
-                }
-            Finish(list, images, true);
 
             // Old versions of self-updating apps (Squirrel: Discord, Slack, Teams classic...): app-x.y.z folders beside
             // Update.exe; the newest is the one in use.

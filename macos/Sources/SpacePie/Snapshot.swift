@@ -325,10 +325,17 @@ final class Replay {
 /// wrapped or were reset, the volume's event history changed, or the history does not end within 10 s) the drive or
 /// folder is scanned again normally, showing the snapshot meanwhile.
 extension MainWindowController {
+    /// The folder a typed or chosen path names. Spaces are part of real names (a drive mounted at "/Volumes/Name "), so
+    /// they are only trimmed when the path as given does not exist.
     static func normalizePath(_ p0: String) -> String {
-        var path = (p0 as NSString).expandingTildeInPath.trimmingCharacters(in: .whitespaces)
-        if path.count > 1 && path.hasSuffix("/") { path.removeLast() }
-        return path
+        func clean(_ s: String) -> String {
+            var path = (s as NSString).expandingTildeInPath
+            if path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+            return path
+        }
+        let exact = clean(p0)
+        if PathUtil.exists(exact) { return exact }
+        return clean(p0.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// Start-up: shows the last scan of path when there is one, else scans it.
@@ -337,6 +344,8 @@ extension MainWindowController {
         if busy || scanning || !PathUtil.isDir(path) { scanPath(path); return }
         pathField.stringValue = path
         statusLabel.stringValue = "Loading the last scan of \(path)..."
+        loadingSnapshot = true
+        updateRestoreProgress()
         let started = Date()
         DispatchQueue.global(qos: .userInitiated).async {
             let loaded = Snapshot.load(path)
@@ -346,6 +355,8 @@ extension MainWindowController {
     }
 
     private func showLastScan(_ path: String, _ loaded: (DirNode, SnapshotInfo)?, _ secs: Double) {
+        loadingSnapshot = false
+        updateRestoreProgress()
         if busy || scanning { return }
         guard let l = loaded else { scanPath(path); return }
         let node = l.0, info = l.1
@@ -387,10 +398,18 @@ extension MainWindowController {
             return
         }
         startWatching(target, since: info.eventId)
+        updateRestoreProgress()
         statusLabel.stringValue = "Showing the scan of \(Fmt.date(info.taken)); updating..."
         rep.timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: false) { [weak self, weak target] _ in
-            guard let self = self, let t = target, let rp = t.replay, rp === rep, !rp.historyDone else { return }
-            self.replayFailed(t, "the event history did not arrive within 10 s")
+            guard let self = self, let t = target, let rp = t.replay, rp === rep else { return }
+            if !rp.historyDone {
+                self.replayFailed(t, "the event history did not arrive within 10 s")
+            } else {
+                rp.timer = Timer.scheduledTimer(withTimeInterval: 50, repeats: false) { [weak self, weak target] _ in
+                    guard let self = self, let target = target, target.replay === rep else { return }
+                    self.replayFailed(target, "applying the event history did not finish within 60 s")
+                }
+            }
         }
         if target.isDrive && selfTestDir == nil {
             if (apps == nil || appsFromCache) && !appsLoading { loadApps() }
@@ -403,6 +422,7 @@ extension MainWindowController {
         guard let rep = r.replay else { return }
         rep.timer?.invalidate()
         r.replay = nil
+        updateRestoreProgress()
         stopWatching(r)
         fsDeep.removeAll { PathUtil.isWithin($0, r.path) }
         statusLabel.stringValue = "The changes since the scan of \(Fmt.date(rep.info.taken)) are not available (\(why)); scanning again..."
@@ -413,7 +433,7 @@ extension MainWindowController {
     private func rescanAfterReplay(_ r: ScanRoot) {
         guard roots.contains(where: { $0 === r }) else { return }
         if busy || scanning { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.rescanAfterReplay(r) }; return }
-        scanPath(r.path)
+        scanPath(r.path, select: false)
     }
 
     /// Called when no live changes are waiting: a replay whose history has ended is complete. The tree is up to date, so
@@ -424,6 +444,7 @@ extension MainWindowController {
             rep.timer?.invalidate()
             if livePending { refreshAfterLive() }
             r.replay = nil
+            updateRestoreProgress()
             let lastId = streams.first { $0.root === r }?.lastId ?? 0
             var info = Snapshot.infoNow(r.path)
             if lastId > 0 { info.eventId = lastId }
@@ -442,6 +463,19 @@ extension MainWindowController {
             checkLowSpace(r)
             findSuggestionsAfterScan()
         }
+    }
+
+    func updateRestoreProgress() {
+        guard !scanning else { return }
+        if loadingSnapshot || roots.contains(where: { $0.replay != nil }) {
+            scanBar.start(loadingSnapshot ? "Loading the last scan..." : "Updating the saved scan...")
+            scanBar.cancelButton.isEnabled = false
+            startProgressTimer()
+        } else {
+            scanBar.stop()
+            if !busy { stopProgressTimer() }
+        }
+        layoutRoot()
     }
 
     /// Saves the scan of a drive or folder for the next start (serialized while the trees are held still, written in

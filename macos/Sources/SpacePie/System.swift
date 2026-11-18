@@ -199,7 +199,7 @@ enum SystemInfo {
 
         // Purgeable space.
         let purge = SysGroup("purgeable", "Purgeable space",
-                             "Space macOS frees by itself when it is needed (caches, local snapshots, iCloud files that can be downloaded again). It already counts as available.")
+                             "Space macOS frees by itself when an app needs it (for example a large download or copy): Time Machine local snapshots, caches and iCloud files that can be downloaded again. It already counts as available, so it never blocks saving files. No app can purge it all on request; to free most of it now, delete the local snapshots above.")
         var purgeTotal: Int64 = 0
         for d in drives {
             guard let p = purgeable(d.path) else { continue }
@@ -210,7 +210,8 @@ enum SystemInfo {
             it.path = d.path
             it.size = p
             it.percent = total > 0 ? 100 * Double(p) / Double(total) : -1
-            it.meaning = p > 0 ? "macOS frees this by itself when space is needed; nothing to do." : "Nothing purgeable on this drive right now."
+            it.meaning = p > 0 ? "Freed by macOS automatically when space is needed. To free it now, delete the Time Machine local snapshots above; the rest frees itself."
+                : "Nothing purgeable on this drive right now."
             purge.items.append(it)
             purgeTotal += p
         }
@@ -277,7 +278,7 @@ enum SystemInfo {
             it.percent = total > 0 ? 100 * Double(total - free) / Double(total) : -1
             let fs = !info.fileSystem.isEmpty ? info.fileSystem : (Cloner.volume(d.path)?.fsType.uppercased() ?? "")
             let smart = info.smart.isEmpty ? "unknown" : info.smart
-            var meaning = "\(Fmt.size(free)) free of \(Fmt.size(total))" + (total > 0 ? " (\(Int((100 * Double(free) / Double(total)).rounded())) %)" : "")
+            var meaning = (total > 0 ? "\(Fmt.size(free)) free of \(Fmt.size(total)) (\(Int((100 * Double(free) / Double(total)).rounded())) %)" : "Capacity unavailable")
                 + (fs.isEmpty ? "" : "  -  \(fs)") + "  -  SMART: \(smart)"
             let s = smart.lowercased()
             if s.contains("fail") {
@@ -339,7 +340,7 @@ extension MainWindowController {
         updateButtons()
         let drives = roots.filter { $0.isDrive }.map { (path: $0.path, name: $0.displayName) }
         DispatchQueue.global(qos: .userInitiated).async {
-            let groups = SystemInfo.gather(drives)
+            let groups = Demo.on ? Demo.system() : SystemInfo.gather(drives)
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 for g in groups { if let o = self.systemGroups?.first(where: { $0.key == g.key }) { g.expanded = o.expanded } }

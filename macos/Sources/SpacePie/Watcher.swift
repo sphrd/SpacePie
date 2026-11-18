@@ -115,7 +115,6 @@ extension MainWindowController {
             rep.events += b.paths.count
             if b.historyDone {
                 rep.historyDone = true
-                rep.timer?.invalidate()
                 DispatchQueue.main.async { self.applyChanges() }
             }
         } else if b.lost && !missed.contains(where: { $0 === r }) { missed.append(r); updateLiveLabel() }
