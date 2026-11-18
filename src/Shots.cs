@@ -615,14 +615,17 @@ namespace SpacePie
                 suggestions = null;
                 viewTabs.SelectedIndex = pages.IndexOf(pSuggest);
                 FillSuggestions();
-                for (int i = 0; i < 100 && suggestions == null; i++) await Task.Delay(100);
+                // One search at a time: one started earlier (for another drive) finishes first, then this drive's runs.
+                for (int i = 0; i < 300 && (suggestions == null || suggestFinding); i++) await Task.Delay(100);
                 bool hadNm = suggestions != null && suggestions.Any(s2 => s2.Name == "node_modules folders");
+                string first = string.Format("drive {0}, active {1}, found {2}: {3}", suggestDisk ?? "none", active != null ? active.Path : "none",
+                    suggestions != null ? suggestions.Count : -1, suggestions != null ? string.Join(" / ", suggestions.Select(s2 => s2.Name)) : "");
                 Directory.Delete(P("P"), true);
                 for (int i = 0; i < 40 && FindScanned(P(@"P\node_modules"), true) != null; i++) await Task.Delay(250);
-                string diag = string.Format("P scanned: {0}, dirty: {1}, watchers {2}, missed {3}, queued {4}, raising {5}", FindScanned(P("P"), true) != null, suggestionsDirty, watchers.Count, missedChanges.Count, fsChanges.Count, watchers.Values.All(w => w.EnableRaisingEvents));
+                string diag = string.Format("P scanned: {0}, dirty: {1}, watchers {2}, missed {3}, queued {4}, raising {5}; first: {6}", FindScanned(P("P"), true) != null, suggestionsDirty, watchers.Count, missedChanges.Count, fsChanges.Count, watchers.Values.All(w => w.EnableRaisingEvents), first);
                 var before2 = suggestions;
                 FillSuggestions();
-                for (int i = 0; i < 100 && suggestions == before2; i++) await Task.Delay(100);
+                for (int i = 0; i < 300 && (suggestions == before2 || suggestFinding); i++) await Task.Delay(100);
                 check(hadNm && suggestions != before2 && !suggestions.Any(s2 => s2.Name == "node_modules folders"),
                     "suggestions: found again after an outside delete (node_modules gone)" + string.Format(" [before {0}, new list {1}, still there {2}, {3}]",
                         hadNm, suggestions != before2, suggestions != null && suggestions.Any(s2 => s2.Name == "node_modules folders"), diag));
