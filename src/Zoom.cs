@@ -59,6 +59,8 @@ namespace SpacePie
             ResumeLayout(true);
             LayoutToolbar();
             PerformLayout();
+            chartFixedWidth = (int)Math.Round(chartFixedWidth * r);
+            FitChartPane();
             Invalidate(true);
             if (SelfTestDir == null && ShotDir == null)
             {

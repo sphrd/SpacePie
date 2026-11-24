@@ -34,6 +34,11 @@ final class PieChart: NSView {
     private(set) var total: Int64 = 0
     private var title = "", subtitle = ""
     private var hover = -1, reported = -1
+    // Marks besides the hover: selected rows (lit like hover, all at once) and what is on the delete list (red).
+    private var markSlices = Set<Int>(), doomSlices = Set<Int>(), markArcs = Set<Int>()
+    private var markDirs: [(slice: Int, dir: DirNode)] = []
+    private var doomedDir: ((DirNode) -> Bool)?
+    private var doomCache: [ObjectIdentifier: Bool] = [:]
     private var pieRect = NSRect.zero
     private var logoMode = false
     private var logoNote = ""
@@ -113,6 +118,7 @@ final class PieChart: NSView {
     func showLogo(_ title: String, _ subtitle: String, _ note: String, working: Bool = false) {
         self.title = title; self.subtitle = subtitle; logoNote = note
         slices = []; arcs = []; rings = 0; total = 0; hover = -1; hoverArc = -1; reported = -1; hoverDir = nil
+        clearMarks()
         tiles = []; tilesDirty = true; hoverTile = -1; hoverUp = false
         logoMode = true
         animTimer?.invalidate(); animTimer = nil; anim = 1
@@ -139,6 +145,7 @@ final class PieChart: NSView {
         total = slices.reduce(Int64(0)) { $0 + max(0, $1.size) }
         self.rings = rings
         arcs = []
+        clearMarks()   // the list sets them again for the new slices
         hoverArc = -1
         tilesDirty = true
         hoverTile = -1
@@ -202,14 +209,92 @@ final class PieChart: NSView {
     /// Pixels a hovered section grows outwards; each ring beyond it moves out by as much again.
     static let hoverGrow: CGFloat = 4
 
-    /// Hovered: the section under the pointer and, recursively, the sections of its subfolders in the outer rings.
-    private func arcLit(_ i: Int) -> Bool {
-        if hoverArc >= 0 {
-            var j = i
-            while j >= 0 { if j == hoverArc { return true }; j = arcs[j].parent }
-            return false
+    /// Width at which the chart's drawing area (below the title and its line under it; the view selector sits beside the
+    /// title) is square for a chart of the given height (the layout in draw: pad 12, title rows 66 high).
+    static func squareWidth(height: CGFloat) -> CGFloat {
+        let pad: CGFloat = 12, header: CGFloat = 12 + 22 + 16 + 16
+        return max(0, height - header - pad) + 2 * pad
+    }
+
+    /// The level a ring section grows from because it is lit (0 = its slice is lit; -1 = not lit): the hovered or
+    /// selected section highest above it. Lit sections take their subfolders' sections further out with them.
+    private func arcLitFrom(_ i: Int) -> Int {
+        let a = arcs[i]
+        if (hover >= 0 && hoverArc < 0 && a.owner == hover) || markSlices.contains(a.owner) { return 0 }
+        var from = -1
+        var j = i
+        while j >= 0 { if j == hoverArc || markArcs.contains(j) { from = arcs[j].level }; j = arcs[j].parent }
+        return from
+    }
+
+    private func sliceLit(_ i: Int) -> Bool { (i == hover && hoverArc < 0 && hoverTile < 0) || markSlices.contains(i) }
+
+    private func doomed(_ d: DirNode?) -> Bool {
+        guard let d = d, let f = doomedDir else { return false }
+        if let v = doomCache[ObjectIdentifier(d)] { return v }
+        let v = f(d)
+        doomCache[ObjectIdentifier(d)] = v
+        return v
+    }
+
+    private func arcDoomed(_ i: Int) -> Bool { doomSlices.contains(arcs[i].owner) || doomed(arcs[i].dir) }
+
+    /// A section's colour: red when on the delete list, lighter when hovered or selected.
+    private static func markColor(_ c: NSColor, _ lit: Bool, _ doom: Bool) -> NSColor {
+        if doom { return lit ? T.DANGER_HOVER : T.DANGER }
+        return lit ? blend(c, T.HOVER, T.HOVER_MIX) : c
+    }
+
+    private func clearMarks() {
+        markSlices = []; doomSlices = []; markArcs = []; markDirs = []; doomedDir = nil; doomCache = [:]
+    }
+
+    /// selected: slice and folder of each selected row (folder nil = the whole slice); doomed: slices whose rows are all on
+    /// the delete list; doomedDir: whether a folder (a ring section or treemap tile) is on it. Call after every setData.
+    func setMarks(_ selected: [(Int, DirNode?)], _ doomed: [Int], _ doomedDir: ((DirNode) -> Bool)?) {
+        clearMarks()
+        self.doomedDir = doomedDir
+        for (slice, dir) in selected where slice >= 0 && slice < slices.count {
+            if let d = dir { markDirs.append((slice, d)) } else { markSlices.insert(slice) }
         }
-        return hover >= 0 && arcs[i].owner == hover
+        for i in doomed where i >= 0 && i < slices.count { doomSlices.insert(i) }
+        // A selected folder lights its ring section, or the nearest parent section drawn, else its slice.
+        if !markDirs.isEmpty {
+            var byDir: [ObjectIdentifier: Int] = [:]
+            for (i, a) in arcs.enumerated() { byDir[ObjectIdentifier(a.dir)] = i }
+            for m in markDirs {
+                var found = -1
+                var d: DirNode? = m.dir
+                while let x = d, found < 0 {
+                    if let i = byDir[ObjectIdentifier(x)], arcs[i].owner == m.slice { found = i }
+                    d = x.parent
+                }
+                if found >= 0 { markArcs.insert(found) } else { markSlices.insert(m.slice) }
+            }
+        }
+        needsDisplay = true
+    }
+
+    /// Treemap tiles of the selected rows (a folder too deep for a tile: its nearest parent's, else its slice's).
+    private func markedTiles() -> Set<Int> {
+        var set = Set<Int>()
+        if markSlices.isEmpty && markDirs.isEmpty { return set }
+        var byDir: [ObjectIdentifier: Int] = [:]
+        for (i, t) in tiles.enumerated() {
+            if t.level == 0 { if markSlices.contains(t.slice) { set.insert(i) } }
+            else if let d = t.dir { byDir[ObjectIdentifier(d)] = i }
+        }
+        for m in markDirs {
+            var found = -1
+            var d: DirNode? = m.dir
+            while let x = d, found < 0 {
+                if let i = byDir[ObjectIdentifier(x)], tiles[i].slice == m.slice { found = i }
+                d = x.parent
+            }
+            if found < 0 { found = tiles.firstIndex { $0.level == 0 && $0.slice == m.slice } ?? -1 }
+            if found >= 0 { set.insert(found) }
+        }
+        return set
     }
 
     /// Highlight from the list (does not call onHover).
@@ -331,13 +416,13 @@ final class PieChart: NSView {
                 let sweep = CGFloat(360 * Double(s.size) / Double(total))
                 if sweep <= 0 { continue }
                 if !s.empty {
-                    let lit = i == hover && hoverArc < 0
+                    let lit = sliceLit(i)
+                    let col = PieChart.markColor(s.color, lit, doomSlices.contains(i))
                     if rings > 0 {
-                        let col = lit ? PieChart.blend(s.color, T.HOVER, T.HOVER_MIX) : s.color
                         fillBand(R * holeRatio, R * innerOuterRatio + (lit ? PieChart.hoverGrow : 0), start, max(0.01, sweep), col)
                     } else {
                         let rr = lit ? r.insetBy(dx: -PieChart.hoverGrow, dy: -PieChart.hoverGrow) : r
-                        (lit ? PieChart.blend(s.color, T.HOVER, T.HOVER_MIX) : s.color).setFill()
+                        col.setFill()
                         Theme.pie(rr, start: start, sweep: max(0.01, sweep)).fill()
                     }
                 } else if i == hover {
@@ -345,21 +430,21 @@ final class PieChart: NSView {
                 }
                 start += sweep
             }
-            // Hovered sections last, over their neighbours. They grow outwards only: each ring beyond the hovered section
-            // moves out by one more step, so the gaps between the rings stay the same. Only the section under the pointer
-            // is drawn lighter.
-            var lit: [Int] = []
+            // Hovered and selected sections last, over their neighbours. They grow outwards only: each ring beyond the lit
+            // section moves out by one more step, so the gaps between the rings stay the same. Only the sections under the
+            // pointer or selected are drawn lighter; sections on the delete list are red.
+            var lit: [(Int, Int)] = []
             for (i, a) in arcs.enumerated() {
-                if arcLit(i) { lit.append(i); continue }
-                fillBand(R * ringInner(a.level), R * ringOuter(a.level), a.start, a.sweep, a.color)
+                let from = arcLitFrom(i)
+                if from >= 0 { lit.append((i, from)); continue }
+                fillBand(R * ringInner(a.level), R * ringOuter(a.level), a.start, a.sweep, PieChart.markColor(a.color, false, arcDoomed(i)))
             }
             let g = PieChart.hoverGrow
-            let litLevel = hoverArc >= 0 ? arcs[hoverArc].level : 0
-            for i in lit {
+            for (i, from) in lit {
                 let a = arcs[i]
-                let k = CGFloat(a.level - litLevel)
+                let k = CGFloat(a.level - from)
                 fillBand(R * ringInner(a.level) + k * g, R * ringOuter(a.level) + (k + 1) * g, a.start, a.sweep,
-                         i == hoverArc ? PieChart.blend(a.color, T.HOVER, T.HOVER_MIX) : a.color)
+                         PieChart.markColor(a.color, i == hoverArc || markArcs.contains(i), arcDoomed(i)))
             }
             // Thin separators in the panel colour between visible slices.
             if slices.filter({ $0.size > 0 }).count > 1 {
@@ -606,9 +691,10 @@ extension PieChart {
         let alpha: CGFloat = animating ? PieChart.ease(anim) : 1
         if animating { drawBrandLogo(pieRect, alpha: 1 - alpha) }
         if total <= 0 { T.BORDER.setFill(); NSBezierPath(rect: mapRect).fill() }
+        let marked = markedTiles()
         for (i, t) in tiles.enumerated() {
             let s = slices[t.slice]
-            let hot = i == hoverTile || (t.level == 0 && t.slice == hover && hoverTile < 0)
+            let hot = i == hoverTile || (t.level == 0 && t.slice == hover && hoverTile < 0) || marked.contains(i)
             let rr = t.rect
             let edge = NSBezierPath(rect: rr.insetBy(dx: 0.5, dy: 0.5))
             edge.lineWidth = 1
@@ -618,7 +704,7 @@ extension PieChart {
                 T.BORDER.withAlphaComponent(alpha).setStroke()
                 edge.stroke()
             } else {
-                let col = hot ? PieChart.blend(t.color, T.HOVER, T.HOVER_MIX) : t.color
+                let col = PieChart.markColor(t.color, hot, doomSlices.contains(t.slice) || (t.level > 0 && doomed(t.dir)))
                 col.withAlphaComponent(alpha).setFill()
                 NSBezierPath(rect: rr).fill()
                 T.SURFACE.withAlphaComponent(alpha).setStroke()
@@ -635,12 +721,14 @@ extension PieChart {
                 Theme.drawText(Fmt.size(t.size), in: NSRect(x: tr.minX, y: tr.minY + lh, width: tr.width, height: lh), font: Theme.font9, color: fg)
             }
         }
-        // The hovered folder's tile is mostly covered by its subfolders: an outline on top shows where it is.
-        if alpha >= 1 && hoverTile >= 0 && hoverTile < tiles.count {
-            let outline = NSBezierPath(rect: tiles[hoverTile].rect.insetBy(dx: 1, dy: 1))
-            outline.lineWidth = 2
+        // The hovered or selected folders' tiles are mostly covered by their subfolders: an outline on top shows where.
+        if alpha >= 1 {
             T.HOVER.setStroke()
-            outline.stroke()
+            for (i, t) in tiles.enumerated() where t.level > 0 && (i == hoverTile || marked.contains(i)) {
+                let outline = NSBezierPath(rect: t.rect.insetBy(dx: 1, dy: 1))
+                outline.lineWidth = 2
+                outline.stroke()
+            }
         }
         drawTreemapInfo(NSRect(x: area.minX, y: mapRect.maxY + 6, width: area.width, height: infoH - 6))
     }

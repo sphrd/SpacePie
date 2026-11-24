@@ -134,6 +134,7 @@ namespace SpacePie
             total = 0;
             hover = reported = -1;
             reportedDir = null;
+            ClearMarks();
             logoMode = true;
             animTimer.Stop();
             animClock.Reset();
@@ -160,6 +161,7 @@ namespace SpacePie
             centerFree = -1;
             canGoUp = hoverCenter = false;
             arcs = new List<ChartArc>();
+            ClearMarks();   // the list sets them again for the new slices
             if (rings > 0 && total > 0)
             {
                 float a = -90;
@@ -208,17 +210,6 @@ namespace SpacePie
 
         /// <summary>Pixels (at 100 %) a hovered section grows outwards; each ring beyond it moves out by as much again.</summary>
         const int HoverGrow = 4;
-
-        /// <summary>Hovered: the section under the pointer and, recursively, the sections of its subfolders in the outer rings.</summary>
-        bool ArcLit(int i)
-        {
-            if (hoverArc >= 0)
-            {
-                for (int j = i; j >= 0; j = arcs[j].Parent) if (j == hoverArc) return true;
-                return false;
-            }
-            return hover >= 0 && arcs[i].Owner == hover;
-        }
 
         static Color Blend(Color a, Color b, float t)
         {
@@ -285,6 +276,17 @@ namespace SpacePie
             if (slice == hover && arc == hoverArc && tile == hoverTile) return;
             hover = slice; hoverArc = arc; hoverTile = tile;
             Invalidate();
+        }
+
+        /// <summary>
+        /// Width at which the chart's drawing area (below the title and its line under it, the selector sits beside the
+        /// title) is square for a chart of the given height.
+        /// </summary>
+        public static int SquareWidth(int height)
+        {
+            int pad = Theme.S(10);
+            int header = pad + Theme.FONT_11.Height + Theme.S(2) + Theme.FONT_9.Height + Theme.S(16);
+            return Math.Max(0, height - header - pad) + 2 * pad;
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -399,39 +401,38 @@ namespace SpacePie
                     if (sweep <= 0) continue;
                     if (!slices[i].Empty)
                     {
+                        bool lit = SliceLit(i), doom = doomSlices.Contains(i);
+                        var col = MarkColor(slices[i].Color, lit, doom);
                         if (rings > 0)
-                        {
-                            bool litSlice = i == hover && hoverArc < 0;
-                            var col = litSlice ? Blend(slices[i].Color, Theme.HOVER, Theme.HOVER_MIX) : slices[i].Color;
-                            FillBand(g, c0, R * HoleRatio, R * InnerOuterRatio + (litSlice ? Theme.S(HoverGrow) : 0), start, Math.Max(sweep, 0.01f), col);
-                        }
+                            FillBand(g, c0, R * HoleRatio, R * InnerOuterRatio + (lit ? Theme.S(HoverGrow) : 0), start, Math.Max(sweep, 0.01f), col);
                         else
                         {
                             var rr = r;
-                            if (i == hover) rr.Inflate(Theme.S(HoverGrow), Theme.S(HoverGrow));
-                            using (var b = new SolidBrush(i == hover ? Blend(slices[i].Color, Theme.HOVER, Theme.HOVER_MIX) : slices[i].Color)) g.FillPie(b, rr, start, Math.Max(sweep, 0.01f));
+                            if (lit) rr.Inflate(Theme.S(HoverGrow), Theme.S(HoverGrow));
+                            using (var b = new SolidBrush(col)) g.FillPie(b, rr, start, Math.Max(sweep, 0.01f));
                         }
                     }
                     start += sweep;
                 }
-                // Hovered sections last, over their neighbours. They grow outwards only: each ring beyond the hovered
-                // section moves out by one more step, so the gaps between the rings stay the same. Only the section
-                // under the pointer is drawn lighter.
-                var litArcs = new List<int>();
+                // Hovered and selected sections last, over their neighbours. They grow outwards only: each ring beyond the
+                // lit section moves out by one more step, so the gaps between the rings stay the same. Only the sections
+                // under the pointer or selected are drawn lighter; sections on the delete list are red.
+                var litArcs = new List<KeyValuePair<int, int>>();
                 for (int i = 0; i < arcs.Count; i++)
                 {
                     var a = arcs[i];
-                    if (ArcLit(i)) { litArcs.Add(i); continue; }
-                    FillBand(g, c0, R * RingInner(a.Level), R * RingOuter(a.Level), a.Start, a.Sweep, a.Color);
+                    int from = ArcLitFrom(i);
+                    if (from >= 0) { litArcs.Add(new KeyValuePair<int, int>(i, from)); continue; }
+                    FillBand(g, c0, R * RingInner(a.Level), R * RingOuter(a.Level), a.Start, a.Sweep, MarkColor(a.Color, false, ArcDoomed(i)));
                 }
                 float grow = Theme.S(HoverGrow);
-                int litLevel = hoverArc >= 0 ? arcs[hoverArc].Level : 0;
-                foreach (int i in litArcs)
+                foreach (var kv in litArcs)
                 {
+                    int i = kv.Key;
                     var a = arcs[i];
-                    int k = a.Level - litLevel;
+                    int k = a.Level - kv.Value;
                     FillBand(g, c0, R * RingInner(a.Level) + k * grow, R * RingOuter(a.Level) + (k + 1) * grow, a.Start, a.Sweep,
-                        i == hoverArc ? Blend(a.Color, Theme.HOVER, Theme.HOVER_MIX) : a.Color);
+                        MarkColor(a.Color, i == hoverArc || markArcs.Contains(i), ArcDoomed(i)));
                 }
                 // Thin separators in the panel colour between visible slices.
                 int visible = 0;

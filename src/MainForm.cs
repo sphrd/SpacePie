@@ -76,7 +76,60 @@ namespace SpacePie
         /// <summary>The list pane (middle); the toolbar's selection buttons line up with its edges.</summary>
         readonly RoundedPanel listPanel;
         readonly SplitContainer split2;
-        int chartWidthBeforeHiding;
+        RoundedPanel chartPanel;
+
+        /// <summary>
+        /// Width at which the chart's drawing area is square (title and selector rows above it not counted), within what
+        /// leaves the list at least 380 px.
+        /// </summary>
+        int SquareChartWidth()
+        {
+            int pv = chartPanel != null ? chartPanel.Padding.Vertical : 0, ph = chartPanel != null ? chartPanel.Padding.Horizontal : 0;
+            int w = PieChart.SquareWidth(split2.Height - pv) + ph;
+            return Math.Max(S(220), Math.Min(w, split2.Width - S(380) - split2.SplitterWidth));
+        }
+
+        bool sizingChart;
+        /// <summary>The chart pane's fixed width: its square width at start, or what the user dragged the splitter to.</summary>
+        int chartFixedWidth;
+
+        /// <summary>
+        /// Chart pane width = the smaller of its fixed width and the square width for the current height: below the start
+        /// size it follows the square (shrinking and growing back), above it it stays at the fixed width. Only dragging the
+        /// splitter changes the fixed width.
+        /// </summary>
+        void FitChartPane(bool initial = false)
+        {
+            if (split2 == null || sizingChart || split2.Width <= 0 || split2.Height <= 0) return;
+            if (initial || chartFixedWidth <= 0) chartFixedWidth = SquareChartWidth();
+            if (split2.Panel2Collapsed) return;
+            int width = Math.Min(chartFixedWidth, SquareChartWidth());
+            int dist = Math.Max(S(200), split2.Width - width - split2.SplitterWidth);
+            if (dist == split2.SplitterDistance) return;
+            sizingChart = true;
+            try { split2.SplitterDistance = dist; } catch (Exception) { }
+            finally { sizingChart = false; }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        static extern bool RedrawWindow(IntPtr hWnd, IntPtr rect, IntPtr rgn, uint flags);
+
+        /// <summary>Runs a layout change with drawing frozen, then draws the window once: half-done layouts never show.</summary>
+        void WithoutDrawing(Action change)
+        {
+            if (!IsHandleCreated || !Visible) { change(); return; }
+            const int WM_SETREDRAW = 0x000B;
+            SendMessage(Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+            try { change(); PerformLayout(); }
+            finally
+            {
+                SendMessage(Handle, WM_SETREDRAW, (IntPtr)1, IntPtr.Zero);
+                RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100);   // INVALIDATE|ERASE|ALLCHILDREN|UPDATENOW
+            }
+        }
         readonly PieChart chart;
         readonly Segmented chartMode;
         static string TreemapMarker { get { return AppData.Path("treemap"); } }
@@ -241,7 +294,7 @@ namespace SpacePie
             chart.SliceClicked += sl => { if (sl.Dir != null && !busy) SelectDir(sl.Dir); };
             chart.CenterClicked += () => { if (ActivePage == pContents) GoUp(); };
             chart.HoverChanged += i => ActivePage.List.SetHighlight(RowsForChartHover(i, chart.HoverDir));
-            var chartPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill };
+            chartPanel = new RoundedPanel(12, 8) { Dock = DockStyle.Fill };
             chartPanel.Controls.Add(chart);
             // Pie or treemap, top right of the chart pane; the choice is remembered (a marker file).
             chartMode = new Segmented("Pie", "Treemap") { Font = Theme.FONT_9 };
@@ -285,6 +338,16 @@ namespace SpacePie
             // The toolbar's selection buttons follow the list pane's edges (window size, splitter, zoom).
             listPanel.SizeChanged += (s, e) => { toolbar.PerformLayout(); viewTabs.Invalidate(); UpdateJoints(); };
             split2.LocationChanged += (s, e) => toolbar.PerformLayout();
+            split2.SizeChanged += (s, e) => FitChartPane();
+            // Dragging the splitter (and only that: SplitterMoving is raised for the user's drag, not for window resizes,
+            // which also hold the left button) sets the chart's fixed width.
+            bool splitterDrag = false;
+            split2.SplitterMoving += (s, e) => splitterDrag = true;
+            split2.SplitterMoved += (s, e) =>
+            {
+                if (splitterDrag && !sizingChart && !split2.Panel2Collapsed) chartFixedWidth = split2.Panel2.Width;
+                splitterDrag = false;
+            };
 
             // Status line
             var status = new Panel { Dock = DockStyle.Bottom, Height = Theme.FONT_9.Height + S(16), BackColor = Theme.BG };
@@ -389,9 +452,7 @@ namespace SpacePie
             Shown += (s, e) =>
             {
                 Splash.End(this);
-                // The chart pane is 4/5 as wide as it is tall (a large chart, the list keeps more room; at least 380 px).
-                int chartW = Math.Max(S(220), Math.Min(split2.Height * 4 / 5, split2.Width - S(380) - split2.SplitterWidth));
-                split2.SplitterDistance = Math.Max(S(200), split2.Width - chartW - split2.SplitterWidth);
+                FitChartPane(initial: true);
                 toolbar.PerformLayout();
                 LoadDrives();
                 RefreshTree(null);
@@ -421,6 +482,19 @@ namespace SpacePie
             Theme.DarkTitleBar(Handle);
             // Recalculate the frame now that WM_NCCALCSIZE removes the caption.
             SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020);   // NOSIZE|NOMOVE|NOZORDER|NOACTIVATE|FRAMECHANGED
+        }
+
+        /// <summary>
+        /// During a slow resize Windows keeps the old pixels and repaints only the strip that appears, which left stale
+        /// marks in the side margins (the only parts of the window the form paints itself). Only those margins are
+        /// repainted: repainting the whole window on every step made resizing choppy.
+        /// </summary>
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            int top = titleBar != null ? titleBar.Height : 0, h = Math.Max(0, ClientSize.Height - top);
+            Invalidate(new Rectangle(0, top, Padding.Left, h), false);
+            Invalidate(new Rectangle(ClientSize.Width - Padding.Right, top, Padding.Right, h), false);
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -1044,6 +1118,7 @@ namespace SpacePie
             chart.SetData(title, sub, slices, ContentsRings(d));
             chart.SetCenter(d.Parent == null && r != null ? (r.IsDrive ? r.DisplayName : Native.FileName(r.Path)) : d.Name, d.Parent != null,
                 driveRoot ? r.Free : -1);
+            if (ActivePage == pContents) UpdateChartMarks();
         }
 
         /// <summary>Outer rings around the folder contents chart: subfolders and their subfolders.</summary>
@@ -1106,7 +1181,7 @@ namespace SpacePie
             else
             {
                 if (!busy) uiTimer.Stop();
-                scanBar.Stop();
+                WithoutDrawing(scanBar.Stop);   // every pane moves up: drawn once, laid out
             }
             UpdateButtons();
             if (!value && drivesChanged) BeginInvoke(new Action(RefreshDrives));
@@ -1174,7 +1249,7 @@ namespace SpacePie
         {
             if (selButtonsQueued || !IsHandleCreated) return;
             selButtonsQueued = true;
-            BeginInvoke(new Action(() => { selButtonsQueued = false; UpdateSelectionButtons(); }));
+            BeginInvoke(new Action(() => { selButtonsQueued = false; UpdateSelectionButtons(); UpdateChartMarks(); }));
         }
 
         /// <summary>Show in Explorer, Add to delete list and Delete permanently work on the selected rows of the open list:

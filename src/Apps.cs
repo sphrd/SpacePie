@@ -24,7 +24,10 @@ namespace SpacePie
         /// <summary>The DisplayIcon value ("C:\x\app.exe,0" or an .ico); the app's own logo, read in the background.</summary>
         public string IconSource;
         public System.Drawing.Image Icon;
-        public long Size, EstimatedSize;
+        /// <summary>Size = ProgramSize (program folder, Store package data) + the folders the app made elsewhere.</summary>
+        public long Size, EstimatedSize, ProgramSize;
+        /// <summary>The program size is the registry's estimate (no measured program folder): it covers the program files.</summary>
+        public bool SizeEstimated;
         /// <summary>Last opened as Windows recorded it (FILETIME, UTC); 0 = not recorded.</summary>
         public long LastUsed;
         public bool Uninstalled, Expanded, Searching;
@@ -48,6 +51,16 @@ namespace SpacePie
         public string SubKey;                   // registry: path under the hive
         public long Size;
         public string Note = "";
+        /// <summary>Who made it: the app, the app as a cache (can go any time), the user, or not clear.</summary>
+        public string Origin = OriginApp;
+        public const string OriginApp = "Made by the app", OriginCache = "Made by the app (temporary files)",
+            OriginUser = "Your own files - not suggested", OriginUnsure = "Not clear who made it - check before deleting";
+        /// <summary>Adds to the app's size (made by the app, not inside the program folder, not matched by another app too).</summary>
+        public bool Counts;
+        /// <summary>How many apps this folder's name matches.</summary>
+        public int Shared = 1;
+        /// <summary>Inside another listed folder (the program folder in a folder named like the app): counted with that folder.</summary>
+        public Leftover Inside;
 
         public bool Sure { get { return Match != NameOnly; } }
     }
@@ -165,6 +178,7 @@ namespace SpacePie
             UpdateAppButtons();
             bool testMode = AppsTestMode;
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            var scanned = roots.Where(r => r.Node != null && !r.ReadOnly).Select(r => r.Node).ToList();
             var read = !testMode && appsPrefetch != null ? appsPrefetch : StartAppsRead(testMode);
             appsPrefetch = null;
             long afterScan = 0;
@@ -197,6 +211,7 @@ namespace SpacePie
                 {
                     long s = string.IsNullOrEmpty(a.Location) ? -1 : measure(a.Location);
                     a.Size = s >= 0 ? s : a.EstimatedSize;
+                    a.SizeEstimated = s < 0;
                     string d = data(a);
                     if (d != null) { long ds = measure(d); if (ds > 0) a.Size += ds; }
                 });
@@ -206,6 +221,19 @@ namespace SpacePie
                     var first = g.OrderByDescending(a => a.EstimatedSize).ThenBy(a => a.Name.Length).First();
                     foreach (var a in g) if (a != first) { a.Size = 0; a.SharedWith = first.Name; }
                 }
+                // Plus the folders each app made anywhere on the scanned drives (AppData, ProgramData, Common Files...).
+                foreach (var a in found) a.ProgramSize = a.Size;
+                try
+                {
+                    var hits = FindAppFolders(scanned, found, null);
+                    foreach (var a in found)
+                    {
+                        var ls = hits.Of(a);
+                        foreach (var l in ls) Classify(a, l, hits.Nodes[l]);
+                        RecountSize(a, ls);
+                    }
+                }
+                catch (Exception) { }
                 afterScan = sizeSw.ElapsedMilliseconds;
             }).ContinueWith(t =>
             {
@@ -220,6 +248,7 @@ namespace SpacePie
                     if (!old.TryGetValue(AppsCache.Identity(a), out o)) continue;
                     a.Expanded = o.Expanded;
                     a.Leftovers = o.Leftovers;
+                    RecountSize(a, a.Leftovers);
                     a.Searching = o.Searching;
                     if (a.Icon == null) a.Icon = o.Icon;
                     old.Remove(AppsCache.Identity(a));
@@ -227,6 +256,7 @@ namespace SpacePie
                 found.AddRange(old.Values.Where(o => o.Uninstalled && o.Leftovers != null && o.Leftovers.Count > 0));   // partly removed apps stay
                 apps = found;
                 appsFromCache = false;
+                suggestionsDirty = true;   // Apps' cache in Suggestions needs the installed apps
                 AppsReadMs = sw.ElapsedMilliseconds;
                 AppsAfterScanMs = afterScan;
                 if (!testMode) AppsCache.Save(apps);
@@ -253,13 +283,13 @@ namespace SpacePie
             foreach (var a in shown.OrderByDescending(a => a.Uninstalled).ThenByDescending(a => a.Size).ThenBy(a => a.Name, StringComparer.OrdinalIgnoreCase))
             {
                 bool hasLeft = a.Leftovers != null && a.Leftovers.Count > 0;
-                long leftSize = hasLeft ? a.Leftovers.Sum(l => l.Size) : 0;
+                long leftSize = hasLeft ? LeftoverTotal(a.Leftovers) : 0;
                 var head = new ItemInfo
                 {
                     Data = a, Name = a.Uninstalled ? a.Name + "  (uninstalled -- leftovers)" : a.Name, Size = a.Uninstalled ? leftSize : a.Size,
                     FolderIcon = true, Icon = a.Icon, Path = string.IsNullOrEmpty(a.Location) ? null : a.Location, Folder = a.Location,
                     Category = a.Publisher, Note = a.Version, Percent = total > 0 && !a.Uninstalled ? 100.0 * a.Size / total : 0,
-                    Expandable = true, Expanded = a.Expanded, Check = a.Uninstalled && hasLeft ? LeftoverState(a) : -1,
+                    Expandable = true, Expanded = a.Expanded, Check = hasLeft && a.Leftovers.Any(l => Removable(a, l)) ? LeftoverState(a) : -1,
                     Used = a.Uninstalled ? 0 : a.LastUsed
                 };
                 string where = a.SharedWith != null ? "same folder as " + a.SharedWith : a.IsStore && string.IsNullOrEmpty(a.Location) ? "Microsoft Store" : a.Location;
@@ -284,10 +314,13 @@ namespace SpacePie
                     var it = new ItemInfo
                     {
                         Data = l, GroupOf = head, Name = KindName(l.Kind) + ": " + l.Label, Size = l.Size, FolderIcon = l.IsDir || l.IsRegistry, Path = l.Path, Folder = l.Path,
-                        Note = l.Kind, Check = a.Uninstalled ? (l.Checked ? 1 : 0) : -1,
+                        Note = l.Kind, Check = Removable(a, l) ? (l.Checked ? 1 : 0) : -1,
                         Targets = l.IsRegistry ? null : new List<DeleteTarget> { new DeleteTarget { Path = l.Path, Label = l.Label, IsDir = l.IsDir, Size = l.Size } }
                     };
-                    rows.Add(Row(it, it.Name, l.IsRegistry ? "--" : Fmt.Size(l.Size), "", l.Kind, l.Match + (string.IsNullOrEmpty(l.Note) ? "" : "; " + l.Note), "", "", l.Path));
+                    var row = Row(it, it.Name, l.IsRegistry ? "--" : Fmt.Size(l.Size), "", l.Kind,
+                        l.Match + "; " + l.Origin + (string.IsNullOrEmpty(l.Note) ? "" : "; " + l.Note), "", "", l.Path);
+                    if (l.Origin == Leftover.OriginUser) row.ForeColor = Theme.MUTED;
+                    rows.Add(row);
                 }
             }
             SetRows(lv, rows, apps.Count == 0 ? "No installed apps were found." : unusedOnly && q.Length == 0 ? "Every app was opened in the last 6 months." : "No app matches \"" + q + "\".");
@@ -322,8 +355,9 @@ namespace SpacePie
 
         static int LeftoverState(InstalledApp a)
         {
-            int n = a.Leftovers.Count(l => l.Checked);
-            return n == 0 ? 0 : n == a.Leftovers.Count ? 1 : 2;
+            var ls = a.Leftovers.Where(l => Removable(a, l)).ToList();
+            int n = ls.Count(l => l.Checked);
+            return n == 0 ? 0 : n == ls.Count ? 1 : 2;
         }
 
         InstalledApp SelectedApp()
@@ -339,7 +373,7 @@ namespace SpacePie
             if (btnAppUninstall == null) return;
             var a = SelectedApp();
             btnAppUninstall.Enabled = a != null && !a.Uninstalled && !busy && !scanning;
-            btnAppLeftovers.Enabled = apps != null && apps.Any(x => x.Uninstalled && x.Leftovers != null && x.Leftovers.Any(l => l.Checked)) && !busy && !scanning;
+            btnAppLeftovers.Enabled = apps != null && apps.Any(x => x.Leftovers != null && x.Leftovers.Any(l => l.Checked && Removable(x, l))) && !busy && !scanning;
         }
 
         void AppGlyph(ListViewItem lvi, bool checkbox)
@@ -347,7 +381,7 @@ namespace SpacePie
             var info = (ItemInfo)lvi.Tag;
             var a = info.Data as InstalledApp;
             if (!checkbox) { if (a != null) ExpandApp(a, !a.Expanded); return; }
-            if (a != null && a.Leftovers != null) { bool on = LeftoverState(a) != 1; foreach (var l in a.Leftovers) l.Checked = on; }
+            if (a != null && a.Leftovers != null) { bool on = LeftoverState(a) != 1; foreach (var l in a.Leftovers.Where(x => Removable(a, x))) l.Checked = on; }
             else { var l = info.Data as Leftover; if (l != null) l.Checked = !l.Checked; }
             ShowApps();
         }
@@ -355,8 +389,12 @@ namespace SpacePie
         void ToggleSelectedLeftovers()
         {
             var sel = pApps.List.SelectedItems.Cast<ListViewItem>().Select(i => (ItemInfo)i.Tag).ToList();
-            var ls = sel.SelectMany(i => i.Data is InstalledApp && ((InstalledApp)i.Data).Leftovers != null ? ((InstalledApp)i.Data).Leftovers
-                : i.Data is Leftover ? new List<Leftover> { (Leftover)i.Data } : new List<Leftover>()).Distinct().ToList();
+            var ls = sel.SelectMany(i =>
+            {
+                var ia = i.Data as InstalledApp ?? (i.GroupOf != null ? i.GroupOf.Data as InstalledApp : null);
+                if (ia == null || ia.Leftovers == null) return new List<Leftover>();
+                return (i.Data is Leftover ? new List<Leftover> { (Leftover)i.Data } : ia.Leftovers).Where(l => Removable(ia, l)).ToList();
+            }).Distinct().ToList();
             if (ls.Count == 0) return;
             bool on = ls.Any(l => !l.Checked);
             foreach (var l in ls) l.Checked = on;
@@ -726,8 +764,8 @@ namespace SpacePie
             var rest = a.Leftovers;
             var sure = rest.Where(l => l.Sure).ToList();
             var review = rest.Where(l => !l.Sure).ToList();
-            string reviewNote = review.Count == 0 ? null : string.Format("{0:N0} item{1} ({2}) match only by name: listed, but not deleted. Check {3} in the list if {4} to {5}.",
-                review.Count, review.Count == 1 ? "" : "s", Fmt.Size(review.Sum(l => l.Size)), review.Count == 1 ? "it" : "them", review.Count == 1 ? "it belongs" : "they belong", a.Name);
+            string reviewNote = review.Count == 0 ? null : string.Format("{0:N0} item{1} ({2}) match only by name or look like your own files: listed, but not deleted. Check {3} in the list if {4} to {5}.",
+                review.Count, review.Count == 1 ? "" : "s", Fmt.Size(LeftoverTotal(review)), review.Count == 1 ? "it" : "them", review.Count == 1 ? "it belongs" : "they belong", a.Name);
             if (sure.Count == 0)
             {
                 if (SelfTestDir == null)
@@ -738,13 +776,13 @@ namespace SpacePie
             }
             bool yes = SelfTestDir != null || Alert(AlertIcon.Danger,
                 string.Format("{0} was uninstalled, but {1:N0} item{2} remain", a.Name, sure.Count, sure.Count == 1 ? "" : "s"),
-                string.Format("Delete them too? {0} will be deleted. This bypasses the Recycle Bin and cannot be undone.", Fmt.Size(sure.Sum(l => l.Size))),
+                string.Format("Delete them too? {0} will be deleted. This bypasses the Recycle Bin and cannot be undone.", Fmt.Size(LeftoverTotal(sure))),
                 JoinNotes(sure.Any(l => l.IsRegistry) ? "Registry keys are saved to a .reg backup first." : null, reviewNote), LeftoverLines(sure),
                 "Delete them", "Keep them") == "Delete them";
             if (!yes)
             {
                 statusLabel.Text = string.Format("Uninstalled {0}. {1:N0} leftover{2} ({3}) kept: check any of them and press Remove leftovers to delete them later.",
-                    a.Name, rest.Count, rest.Count == 1 ? "" : "s", Fmt.Size(rest.Sum(l => l.Size)));
+                    a.Name, rest.Count, rest.Count == 1 ? "" : "s", Fmt.Size(LeftoverTotal(rest)));
                 return;
             }
             foreach (var x in apps.Where(x => x != a && x.Leftovers != null)) foreach (var l in x.Leftovers) l.Checked = false;
@@ -769,7 +807,7 @@ namespace SpacePie
             if (!a.Uninstalled)
                 statusLabel.Text = a.Leftovers.Count == 0 ? a.Name + ": no files or settings found."
                     : string.Format("{0}: {1:N0} item{2}, {3} in total (program folder, data, settings{4}).", a.Name, a.Leftovers.Count,
-                        a.Leftovers.Count == 1 ? "" : "s", Fmt.Size(a.Leftovers.Sum(l => l.Size)), a.Leftovers.Any(l => l.IsRegistry) ? ", registry" : "");
+                        a.Leftovers.Count == 1 ? "" : "s", Fmt.Size(LeftoverTotal(a.Leftovers)), a.Leftovers.Any(l => l.IsRegistry) ? ", registry" : "");
         }
 
         /// <summary>Selects an app's row and scrolls it into view (the list otherwise keeps its scroll position).</summary>
@@ -892,8 +930,12 @@ namespace SpacePie
         {
             statusLabel.Text = (a.Uninstalled ? "Checking what is left of " : "Finding the files and settings of ") + a.Name + "...";
             List<Leftover> found = null;
-            await Task.Run(() => { found = SearchLeftovers(a); });
+            var scanned = roots.Where(r => r.Node != null && !r.ReadOnly).Select(r => r.Node).ToList();
+            var all = (apps ?? new List<InstalledApp>()).Where(x => !x.Uninstalled || x == a).ToList();
+            if (!all.Contains(a)) all.Add(a);
+            await Task.Run(() => { try { found = SearchLeftovers(a, scanned, all); } catch (Exception) { } });
             a.Leftovers = found ?? new List<Leftover>();
+            RecountSize(a, a.Leftovers);
         }
 
         static string Norm(string s)
@@ -917,37 +959,66 @@ namespace SpacePie
             if (!string.IsNullOrEmpty(a.KeyName) && !a.KeyName.StartsWith("{") && !a.KeyName.Contains("_is1") ) add(a.KeyName);
             if (!string.IsNullOrEmpty(a.KeyName) && a.KeyName.EndsWith("_is1")) add(a.KeyName.Substring(0, a.KeyName.Length - 4));
             if (a.IsStore) { add(a.PackageFamilyName); add(StoreNameFromFull(a.PackageFullName)); }
-            // Never match very generic names.
-            foreach (var g in new[] { "microsoft", "windows", "program", "programs", "common", "commonfiles", "update", "updater", "tools", "setup", "installer", "temp", "cache", "data" })
-                names.Remove(g);
+            names.ExceptWith(GenericNames);
             return names;
         }
 
-        List<Leftover> SearchLeftovers(InstalledApp a)
+        /// <summary>
+        /// Everything that belongs to the app: its program folder, the folders named after it anywhere on the scanned drives
+        /// (and in the usual places read from the disk), shortcuts and registry keys; for an installed app also the caches,
+        /// temporary files, logs and dumps inside its data folders. Runs on a background thread.
+        /// </summary>
+        List<Leftover> SearchLeftovers(InstalledApp a, List<DirNode> scanned, List<InstalledApp> all)
         {
             var result = new List<Leftover>();
-            var names = CandidateNames(a);
+            var keys = KeysOf(a);
+            var names = keys.Names;
             if (names.Count == 0) return result;
             string pub = Norm(a.Publisher);
             bool pubOk = pub.Length >= 4 && !pub.StartsWith("microsoft");
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            Action<string, string, bool> addPath = (path, kind, isDir) =>
+            var nodes = new Dictionary<Leftover, DirNode>();
+            Func<string, Leftover> addPath = path =>
             {
-                // Things inside the program folder are covered by the folder itself.
-                if (!string.IsNullOrEmpty(a.Location) && !SamePath(path, a.Location) && IsWithin(path, a.Location)) return;
-                if (!seen.Add(path.TrimEnd('\\'))) return;
-                var l = new Leftover { Path = path, Label = Native.FileName(path), Kind = kind, IsDir = isDir };
-                try { l.Size = isDir ? new Scanner().Run(path).Size : new FileInfo(path).Length; } catch (Exception) { }
+                // Things inside the program folder (or another listed folder) are covered by that folder.
+                if (!string.IsNullOrEmpty(a.Location) && !SamePath(path, a.Location) && IsWithin(path, a.Location)) return null;
+                if (result.Any(o => o.IsDir && !SamePath(o.Path, a.Location ?? "") && IsWithin(path, o.Path))) return null;
+                if (!seen.Add(path.TrimEnd('\\'))) return null;
+                var l = new Leftover { Path = path, Label = Native.FileName(path) };
                 result.Add(l);
+                return l;
+            };
+            Action<string, string, bool> addMeasured = (path, kind, isDir) =>
+            {
+                var l = addPath(path);
+                if (l == null) return;
+                l.Kind = kind;
+                l.IsDir = isDir;
+                try { l.Size = isDir ? new Scanner().Run(path).Size : new FileInfo(path).Length; } catch (Exception) { }
             };
 
             // The program folder first (after an uninstall: if the uninstaller left it).
             if (!string.IsNullOrEmpty(a.Location) && Native.IsDirectory(a.Location) && a.SharedWith == null)
-                addPath(a.Location, a.IsStore ? "App package" : "Program folder", true);
+                addMeasured(a.Location, a.IsStore ? "App package" : "Program folder", true);
+
+            // Folders named after the app anywhere on the scanned drives (the scan index: no disk reads).
+            var hits = FindAppFolders(scanned, all, a);
+            foreach (var h in hits.Of(a).OrderBy(x => x.Path.Length))
+            {
+                if (!Native.IsDirectory(h.Path)) continue;          // gone since the scan (e.g. by the uninstaller)
+                var l = addPath(h.Path);
+                if (l == null) continue;
+                l.IsDir = true;
+                l.Shared = h.Shared;
+                l.Size = h.Size;
+                if (a.Uninstalled) try { l.Size = new Scanner().Run(h.Path).Size; } catch (Exception) { }   // the index may be out of date
+                else nodes[l] = hits.Nodes[h];
+            }
 
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            // The usual places read from the disk too: drives that were not scanned, and changes since the scan.
             var folders = new List<Tuple<string, string>>
             {
                 Tuple.Create(roaming, "Settings (AppData\\Roaming)"),
@@ -957,6 +1028,9 @@ namespace SpacePie
                 Tuple.Create(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Shared data (ProgramData)"),
                 Tuple.Create(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Program folder"),
                 Tuple.Create(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Program folder"),
+                Tuple.Create(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles), "Shared program files (Common Files)"),
+                Tuple.Create(Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFilesX86), "Shared program files (Common Files)"),
+                Tuple.Create(Path.GetTempPath().TrimEnd('\\'), "Temporary files (Temp)"),
                 Tuple.Create(Path.Combine(home, "Documents"), "Documents folder"),
             };
             if (a.IsStore) folders.Add(Tuple.Create(Path.Combine(local, "Packages"), "App data (Store package)"));
@@ -969,16 +1043,17 @@ namespace SpacePie
                 {
                     string d = d0.StartsWith(@"\\?\") ? d0.Substring(4) : d0;
                     string n = Norm(Native.FileName(d));
-                    if (names.Contains(n)) { if (f.Item2 != "Documents folder" || n.Length >= 6) addPath(d, f.Item2, true); continue; }
-                    // Publisher folder: the app's subfolder (or the publisher folder when that is all it holds).
-                    if (pubOk && (n == pub || pub.StartsWith(n) && n.Length >= 5))
+                    if (names.Contains(n)) { if (f.Item2 != "Documents folder" || n.Length >= 6) addMeasured(d, f.Item2, true); continue; }
+                    // Publisher folder: the app's subfolder (or the publisher folder when that is all it holds). Inside it the
+                    // app may go without the publisher's name (Adobe\Acrobat for "Adobe Acrobat").
+                    if (keys.IsPublisherFolder(n))
                     {
                         string[] subs;
                         try { subs = Directory.GetFileSystemEntries(d); } catch (Exception) { continue; }
-                        var matching = subs.Where(s => names.Contains(Norm(Native.FileName(s)))).ToList();
+                        var matching = subs.Where(s => { string sn = Norm(Native.FileName(s)); return names.Contains(sn) || keys.PubNames.Contains(sn); }).ToList();
                         if (matching.Count == 0) continue;
-                        if (matching.Count == subs.Length) addPath(d, f.Item2, true);
-                        else foreach (var m in matching) addPath(m.StartsWith(@"\\?\") ? m.Substring(4) : m, f.Item2, Native.IsDirectory(m));
+                        if (matching.Count == subs.Length) addMeasured(d, f.Item2, true);
+                        else foreach (var m in matching) addMeasured(m.StartsWith(@"\\?\") ? m.Substring(4) : m, f.Item2, Native.IsDirectory(m));
                     }
                 }
             }
@@ -995,9 +1070,9 @@ namespace SpacePie
                 {
                     foreach (var d in Directory.GetDirectories(root))
                         if (names.Contains(Norm(Path.GetFileName(d))) || (pubOk && Norm(Path.GetFileName(d)) == pub && Directory.GetFileSystemEntries(d).All(x => names.Contains(Norm(Path.GetFileNameWithoutExtension(x))))))
-                            addPath(d, "Start menu folder", true);
+                            addMeasured(d, "Start menu folder", true);
                     foreach (var lnk in Directory.GetFiles(root, "*.lnk"))
-                        if (names.Contains(Norm(Path.GetFileNameWithoutExtension(lnk)))) addPath(lnk, "Shortcut", false);
+                        if (names.Contains(Norm(Path.GetFileNameWithoutExtension(lnk)))) addMeasured(lnk, "Shortcut", false);
                 }
                 catch (Exception) { }
             }
@@ -1044,9 +1119,19 @@ namespace SpacePie
                 }
                 catch (Exception) { }
             }
+            // A folder found inside another listed folder is part of it (the program folder aside: it may sit in a folder
+            // named like the app, Programs\Python\Python312; then it is listed inside that folder).
+            result.RemoveAll(l => !l.IsRegistry && result.Any(o => o != l && o.IsDir && !o.IsRegistry && !SamePath(o.Path, l.Path) && IsWithin(l.Path, o.Path) &&
+                (string.IsNullOrEmpty(a.Location) || !IsWithin(a.Location, o.Path))));
+            var progItem = string.IsNullOrEmpty(a.Location) ? null : result.FirstOrDefault(l => !l.IsRegistry && SamePath(l.Path, a.Location));
+            // Other installed apps' program folders: what is inside one is that program's; a folder holding one is never sure.
+            var otherLocations = all.Where(x => x != a && !x.Uninstalled && !string.IsNullOrEmpty(x.Location)).Select(x => x.Location.TrimEnd('\\')).ToList();
+            result.RemoveAll(l => !l.IsRegistry && l != progItem && otherLocations.Any(loc => IsWithin(l.Path, loc)));
+            if (progItem != null)
+                progItem.Inside = result.Where(o => o != progItem && o.IsDir && !o.IsRegistry && IsWithin(a.Location, o.Path)).OrderBy(o => o.Path.Length).FirstOrDefault();
             // How sure each item belongs to the app. Name-only matches start unchecked: an uninstaller that ticks them is how
             // the wrong folder gets deleted.
-            var strong = StrongNames(a);
+            var strong = keys.Strong;
             foreach (var l in result)
             {
                 string leaf = Norm(l.IsRegistry ? Native.FileName(l.SubKey) : Native.FileName(l.Path));
@@ -1056,11 +1141,30 @@ namespace SpacePie
                 else if (names.Contains(leaf))
                 {
                     string parent = Norm(Native.FileName(Native.ParentDir(l.IsRegistry ? l.SubKey : l.Path) ?? ""));
-                    l.Match = pubOk && parent == pub ? Leftover.SameDeveloper : Leftover.NameOnly;
+                    l.Match = keys.IsPublisherFolder(parent) ? Leftover.SameDeveloper : Leftover.NameOnly;
                 }
-                else l.Match = Leftover.SameDeveloper;                                // a publisher folder holding only this app
-                if (!l.Sure) l.Checked = false;
+                else l.Match = Leftover.SameDeveloper;                                // in the publisher's folder, or a publisher folder holding only this app
             }
+            // Who made each item (the app, or you), what it adds to the app's size, and what can go now.
+            foreach (var l in result.ToList())
+            {
+                DirNode node = null;
+                if (!l.IsRegistry && l.IsDir && !nodes.TryGetValue(l, out node))
+                {
+                    node = Resolve(scanned, l.Path);
+                    if (node != null) nodes[l] = node;
+                }
+                Classify(a, l, node);
+                if (!l.IsRegistry && l.IsDir && otherLocations.Any(loc => IsWithin(loc, l.Path)))
+                {
+                    l.Match = Leftover.NameOnly;
+                    l.Counts = false;
+                    l.Note = "holds another app's program folder";
+                }
+            }
+            // After an uninstall: everything sure that the app made is checked; your own files and unclear ones never are.
+            foreach (var l in result)
+                l.Checked = a.Uninstalled && l.Sure && l.Origin != Leftover.OriginUser && l.Origin != Leftover.OriginUnsure;
             // Leftovers that need administrator rights start unchecked when the app is not elevated.
             foreach (var l in result)
                 if (!isAdmin && NeedsAdmin(l)) { l.Checked = false; l.Note = "needs Run as administrator"; }
@@ -1095,19 +1199,25 @@ namespace SpacePie
             string pd = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), pf86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
             string cp = Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), cd = Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
-            return new[] { pd, pf, pf86, cp, cd }.Any(x => !string.IsNullOrEmpty(x) && IsWithin(l.Path, x));
+            string win = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            return new[] { pd, pf, pf86, cp, cd, win }.Any(x => !string.IsNullOrEmpty(x) && IsWithin(l.Path, x));
         }
 
         // ---------------------------------------------------------------- removing leftovers
 
         async void RemoveCheckedLeftovers() { await RemoveLeftovers(true); }
 
-        /// <summary>Removes the checked leftovers of all apps; returns the .reg backup file (null when no keys were removed).</summary>
+        /// <summary>Removes the checked leftovers of uninstalled apps; returns the .reg backup file (null when no keys were removed).</summary>
         async Task<string> RemoveLeftovers(bool confirm)
         {
             if (busy || scanning || apps == null) return null;
-            var owners = apps.Where(x => x.Uninstalled && x.Leftovers != null && x.Leftovers.Any(l => l.Checked)).ToList();
-            var items = owners.SelectMany(x => x.Leftovers.Where(l => l.Checked)).ToList();
+            // An item inside another checked item goes with it.
+            Func<InstalledApp, List<Leftover>> picked = x => x.Leftovers.Where(l => l.Checked && Removable(x, l) &&
+                !(l.Inside != null && l.Inside.Checked && Removable(x, l.Inside))).ToList();
+            var chosen = apps.Where(x => x.Uninstalled && x.Leftovers != null).Select(x => new KeyValuePair<InstalledApp, List<Leftover>>(x, picked(x)))
+                .Where(kv => kv.Value.Count > 0).ToList();
+            var owners = chosen.Select(kv => kv.Key).ToList();
+            var items = chosen.SelectMany(kv => kv.Value).ToList();
             if (items.Count == 0) return null;
             long total = items.Sum(l => l.Size);
             string who = owners.Count == 1 ? owners[0].Name : owners.Count + " apps";
@@ -1142,22 +1252,30 @@ namespace SpacePie
                 });
 
             // Measure again: gone items leave, the rest stay with what is left.
-            foreach (var o in owners)
+            long left = 0;
+            foreach (var kv in chosen)
             {
-                foreach (var l in o.Leftovers.Where(x => x.Checked).ToList())
+                var o = kv.Key;
+                foreach (var l in kv.Value)
                 {
+                    long before = l.Size;
                     bool exists = l.IsRegistry ? KeyExists(l) : Native.Exists(l.Path);
-                    if (!exists) { o.Leftovers.Remove(l); continue; }
-                    if (!l.IsRegistry && l.IsDir) { var n = FindScanned(l.Path, true); try { l.Size = n != null ? n.Size : new Scanner().Run(l.Path).Size; } catch (Exception) { } }
+                    if (!exists) l.Size = 0;
+                    else if (!l.IsRegistry && l.IsDir) { var n = FindScanned(l.Path, true); try { l.Size = n != null ? n.Size : new Scanner().Run(l.Path).Size; } catch (Exception) { } }
+                    if (l.Inside != null) l.Inside.Size = Math.Max(0, l.Inside.Size - (before - l.Size));
+                    // Items inside a removed folder went with it.
+                    if (!exists) { o.Leftovers.RemoveAll(x => x == l || x.Inside == l); continue; }
+                    left += l.Size;
                     l.Note = "partly removed -- in use, or needs Run as administrator";
                 }
                 if (o.Uninstalled && o.Leftovers.Count == 0) apps.Remove(o);
+                RecountSize(o, o.Leftovers);
             }
             ViewsChanged();
             ShowApps();
             RefreshTree(current != null && IsAttached(current) ? current : root);
             int errors = job.Errors.Count + regErrors.Count;
-            statusLabel.Text = string.Format("Removed leftovers of {0}: freed {1}{2}.{3}", who, Fmt.Size(Math.Max(0, total - owners.Sum(o => o.Leftovers.Where(l => l.Checked).Sum(l => l.Size)))),
+            statusLabel.Text = string.Format("Removed leftovers of {0}: freed {1}{2}.{3}", who, Fmt.Size(Math.Max(0, total - left)),
                 errors > 0 ? string.Format(", {0:N0} item{1} could not be removed", errors, errors == 1 ? "" : "s") : "",
                 backup != null && File.Exists(backup) ? " Registry backup: " + backup : "");
             if (errors > 0 && SelfTestDir == null) ShowDeleteErrors(job.Errors.Concat(regErrors).ToList(), "removed");

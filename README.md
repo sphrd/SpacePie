@@ -49,7 +49,8 @@ icon and a name each; the open view's row merges into the list beside it. The ch
 always shows the open list, and hovering a slice highlights its row and the other way
 round, also for subfolders in the outer rings, in the treemap and in expanded rows; a
 hovered slice or ring section grows a little and lights up in soft yellow, together
-with its subfolders in the outer rings)
+with its subfolders in the outer rings. Selected rows light up the same way, all of
+them at once, and what is on the delete list is drawn in red)
 
 - **Pie or treemap:** the chart pane shows the open list as a pie chart or as a
   treemap (rectangles sized by space, folders with their subfolders inside), one
@@ -86,7 +87,9 @@ with its subfolders in the outer rings)
 - **The chart:** every item of at least 2 % of the total (7.2° of
   the circle) gets a slice of its own, in true proportion; all smaller items
   together form one grey "N smaller items" slice. The drive overview (This PC /
-  This Mac) has no chart; opening a drive or folder shows it again.
+  This Mac) has no chart; opening a drive or folder shows it again. The chart
+  pane opens square and gets smaller with a smaller window; drag the divider to
+  make it wider.
 - **Suggestions** (the green view under Contents): how much can be freed, in
   large print, and what: the Recycle Bin / Trash of the selected drive, temporary
   files, user and system caches and logs, caches of browsers and developer tools
@@ -121,10 +124,18 @@ with its subfolders in the outer rings)
   them and brings them back. Suggestions are looked up right after a scan (while
   the apps are read), and again whenever the disk changes or you rescan.
 - **Apps:** every installed app, with its own logo and its real size on disk
-  (Windows: programs and Microsoft Store apps; macOS: apps in Applications).
+  (Windows: programs and Microsoft Store apps; macOS: apps in Applications): its
+  program folder or bundle plus the folders it made anywhere on the scanned
+  drives (Windows: AppData, ProgramData, Common Files, Temp; macOS: ~/Library,
+  /Library, temporary files, hidden folders in your home).
   Expand an app (its arrow, or a double-click) to see everything that belongs to
   it, right under it: its program folder, settings and caches (AppData /
-  ~/Library), shared data, shortcuts and, on Windows, registry keys.
+  ~/Library), shared data, shortcuts and, on Windows, registry keys. Each item
+  says who made it: the app, or you. Nothing of an installed app is deleted;
+  after an uninstall, what the app made is checked for removal, while folders of
+  your own named like the app are listed but never checked. The caches of
+  installed apps are offered in **Suggestions** instead, under **Apps' cache**
+  (app name, cache folder and path; only the contents are deleted).
   **Uninstall...** on Windows runs the app's own uninstaller, checks everything
   again and asks to delete whatever is left (registry keys are saved to a `.reg`
   backup first). On macOS one confirmation moves the app and all its files to

@@ -179,12 +179,13 @@ namespace SpacePie
                 using (var b = new SolidBrush(Theme.BORDER)) g.FillRectangle(b, mapRect);
             }
             const TextFormatFlags one = TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding;
+            var marked = MarkedTiles();
             using (var sep = new Pen(BackColor, Math.Max(1f, Theme.Scale)))
                 for (int i = 0; i < tiles.Count; i++)
                 {
                     var t = tiles[i];
                     var s = slices[t.Slice];
-                    bool hot = i == hoverTile || (t.Level == 0 && t.Slice == hover && hoverTile < 0);
+                    bool hot = TileLit(i, marked);
                     var rr = Rectangle.Round(t.R);
                     if (s.Empty && t.Level == 0)
                     {
@@ -194,7 +195,7 @@ namespace SpacePie
                     }
                     else
                     {
-                        var col = hot ? Blend(t.Color, Theme.HOVER, Theme.HOVER_MIX) : t.Color;
+                        var col = MarkColor(t.Color, hot, TileDoomed(i));
                         using (var b = new SolidBrush(Fade(col, alpha))) g.FillRectangle(b, rr);
                         g.DrawRectangle(sep, rr.X, rr.Y, rr.Width - 1, rr.Height - 1);
                     }
@@ -209,13 +210,15 @@ namespace SpacePie
                     if (t.Level == 0 && t.Dir == null && rr.Height >= lh * 2 + Theme.S(8))
                         TextRenderer.DrawText(g, Fmt.Size(t.Size), Theme.FONT_9, new Rectangle(tr.X, tr.Y + lh, tr.Width, lh), fg, one);
                 }
-            // The hovered folder's tile is mostly covered by its subfolders: an outline on top shows where it is.
-            if (alpha >= 1 && hoverTile >= 0 && hoverTile < tiles.Count)
+            // The hovered or selected folders' tiles are mostly covered by their subfolders: an outline on top shows where.
+            if (alpha >= 1)
                 using (var pen = new Pen(Theme.HOVER, Math.Max(2f, 2 * Theme.Scale)) { Alignment = PenAlignment.Inset })
-                {
-                    var hr = Rectangle.Round(tiles[hoverTile].R);
-                    g.DrawRectangle(pen, hr.X, hr.Y, hr.Width - 1, hr.Height - 1);
-                }
+                    for (int i = 0; i < tiles.Count; i++)
+                    {
+                        if (tiles[i].Level == 0 || (i != hoverTile && !marked.Contains(i))) continue;
+                        var hr = Rectangle.Round(tiles[i].R);
+                        g.DrawRectangle(pen, hr.X, hr.Y, hr.Width - 1, hr.Height - 1);
+                    }
             DrawTreemapInfo(g, new Rectangle(area.X, mapRect.Bottom + Theme.S(6), area.Width, infoH - Theme.S(6)));
         }
 

@@ -13,13 +13,27 @@ final class AppLeftover {
     /// moved by the one-step uninstall.
     var match = AppLeftover.exact
     var sure: Bool { match != AppLeftover.nameOnly }
+    /// Who made it: the app, the app as temporary files, the user, or not clear (AppFolders.swift).
+    static let originApp = "Made by the app", originCache = "Made by the app (temporary files)",
+               originUser = "Your own files - not suggested", originUnsure = "Not clear who made it - check before deleting"
+    var origin = AppLeftover.originApp
+    /// Adds to the app's size: made by the app, not the bundle, not matched by another app's name too.
+    var counts = false
+    /// How many apps this folder's name matches.
+    var shared = 1
+    /// Inside another listed item (the bundle in a folder named like the app): counted with that item.
+    var inside: AppLeftover?
     init(_ path: String, _ kind: String) { self.path = path; self.kind = kind }
 }
 
 /// An app bundle in /Applications, /Applications/Utilities or ~/Applications.
 final class InstalledApp {
     var name = "", bundleId = "", version = "", path = ""
+    /// The app with the folders it made anywhere on the scanned drives (programSize + those folders).
     var size: Int64 = 0
+    /// The bundle alone.
+    var programSize: Int64 = 0
+    var bundleSize: Int64 { programSize > 0 ? programSize : size }
     var installed: Date?
     var lastUsed: Date?                  // last opened, as Spotlight recorded it; nil = not recorded
     var uninstalled = false
@@ -54,7 +68,7 @@ final class InstalledApp {
         return String(first).uppercased() + parts[1].dropFirst()
     }
 
-    var leftoverSize: Int64 { (leftovers ?? []).reduce(Int64(0)) { $0 + max(0, $1.size) } }
+    var leftoverSize: Int64 { (leftovers ?? []).filter { $0.inside == nil }.reduce(Int64(0)) { $0 + max(0, $1.size) } }
     var shownSize: Int64 { uninstalled ? leftoverSize : size }
     var displayName: String { uninstalled ? name + "  (partly removed)" : name }
     var hasLeftovers: Bool { !(leftovers ?? []).isEmpty }
@@ -94,7 +108,7 @@ final class InstalledApp {
     /// without Apple's own apps and anything under /System; largest first.
     static func find(_ roots: [String], _ measure: @escaping (String) -> Int64) -> [InstalledApp] {
         let list = readAll(roots)
-        for a in list { a.size = measure(a.path) }
+        for a in list { a.size = measure(a.path); a.programSize = a.size }
         return sorted(list)
     }
 
@@ -379,10 +393,16 @@ extension MainWindowController {
             }
             let finish = {
                 guard gen == self.appsGen else { return }
-                self.appsReadMs = read.ms
-                self.appsAfterScanMs = Int(Date().timeIntervalSince(t) * 1000)
-                self.appsLoaded(InstalledApp.sorted(found))
-                done?()
+                // Plus the folders each app made anywhere on the scanned drives (~/Library, /Library, caches, hidden folders...).
+                for a in found { a.programSize = a.size }
+                let scanned = self.roots.filter { !$0.readOnly }.compactMap { $0.node }
+                self.readInBackground({ MainWindowController.addAppFolderSizes(scanned, found) }, { _ in
+                    guard gen == self.appsGen else { return }
+                    self.appsReadMs = read.ms
+                    self.appsAfterScanMs = Int(Date().timeIntervalSince(t) * 1000)
+                    self.appsLoaded(InstalledApp.sorted(found))
+                    done?()
+                })
             }
             if unknown.isEmpty { finish(); return }
             let paths = unknown.map { $0.path }
@@ -405,13 +425,17 @@ extension MainWindowController {
             guard let o = old.first(where: { PathUtil.same($0.path, a.path) && !$0.uninstalled }) else { continue }
             a.expanded = o.expanded
             if a.icon == nil, let img = o.icon { a.icon = img; a.iconRequested = true }
-            if let items = o.leftovers, let b = items.first, b.kind == "App" { b.size = a.size; a.leftovers = items }
+            if let items = o.leftovers, let b = items.first, b.kind == "App" {
+                b.size = a.bundleSize; a.leftovers = items
+                MainWindowController.recountSize(a)
+            }
             else if o.loadingItems {
                 // Still being looked for: they go to the new entry when found.
                 o.itemWaiters.append { [weak self] in
                     guard a.leftovers == nil, !a.uninstalled, let items = o.leftovers else { return }
-                    if let b = items.first, b.kind == "App" { b.size = a.size }
+                    if let b = items.first, b.kind == "App" { b.size = a.bundleSize }
                     a.leftovers = items
+                    MainWindowController.recountSize(a)
                     self?.showApps()
                 }
             }
@@ -420,6 +444,7 @@ extension MainWindowController {
         let kept = old.filter { o in o.uninstalled && o.hasLeftovers && !found.contains(where: { PathUtil.same($0.path, o.path) }) }
         apps = kept + found
         appsFromCache = false
+        markSuggestionsDirty()   // Apps' cache in Suggestions needs the installed apps
         if selfTestDir == nil && appRoots == nil { AppsCache.save(found) }
         showApps()
     }
@@ -488,13 +513,14 @@ extension MainWindowController {
                 if !a.uninstalled && l.kind == "App" && PathUtil.same(l.path, a.path) { c.icon = a.icon }
                 c.path = l.path
                 c.category = l.kind
-                c.note = l.match + (l.note.isEmpty ? "" : "; " + l.note)
+                c.note = l.match + "; " + l.origin + (l.note.isEmpty ? "" : "; " + l.note)
                 c.folder = l.path
                 c.hideBar = true
                 c.cells = [c.name, l.size < 0 ? "—" : Fmt.size(l.size), "", l.kind, c.note, "", "", l.path]
                 c.tip = c.name + "\n" + l.path + "\n" + c.note
                 c.check = a.uninstalled ? (l.checked ? 1 : 0) : -1
-                if !l.sure { c.color = T.WARN_FG }
+                if l.origin == AppLeftover.originUser { c.color = T.MUTED }
+                else if !l.sure { c.color = T.WARN_FG }
                 rows.append(c)
             }
         }
@@ -609,27 +635,32 @@ extension MainWindowController {
         if changed { showApps() }
     }
 
-    /// Everything that belongs to an app: the bundle first, then what the leftover search finds.
+    /// Everything that belongs to an app: the bundle first, then what the leftover search finds in ~/Library and /Library,
+    /// then the folders named after it anywhere on the scanned drives (the scan index), each with who made it.
     func loadAppItems(_ a: InstalledApp, _ done: (() -> Void)? = nil) {
         if a.loadingItems { if let d = done { a.itemWaiters.append(d) }; return }
         a.loadingItems = true
-        let id = a.bundleId, name = a.name, path = a.path, size = a.size
+        let id = a.bundleId, name = a.name, path = a.path, size = a.bundleSize
         let others = (apps ?? []).filter { $0 !== a && !$0.uninstalled }.map { $0.bundleId }
-        DispatchQueue.global(qos: .userInitiated).async {
+        var all = (apps ?? []).filter { !$0.uninstalled || $0 === a }
+        if !all.contains(where: { $0 === a }) { all.append(a) }
+        let scanned = roots.filter { !$0.readOnly }.compactMap { $0.node }
+        readInBackground({ () -> [AppLeftover] in
             let bundle = AppLeftover(path, "App")
             bundle.isDir = true
             bundle.size = size
-            let items = (PathUtil.exists(path) ? [bundle] : []) + InstalledApp.findLeftovers(bundleId: id, name: name, otherBundleIds: others)
-            DispatchQueue.main.async {
-                a.loadingItems = false
-                if !a.uninstalled { a.leftovers = items }
-                self.showApps()
-                let waiters = a.itemWaiters
-                a.itemWaiters = []
-                done?()
-                for w in waiters { w() }
-            }
-        }
+            var items = (PathUtil.exists(path) ? [bundle] : []) + InstalledApp.findLeftovers(bundleId: id, name: name, otherBundleIds: others)
+            MainWindowController.addScanFolders(a, &items, scanned, all)
+            return items
+        }, { items in
+            a.loadingItems = false
+            if !a.uninstalled { a.leftovers = items; MainWindowController.recountSize(a) }
+            self.showApps()
+            let waiters = a.itemWaiters
+            a.itemWaiters = []
+            done?()
+            for w in waiters { w() }
+        })
     }
 
     func appClick(_ row: Int, _ pt: NSPoint) -> Bool {
@@ -685,7 +716,7 @@ extension MainWindowController {
         // Name-only matches are listed but not moved: they may belong to something else.
         let sure = items.filter { $0.sure }
         let review = items.filter { !$0.sure }
-        let total = sure.reduce(Int64(0)) { $0 + max(0, $1.size) }
+        let total = sure.filter { $0.inside == nil }.reduce(Int64(0)) { $0 + max(0, $1.size) }
         let go = { [unowned self] in
             self.quitIfRunning(a) { ok in
                 if ok { self.trashAll(a, sure, review, total, done) } else { done?(false) }
@@ -751,7 +782,9 @@ extension MainWindowController {
     /// Moves the bundle and all its files that surely belong to it to the Trash, then checks what is left. Items matched
     /// only by name stay listed under the app, unchecked.
     private func trashAll(_ a: InstalledApp, _ items: [AppLeftover], _ review: [AppLeftover], _ total: Int64, _ done: ((Bool) -> Void)?) {
-        let targets = items.map { DeleteTarget(path: $0.path, label: PathUtil.name($0.path), isDir: $0.isDir, size: max(0, $0.size)) }
+        // An item inside another one that goes too goes with it.
+        let outer = items.filter { l in !(l.inside.map { o in items.contains { $0 === o } } ?? false) }
+        let targets = outer.map { DeleteTarget(path: $0.path, label: PathUtil.name($0.path), isDir: $0.isDir, size: max(0, $0.size)) }
         runDelete(targets, trash: appsTrash, showErrors: false) { [unowned self] _ in
             // What only an administrator may change (installers put items in /Library): one password prompt for all.
             let stuck = items.filter { PathUtil.exists($0.path) }.map { $0.path }
@@ -825,7 +858,8 @@ extension MainWindowController {
     func removeCheckedLeftovers(_ done: (() -> Void)? = nil) {
         if busy || scanning || appsWorking { done?(); return }
         let owners = (apps ?? []).filter { $0.uninstalled && !$0.checkedLeftovers.isEmpty }
-        let picked = owners.flatMap { a in a.checkedLeftovers.map { (a, $0) } }
+        // An item inside another checked one goes with it.
+        let picked = owners.flatMap { a in a.checkedLeftovers.filter { l in !(l.inside?.checked ?? false) }.map { (a, $0) } }
         if picked.isEmpty { done?(); return }
         let total = picked.reduce(Int64(0)) { $0 + max(0, $1.1.size) }
         let n = picked.count, s = n == 1 ? "" : "s"

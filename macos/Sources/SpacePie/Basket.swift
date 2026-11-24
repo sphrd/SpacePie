@@ -52,6 +52,7 @@ extension MainWindowController {
         updateBasketTitle()
         setStale(pBasket)
         updateButtons()
+        updateChartMarks()
     }
 
     func addSelectionToBasket() {

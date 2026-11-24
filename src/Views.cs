@@ -173,25 +173,76 @@ namespace SpacePie
         void HoverChartFor(SizeListView list, ListViewItem it)
         {
             int slice;
-            if (it == null) { chart.SetHover(-1); return; }
-            if (rowSlice.TryGetValue(it, out slice)) { chart.SetHover(slice); return; }
+            DirNode dir;
+            if (!ChartPartOf(list, it, out slice, out dir)) chart.SetHover(-1);
+            else if (dir == null) chart.SetHover(slice);
+            else chart.SetHoverDir(slice, dir);
+        }
+
+        /// <summary>The chart part a row stands for: its slice, and for a row inside an expanded folder (Contents) the folder
+        /// whose section stands for it (a file: the folder it is in; dir null = the whole slice).</summary>
+        bool ChartPartOf(SizeListView list, ListViewItem it, out int slice, out DirNode dir)
+        {
+            dir = null;
+            slice = -1;
+            if (it == null) return false;
+            if (rowSlice.TryGetValue(it, out slice)) return true;
             var info = it.Tag as ItemInfo;
-            // A row inside a group (e.g. a folder inside a suggestion) lights up its group's slice.
+            // A row inside a group (e.g. a folder inside a suggestion) stands for its group's slice.
             if (info != null && info.GroupOf != null && list != contents)
             {
-                foreach (var kv in rowSlice) if (kv.Key.Tag == info.GroupOf) { chart.SetHover(kv.Value); return; }
+                foreach (var kv in rowSlice) if (kv.Key.Tag == info.GroupOf) { slice = kv.Value; return true; }
             }
-            var dir = list != contents || info == null ? null : info.Dir ?? (info.File != null ? info.File.Dir : null);
-            if (dir == null) { chart.SetHover(-1); return; }
+            var d = list != contents || info == null ? null : info.Dir ?? (info.File != null ? info.File.Dir : null);
+            if (d == null) return false;
             // The top-level folder row the row lies under gives the slice.
             foreach (var kv in rowSlice)
             {
                 var top = kv.Key.Tag as ItemInfo;
                 if (top == null || top.Dir == null) continue;
-                for (var d = dir; d != null; d = d.Parent)
-                    if (d == top.Dir) { chart.SetHoverDir(kv.Value, dir); return; }
+                for (var p = d; p != null; p = p.Parent)
+                    if (p == top.Dir) { slice = kv.Value; dir = d; return true; }
             }
-            chart.SetHover(-1);
+            return false;
+        }
+
+        /// <summary>
+        /// The chart shows the open list's selected rows lit (like hover, all of them) and, outside the delete list itself,
+        /// what is on the delete list in red: a slice whose rows are all on it, and folder sections in the outer rings or
+        /// treemap that are on it or inside a folder on it.
+        /// </summary>
+        void UpdateChartMarks()
+        {
+            if (chart == null || chart.ShowingLogo || ActivePage == null || split2 == null || split2.Panel2Collapsed) return;
+            var list = ActivePage.List;
+            var selected = new List<KeyValuePair<int, DirNode>>();
+            int n = 0;
+            foreach (ListViewItem it in list.SelectedItems)
+            {
+                if (++n > 20000) break;   // a select-all of a huge list: the first ones are plenty to see
+                int slice;
+                DirNode dir;
+                if (ChartPartOf(list, it, out slice, out dir)) selected.Add(new KeyValuePair<int, DirNode>(slice, dir));
+            }
+            var doomed = new List<int>();
+            Func<DirNode, bool> doomedDir = null;
+            if (basket.Count > 0 && ActivePage != pBasket)
+            {
+                var paths = new HashSet<string>(basket.Where(t => !t.RecycleBin && !string.IsNullOrEmpty(t.Path)).Select(t => t.Path.TrimEnd('\\')),
+                    StringComparer.OrdinalIgnoreCase);
+                Func<string, bool> covered = p =>
+                {
+                    for (string q = p == null ? null : p.TrimEnd('\\'); !string.IsNullOrEmpty(q); q = Native.ParentDir(q))
+                        if (paths.Contains(q)) return true;
+                    return false;
+                };
+                var sl = chart.Slices;
+                for (int i = 0; i < sl.Count; i++)
+                    if (sl[i].Rows.Count > 0 && sl[i].Rows.All(r => { var info = r.Tag as ItemInfo; return info != null && covered(info.FullPath); }))
+                        doomed.Add(i);
+                doomedDir = d => covered(d.FullPath);
+            }
+            chart.SetMarks(selected, doomed, doomedDir);
         }
 
         /// <summary>
@@ -314,29 +365,24 @@ namespace SpacePie
             long total = p.ChartTotal;
             if (total <= 0) foreach (ListViewItem it in p.List.Items) { var i = it.Tag as ItemInfo; if (i != null && i.GroupOf == null) total += Math.Max(0, i.ChartSize); }
             chart.SetData(p.ChartTitle, p.ChartSub, BuildSlices(p.List, total, p.ChartScope));
+            UpdateChartMarks();
         }
 
         /// <summary>This PC (Contents above every drive) has no chart: the list takes the full width; any other view or
-        /// folder brings the chart pane back at the width it had.</summary>
+        /// folder brings the chart pane back at its width for the current window size (FitChartPane). Drawing
+        /// is frozen while the panes change, so the window never shows them half laid out.</summary>
         void SyncChartVisibility()
         {
             if (split2 == null || viewTabs == null) return;
             bool hide = ActivePage == pContents && thisPc;
             if (hide == split2.Panel2Collapsed) return;
-            if (hide)
+            WithoutDrawing(() =>
             {
-                chartWidthBeforeHiding = split2.Panel2.Width;
-                split2.Panel2Collapsed = true;
-                return;
-            }
-            split2.Panel2Collapsed = false;
-            if (chartWidthBeforeHiding <= 0) return;
-            try
-            {
-                int max = split2.Width - split2.Panel2MinSize - split2.SplitterWidth;
-                split2.SplitterDistance = Math.Min(max, Math.Max(S(200), split2.Width - chartWidthBeforeHiding - split2.SplitterWidth));
-            }
-            catch (Exception) { }
+                split2.Panel2Collapsed = hide;
+                if (!hide) FitChartPane();
+                toolbar.PerformLayout();
+                UpdateJoints();
+            });
         }
 
         /// <summary>The scanned tree changed (scan, rescan, delete, measure): views refill when they are shown next.</summary>

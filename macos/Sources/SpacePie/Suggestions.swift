@@ -131,7 +131,8 @@ extension MainWindowController {
         let scanned = roots.filter {
             !$0.readOnly && MainWindowController.suggestionDisk(for: $0.path, volumes: volumes) == disk
         }.compactMap { $0.node }
-        readInBackground({ [unowned self] in self.findSuggestions(scanned, volumes: volumes, disk: disk) }, { [weak self] found in
+        let installed = (apps ?? []).filter { !$0.uninstalled }
+        readInBackground({ [unowned self] in self.findSuggestions(scanned, volumes: volumes, disk: disk, installed: installed) }, { [weak self] found in
             guard let self = self else { return }
             self.suggestFinding = false
             guard gen == self.suggestGen, disk == self.suggestDisk else {
@@ -462,7 +463,7 @@ extension MainWindowController {
 
     // MARK: catalogue (runs on a background thread while the trees are held still)
 
-    func findSuggestions(_ scanned: [DirNode], volumes: [String] = [], disk: String? = nil) -> [Suggestion] {
+    func findSuggestions(_ scanned: [DirNode], volumes: [String] = [], disk: String? = nil, installed: [InstalledApp] = []) -> [Suggestion] {
         if Demo.on { return Demo.suggestions() }   // pictures: never this Mac's caches
         let home = PathUtil.home
         let lib = home + "/Library"
@@ -547,6 +548,8 @@ extension MainWindowController {
         // What other cleaners look for too (system caches and logs, removed apps' leftovers, disk images, broken downloads,
         // old updates, more Xcode data, deleted users, broken background items, Mail attachments, Mail trash).
         findMoreSuggestions(scanned, includeMacLocations: disk == nil || disk == "/" || includeHome, into: &list)
+        // Caches inside installed apps' own data folders, one location per app and folder.
+        if includeHome { MainWindowController.appCaches(scanned, installed, &list) }
         if let disk = disk { MainWindowController.filterSuggestions(&list, disk: disk, volumes: volumes) }
         return IgnoreList.apply(list)
     }

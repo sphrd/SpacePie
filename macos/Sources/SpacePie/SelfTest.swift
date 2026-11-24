@@ -618,8 +618,8 @@ final class SelfTestRun {
             let a = list.first { $0.bundleId == FakeApp.bundleId }
             let measured = Scanner().run(fakeApp).size
             self.check(list.count == 1 && a != nil && a!.name == FakeApp.name && a!.version == "1.0" && a!.publisher == "Example"
-                       && a!.size == measured && a!.size >= 50 * 1024 && PathUtil.same(a!.path, fakeApp),
-                       "apps: \(FakeApp.name) listed (\(list.count) apps; \"\(a?.name ?? "")\" \(a?.version ?? "?") by \(a?.publisher ?? "?"), \(a?.size ?? -1) bytes, measured \(measured))")
+                       && a!.programSize == measured && a!.size >= measured && a!.size >= 50 * 1024 && PathUtil.same(a!.path, fakeApp),
+                       "apps: \(FakeApp.name) listed (\(list.count) apps; \"\(a?.name ?? "")\" \(a?.version ?? "?") by \(a?.publisher ?? "?"), \(a?.size ?? -1) bytes, bundle \(a?.programSize ?? -1), measured \(measured))")
             self.check(!list.contains { $0.bundleId.lowercased().hasPrefix("com.apple.") }, "apps: the com.apple.* bundle is not listed")
             self.check(w.pApps.caption.text.hasPrefix("1 app, ") && w.pApps.items.count == 1, "apps: caption \"\(w.pApps.caption.text)\"")
             let tip = w.pApps.items.first?.toolTip.components(separatedBy: "\n") ?? []
@@ -676,7 +676,7 @@ final class SelfTestRun {
             expected = items.reduce(Int64(0)) { $0 + max(0, $1.size) }
             self.check(kids.count == 4 && kids.allSatisfy { $0.check == -1 && $0.cells[2].isEmpty } && head?.check == -1 && head?.size == a?.size
                        && (head?.toolTip.hasSuffix("\nAll its files: " + Fmt.size(expected)) ?? false),
-                       "apps: plain child rows without checkboxes; parent keeps the bundle size; tip \"\(head?.toolTip.components(separatedBy: "\n").last ?? "")\"")
+                       "apps: plain child rows without checkboxes; parent shows the app with its files; tip \"\(head?.toolTip.components(separatedBy: "\n").last ?? "")\"")
             if let h = head, let i = w.pApps.items.firstIndex(where: { $0 === h }) { w.pApps.select(IndexSet(integer: i)) }
         }
         steps.add { next in

@@ -77,6 +77,7 @@ namespace SpacePie
             UpdateBasketTitle();
             pBasket.Stale = true;
             if (ActivePage == pBasket) { pBasket.Stale = false; FillBasket(); }
+            UpdateChartMarks();
         }
 
         void AddSelectionToBasket()

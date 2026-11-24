@@ -117,12 +117,14 @@ extension MainWindowController {
             return
         }
         chart.setData(p.chartTitle, p.chartSub, buildSlices(p, total, p.chartScope))
+        updateChartMarks()
     }
 
+    /// This Mac (Contents above every drive) has no chart: the list takes the full width; any other view or folder brings
+    /// the chart pane back at its width for the current window size (fitChartPane).
     func syncChartVisibility() {
         let hide = activePage === pContents && thisPc
         if hide && chartPanel.superview != nil {
-            chartWidthBeforeHiding = chartPanel.frame.width
             split2.removeArrangedSubview(chartPanel)
             chartPanel.removeFromSuperview()
             split2.adjustSubviews()
@@ -130,10 +132,7 @@ extension MainWindowController {
             split2.addArrangedSubview(chartPanel)
             split2.setHoldingPriority(NSLayoutConstraint.Priority(270), forSubviewAt: 1)
             split2.adjustSubviews()
-            if chartWidthBeforeHiding > 0 && split2.bounds.width > 0 {
-                let position = split2.bounds.width - chartWidthBeforeHiding - split2.dividerThickness
-                split2.setPosition(max(MainWindowController.listMinWidth, position), ofDividerAt: 0)
-            }
+            fitChartPane()
         }
     }
 
@@ -163,19 +162,59 @@ extension MainWindowController {
     /// Chart hover for a list row: the slice of a top-level row; for a row inside an expanded folder (Contents), the
     /// folder's section in the outer rings or treemap (a file: the section of the folder it is in).
     func hoverChart(_ p: Page, _ r: Int) {
-        if r < 0 || r >= p.items.count { chart.setHover(-1); return }
-        if let s = rowSlice[r] { chart.setHover(s); return }
+        guard let part = chartPart(p, r) else { chart.setHover(-1); return }
+        if let d = part.dir { chart.setHoverDir(part.slice, d) } else { chart.setHover(part.slice) }
+    }
+
+    /// The chart part a row stands for: its slice, and for a row inside an expanded folder (Contents) the folder whose
+    /// section stands for it (a file: the folder it is in; dir nil = the whole slice).
+    func chartPart(_ p: Page, _ r: Int) -> (slice: Int, dir: DirNode?)? {
+        if r < 0 || r >= p.items.count { return nil }
+        if let s = rowSlice[r] { return (s, nil) }
         let info = p.items[r]
-        // A row inside a group (a suggestion's folders and files) lights its head's slice.
-        if p !== pContents, let g = info.groupOf, let hr = p.items.firstIndex(where: { $0 === g }), let s = rowSlice[hr] { chart.setHover(s); return }
-        guard p === pContents, let dir = info.dir ?? info.file?.dir else { chart.setHover(-1); return }
+        // A row inside a group (a suggestion's folders and files) stands for its head's slice.
+        if p !== pContents, let g = info.groupOf, let hr = p.items.firstIndex(where: { $0 === g }), let s = rowSlice[hr] { return (s, nil) }
+        guard p === pContents, let dir = info.dir ?? info.file?.dir else { return nil }
         // The top-level folder row the row lies under gives the slice.
         for (row, slice) in rowSlice {
-            guard let top = p.items[row].dir else { continue }
+            guard row < p.items.count, let top = p.items[row].dir else { continue }   // rowSlice may be from the previous rows
             var d: DirNode? = dir
-            while let x = d { if x === top { chart.setHoverDir(slice, dir); return }; d = x.parent }
+            while let x = d { if x === top { return (slice, dir) }; d = x.parent }
         }
-        chart.setHover(-1)
+        return nil
+    }
+
+    /// The chart shows the open list's selected rows lit (like hover, all of them) and, outside the delete list itself,
+    /// what is on the delete list in red: a slice whose rows are all on it, and folder sections in the outer rings or
+    /// treemap that are on it or inside a folder on it.
+    func updateChartMarks() {
+        guard !pages.isEmpty, chartPanel.superview != nil, !chart.showingLogo else { return }
+        let p = activePage
+        var selected: [(Int, DirNode?)] = []
+        for r in p.table.selectedRowIndexes.prefix(20000) where r < p.items.count {
+            if let part = chartPart(p, r), part.slice < chart.slices.count { selected.append((part.slice, part.dir)) }
+        }
+        var doomed: [Int] = []
+        var doomedDir: ((DirNode) -> Bool)?
+        if !basket.isEmpty && p !== pBasket {
+            let paths = Set(basket.filter { !$0.emptyTrash && !$0.path.isEmpty }.map { PathUtil.trim($0.path) })
+            let covered: (String?) -> Bool = { p0 in
+                guard var q = p0.map({ PathUtil.trim($0) }), !q.isEmpty else { return false }
+                var steps = 0
+                while steps < 512 {
+                    if paths.contains(q) { return true }
+                    let up = PathUtil.parent(q)
+                    if up.isEmpty || up == q { return false }
+                    q = up
+                    steps += 1
+                }
+                return false
+            }
+            for (i, s) in chart.slices.enumerated()
+                where !s.rows.isEmpty && s.rows.allSatisfy({ $0 < p.items.count && covered(p.items[$0].fullPath) }) { doomed.append(i) }
+            doomedDir = { covered($0.fullPath) }
+        }
+        chart.setMarks(selected, doomed, doomedDir)
     }
 
     /// List rows for the hovered chart part: a slice's rows; a subfolder section (outer ring or inner treemap tile) in
@@ -269,6 +308,7 @@ extension MainWindowController {
         chart.setData(title, sub, slices, rings: 2)
         let centre = d.parent == nil ? (r.map { $0.isDrive ? $0.displayName : (($0.path as NSString).lastPathComponent) } ?? d.name) : d.name
         chart.setCenter(centre, canGoUp: d.parent != nil, free: d.parent == nil && (r?.showsCapacity ?? false) ? r!.free : -1)
+        if activePage === pContents { updateChartMarks() }
     }
 
     /// While a scan runs (or a saved scan is brought up to date at start-up) the numbers are still changing: the chart

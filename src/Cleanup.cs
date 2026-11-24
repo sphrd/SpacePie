@@ -168,9 +168,10 @@ namespace SpacePie
             SuggestionsChartWhileLooking();
             UpdateSuggestionButtons();
             var scanned = roots.Where(r => r.Node != null && !r.ReadOnly && OnDrive(r.Path, disk)).Select(r => r.Node).ToList();
+            var installed = apps == null ? null : apps.Where(a => !a.Uninstalled).ToList();
             List<Suggestion> found = null;
             suggestFinding = true;
-            Task.Factory.StartNew(() => { found = FindSuggestions(scanned, disk); })
+            Task.Factory.StartNew(() => { found = FindSuggestions(scanned, disk, installed); })
                 .ContinueWith(t =>
                 {
                     if (IsDisposed) return;
@@ -526,8 +527,8 @@ namespace SpacePie
         static string Env(string name) { return Environment.GetEnvironmentVariable(name) ?? ""; }
 
         /// <summary>The suggestions on disk (a drive root such as C:\; null = every drive). Places that are always on the
-        /// Windows or user profile drive are only looked at for that drive.</summary>
-        List<Suggestion> FindSuggestions(List<DirNode> scanned, string disk = null)
+        /// Windows or user profile drive are only looked at for that drive. installed: the apps whose caches are offered.</summary>
+        List<Suggestion> FindSuggestions(List<DirNode> scanned, string disk = null, List<InstalledApp> installed = null)
         {
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -638,6 +639,7 @@ namespace SpacePie
                 }
             }
             FindMoreSuggestions(scanned, list, includeSystem);
+            try { AppCaches(scanned, installed, list); } catch (Exception) { }
             if (disk != null) FilterSuggestions(list, disk);
             return IgnoreList.Apply(list);
         }

@@ -148,7 +148,10 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
     let contextMenu = NSMenu()
     lazy var updates = UpdateController(parent: window)
     var split2Positioned = false
-    var chartWidthBeforeHiding: CGFloat = 0
+    /// The chart pane's fixed width: its square width at start, or what the user dragged the divider to (zoomed points).
+    var chartFixedWidth: CGFloat = 0
+    /// The chart pane is being sized by fitChartPane (not a divider drag).
+    var sizingChart = false
     /// layoutRoot is running / was asked again meanwhile (the list pane changed size while the toolbar was laid out).
     private var inLayoutRoot = false, layoutRootAgain = false
     /// Zoom of everything in the window (⌘+ / ⌘- / ⌘0); remembered between starts.
@@ -368,7 +371,11 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
                 if self.activePage === p { self.hoverChart(p, r) }
             }
             p.onSorted = { [unowned self] pg in if self.activePage === pg { self.refreshChart() } }
-            p.onSelection = { [unowned self] pg in self.lastView = pg.table; self.updateButtons() }
+            p.onSelection = { [unowned self] pg in
+                self.lastView = pg.table
+                self.updateButtons()
+                if pg === self.activePage { self.updateChartMarks() }
+            }
             p.knownFor = { it in it.scanRoot != nil ? nil : MainWindowController.knownFor(it) }
         }
         activePage.root.isHidden = false
@@ -425,14 +432,14 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
             self.viewTabs.frame = NSRect(x: 0, y: 0, width: self.viewTabs.width, height: r.height)
             let x = self.viewTabs.width
             self.split2.frame = NSRect(x: x, y: 0, width: max(50, r.width - x), height: r.height)
-            // Once the main area has its width: the chart pane 4/5 as wide as it is high, the list gets the rest.
+            // Once the main area has its width: the chart pane square at the start size (fixed width), the list gets the
+            // rest; then on every size change the pane is the smaller of the fixed width and the square (fitChartPane).
             if !self.split2Positioned && r.width - x > 400 {
                 self.split2Positioned = true
-                let w = r.width - x, div = self.split2.dividerThickness
                 // The height without the scan bar (the first scan may have started already).
-                let h = self.root.bounds.height - MainWindowController.chromeHeight
-                let chartW = max(180, min(h * 0.8, w - MainWindowController.listMinWidth - div))
-                self.split2.setPosition(w - chartW - div, ofDividerAt: 0)
+                self.fitChartPane(startHeight: self.root.bounds.height - MainWindowController.chromeHeight)
+            } else if self.split2Positioned {
+                self.fitChartPane()
             }
         }
 
@@ -653,9 +660,39 @@ final class MainWindowController: NSWindowController, NSMenuDelegate,
         splitView.bounds.width - 180
     }
     func windowDidResize(_ notification: Notification) { layoutRoot() }
-    /// The toolbar's selection buttons follow the list pane's edges (divider dragged, window resized, zoom).
+    /// The toolbar's selection buttons follow the list pane's edges (divider dragged, window resized, zoom). A divider
+    /// dragged by the user (the notification names the divider; never a window resize, which also holds the mouse
+    /// button) sets the chart pane's fixed width.
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        if (notification.object as AnyObject?) === split2 { layoutRoot() }
+        guard (notification.object as AnyObject?) === split2 else { return }
+        if !sizingChart && notification.userInfo?["NSSplitViewDividerIndex"] != nil && chartPanel.superview != nil && chartPanel.frame.width > 0 {
+            chartFixedWidth = chartPanel.frame.width
+        }
+        layoutRoot()
+    }
+
+    /// Width at which the chart's drawing area is square (title rows not counted), within what leaves the list its minimum.
+    func squareChartWidth(height: CGFloat? = nil) -> CGFloat {
+        let padW = chartPanel.frame.width > 0 && chart.frame.width > 0 ? chartPanel.frame.width - chart.frame.width : 16
+        let padH = chartPanel.frame.height > 0 && chart.frame.height > 0 ? chartPanel.frame.height - chart.frame.height : 16
+        let w = PieChart.squareWidth(height: (height ?? split2.bounds.height) - padH) + padW
+        return max(180, min(w, split2.bounds.width - MainWindowController.listMinWidth - split2.dividerThickness))
+    }
+
+    /// Chart pane width = the smaller of its fixed width and the square width for the current height: below the start
+    /// size it follows the square (shrinking and growing back), above it it stays at the fixed width. startHeight: the
+    /// first layout, which sets the fixed width.
+    func fitChartPane(startHeight: CGFloat? = nil) {
+        guard !sizingChart, split2.bounds.width > 0, split2.bounds.height > 0 else { return }
+        if let h = startHeight { chartFixedWidth = squareChartWidth(height: h) }
+        if chartFixedWidth <= 0 { chartFixedWidth = squareChartWidth() }
+        guard chartPanel.superview != nil else { return }
+        let width = min(chartFixedWidth, squareChartWidth())
+        let pos = max(MainWindowController.listMinWidth, split2.bounds.width - width - split2.dividerThickness)
+        if abs(pos - listPanel.frame.width) < 0.5 { return }
+        sizingChart = true
+        split2.setPosition(pos, ofDividerAt: 0)
+        sizingChart = false
     }
 
     // MARK: Zoom (View menu: Actual Size ⌘0, Zoom In ⌘+, Zoom Out ⌘-)

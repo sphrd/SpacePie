@@ -524,7 +524,8 @@ patterns (Part 3) are applied through the WinForms mapping below.
   - "browse external drive and scan it, then in the contents window its still showing me the Macintosh": a scan selects
     its drive at once (`startScan(select:)`; the rescan after a failed replay passes false) and keeps it after.
   - "on the outer most path with all the drives, the chart doesnt need to be displayed": This Mac / This PC collapse the
-    chart pane (`syncChartVisibility` / `SyncChartVisibility`), restored at its width elsewhere.
+    chart pane (`syncChartVisibility` / `SyncChartVisibility`), restored at its width elsewhere (Windows: `FitChartPane`, with drawing
+    frozen, `WithoutDrawing`; also the scan bar hiding at the end of a scan, which showed panes on top of each other).
   - "when changing disk at the top, the app should work for that disk... suggestions tab is mixing both disks": answer
     "suggestions" only (Apps and System stay machine-wide). Suggestions are those of the active root's drive
     (`suggestionDisk`, `filterSuggestions`), caption "Drive: <name>.", one search at a time (a running search looks again
@@ -720,7 +721,17 @@ patterns (Part 3) are applied through the WinForms mapping below.
 - **Deletion** goes through `DeleteTarget` (file, folder, folder contents only, Recycle Bin) and `ConfirmAndDelete`;
   afterwards `ApplyDeleted` drops removed nodes and rescans folders that still exist. Contents-only targets skip files in
   use quietly (counted). Recycle uses `SHFileOperation` with ALLOWUNDO + WANTNUKEWARNING.
-- **Default layout:** the chart pane is 4/5 as wide as the panes are tall (square in v1.7.2, a bit big), the list keeps at least 380 px.
+- **Default layout (Windows):** chart pane width = min(`chartFixedWidth`, square width) (`PieChart.SquareWidth`, title rows
+  not counted), applied by `FitChartPane` on every `split2.SizeChanged`, on zoom and when it shows again after This PC.
+  `chartFixedWidth` = square width at start; a user splitter drag (`SplitterMoving` then `SplitterMoved`; never the left button state, which a window-edge resize
+  also holds) sets it; zoom
+  scales it. Below the start size the pane follows the square both ways, above it stays fixed. The list keeps at least
+  380 px. macOS the same (`fitChartPane` in MainWindow.swift, `PieChart.squareWidth`; a user divider drag is told apart by `NSSplitViewDividerIndex` in `splitViewDidResizeSubviews`; list minimum 360 pt; zoom needs no scaling, the layout is in zoomed points).
+- **Chart marks (Windows, `ChartMarks.cs`):** `UpdateChartMarks` (after every chart `SetData`, on settled selection via
+  `QueueSelectionButtons`, on `BasketChanged`) passes the open list's selected rows (`ChartPartOf`, the same resolver hover
+  uses) and the delete list to `PieChart.SetMarks`. Selected parts are lit like hover (all at once; treemap outline);
+  outside the Delete list view, slices whose rows are all on the delete list and ring sections / tiles of folders on it or
+  inside one are `DANGER` (`DANGER_HOVER` when lit). `SetData` / `ShowLogo` clear the marks. macOS the same: `PieChart.setMarks` (Chart.swift), `chartPart` / `updateChartMarks` (Pages.swift), called from `refreshChart` / `updateChart`, `Page.onSelection` and `basketChanged`.
 - **Suggestions tree:** parent rows (chevron + three-state checkbox) and child rows per target (`ItemInfo.Check`,
   `Expandable`, `Data`; children use `GroupOf` so they share the parent's chart slice). Clicks on the chevron/checkbox are
   caught in `WM_LBUTTONDOWN` before the list selects the row. Safe suggestions start ticked, review-first ones unticked.
@@ -774,7 +785,8 @@ patterns (Part 3) are applied through the WinForms mapping below.
   Shots are numbered in tab order: `1-contents`, `2-suggestions`, ... `5-duplicates`.
 - **Apps tab (`Apps.cs`):** uninstall entries from HKLM 64/32 and HKCU (skips SystemComponent, updates with ParentKeyName or
   ReleaseType Update/Hotfix), plus Store apps via `Get-AppxPackage` (SignatureKind Store, not framework/non-removable; name from
-  AppxManifest DisplayName). Size = measured program folder (scan index first), else EstimatedSize; apps sharing one folder (Office
+  AppxManifest DisplayName). Size = measured program folder (scan index first), else EstimatedSize (`ProgramSize`), plus the folders
+  the app made (`AppFolders.cs`); apps sharing one folder (Office
   and language packs) count it once (on the entry with the largest EstimatedSize). Uninstall: MSI `msiexec /x {code}`, else the
   UninstallString (shell execute so UAC works), Store `Remove-AppxPackage`; waits for the process, then until the uninstall key is
   gone (NSIS/Inno hand over to a temp copy), overlay button **Continue** to stop waiting. Leftovers: folders in Roaming, Local,
@@ -801,6 +813,22 @@ patterns (Part 3) are applied through the WinForms mapping below.
   (child rows `<Kind>: <name>`, no checkboxes while installed). Uninstall: official uninstaller, then the same search again; if anything
   remains a dialog lists it and asks `Delete them too?` (Yes = delete with registry backup; No = keep as checkable leftovers).
   macOS: one confirmation moves the bundle and all its items to the Trash. `Look for leftovers` menu item removed.
+- **App folders anywhere (`AppFolders.cs`, Windows):** one walk of the scan index (all scanned drives, every depth; never in
+  Windows except Windows\Temp, never in `$Recycle.Bin`, WindowsApps, node_modules, site-packages, .git) finds folders named
+  after an app (`CandidateNames`) or, inside a folder named like its publisher (full, without Inc./Software..., first word), after
+  the app without the publisher / its first word after it (`Common Files\Adobe\Acrobat`). Outermost match only; never inside
+  any app's program folder, never a folder that holds one. Who made it (`Leftover.Origin`) by place: AppData, LocalLow,
+  ProgramData, Program Files, Common Files, Temp, hidden profile dot-folders = the app; profile user folders and other places
+  = by content (mostly documents/media/archives/code = your files, mostly exe/dll = the app, else not clear -> Name only).
+  `Counts` (adds to the row size): made by the app, matched by this app only, not inside/around the program folder, not the
+  Store package data (already in ProgramSize). Done for all apps when the list is read (row sizes) and again on expand
+  (merged with the disk read of the usual places, shortcuts, registry). Installed apps: items are listed and counted only,
+  never checkable or deleted (`Removable` = uninstalled). After uninstall: sure items made by the app are checked; your own
+  files and unclear ones never are. Suggestions **Apps' cache** (`AppCaches`, safe, contents only): cache-named folders
+  (`CacheNames`, >= 1 MB, up to 5 levels) inside installed apps' data folders matched by one app only, never in or around a
+  program folder, never what another suggestion covers (browsers, Temp, dev caches); label `<app> - <folder>`; needs the apps
+  list (its load marks suggestions dirty). AppsCache v3 stores ProgramSize and SizeEstimated (estimate covers program files, so
+  Program Files / Common Files matches are not counted again).
 - **App logos:** each app row draws the app's own icon (`ItemInfo.Icon`) instead of the folder, loaded with the list in the
   background at the row icon size. Windows order: `DisplayIcon` (`file,index`, via `SHDefExtractIconW` at the exact size) ->
   MSI `HKCR\Installer\Products\<packed code>\ProductIcon` -> main exe in the program folder (or one level down; named like the
@@ -817,6 +845,22 @@ patterns (Part 3) are applied through the WinForms mapping below.
   scrollbars both ways, path then muted size/reason after a tab, Ctrl+C copies, **Copy list** button), buttons bottom right; destructive
   primary is red (`ButtonKind.Danger`), Enter/Escape cancel on destructive prompts. Only the startup-crash box stays a MessageBox.
 - **Gotcha:** `RoundButton.MinChars` replaced the text width (long primary labels were cut: "Delete perm..."); it is a minimum now.
+- **App folders anywhere (macOS, `AppFolders.swift`):** the same walk inside `readInBackground` (trees held still): names =
+  normalised display name, bundle id, bundle file name, `shortNames`; developer keys = bundle id part 2 and the first word of
+  the name (not apple / microsoft); inside a developer folder also the name without the developer, the last bundle-id part
+  and the first word after the developer (`Application Support/Google/Chrome`). Never inside bundles (`.app`,
+  `.framework`, `.bundle`...), never `/System`, `/usr`, `/private/var/db`. Who made it by place: ~/Library (except
+  Mobile Documents / CloudStorage), /Library, hidden home folders = the app; `/private/var/folders`, `/tmp` = temporary;
+  home folders, `/Users/Shared` and other drives = by content. Your own files / unclear become Name only, so the one-step
+  Uninstall never moves them. `InstalledApp.size` = `programSize` (bundle, cached as `programSize` in apps.plist) +
+  counted folders; `bundleSize` for the App row. Expanding merges `findLeftovers` with the scan hits (`addScanFolders`).
+  Suggestions **Apps' cache** (`appCaches`): only in the home folder (`/Library` needs a password), never under what
+  another suggestion covers (`User caches` covers ~/Library/Caches).
+- **Layout freeze / slow-resize marks:** Windows only. AppKit lays out before it draws each pass and repaints what moved, so
+  neither happens on macOS.
+- **Gotcha (stale marks on slow resize):** Windows keeps the old client pixels during a live resize, so the form's own side
+  margins (`Padding`) kept dark marks after a slow drag. `MainForm.OnResize` invalidates only those two strips; `ResizeRedraw`
+  on the form fixed the marks but made resizing choppy.
 - **Gotcha:** `Directory.GetDirectories` on .NET 4 (no 4.6.2 target) rejects `\\?\` paths; the leftover search silently found
   nothing until it used plain paths (these roots are short).
 - **Chart centre** shows the shown folder's name and size (not "Total"); in Contents it is clickable and goes up one
@@ -959,6 +1003,13 @@ patterns (Part 3) are applied through the WinForms mapping below.
   deselects, selected rows always drawn in full; a drive's free space large in the chart centre; the Suggestions chart
   shows at once while they are looked for again; the window stays on the screen when zooming raises its minimum width.
   update window centred on the app; no dark corners on the scan bar's Cancel.
+- v2.6.0 (2026-11-24): Apps: an app's size includes the folders it made anywhere on the scanned drives (Windows: AppData,
+  ProgramData, Common Files, Temp; macOS: ~/Library, /Library, temporary files, hidden folders), found in the scan index;
+  inside a developer's folder the app's name without the developer's matches too (`Common Files\Adobe\Acrobat`,
+  `Application Support/Google/Chrome`); each item says who made it, your own files are never checked or moved. Suggestions:
+  Apps' cache. Chart: selected rows lit like hover, delete-list items red; the chart pane opens square, follows the square
+  below the start size and keeps its width above it (the divider sets it). Windows: slow-resize marks fixed (margins
+  repainted), no stacked panes when a scan ends (drawing frozen while the layout changes).
 - v2.5.0 (2026-11-18): external drives scan (paths keep a trailing space that is part of a mount point's name; an
   unreadable drive says why); scanning another drive shows it; the drive picker reuses this session's scans; no chart on
   This PC / This Mac; Suggestions per selected drive, one search at a time; Trash / Recycle Bin per drive, always listed,
