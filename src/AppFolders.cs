@@ -349,7 +349,7 @@ namespace SpacePie
         /// <summary>The app's size again from its program folder and the found folders it made.</summary>
         static void RecountSize(InstalledApp a, List<Leftover> found)
         {
-            if (a.Uninstalled || found == null) return;
+            if (a.Uninstalled || found == null || a.ProgramSize <= 0) return;   // no measured program size: keep the size it has
             a.Size = a.ProgramSize + found.Where(l => l.Counts && l.Inside == null && !l.IsRegistry).Sum(l => l.Size);
         }
     }
